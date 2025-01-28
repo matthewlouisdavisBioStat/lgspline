@@ -1,0 +1,45 @@
+Package: lgspline
+Type: Package
+Title: Lagrangian Multiplier Smoothing Splines for Smooth Function Estimation
+Version: 0.1.0
+Authors@R: 
+    person("Matthew", "Davis", email = "matthewlouisdavis@gmail.com", 
+           role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0001-9714-1018"))
+Description: Implements Lagrangian multiplier smoothing splines for flexible
+    nonparametric regression and function estimation. Provides tools for fitting,
+    prediction, and inference using a constrained optimization approach to 
+    enforce smoothness.
+    Supports generalized linear models, Weibull AFT models, quadratic programming 
+    problems, and customizable arbitrary correlation structures. Options for
+    fitting in parallel are provided. 
+License: MIT + file LICENSE
+Depends:
+    R (>= 3.5.0)
+Imports:
+    Rcpp (>= 1.0.7),
+    stats,
+    graphics,
+    FNN,
+    quadprog,
+    RColorBrewer,
+    plotly,
+    parallel
+LinkingTo:
+    Rcpp,
+    RcppArmadillo,
+    plotly,
+    quadprog,
+    FNN
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown,
+    survival
+URL: https://github.com/matthewlouisdavisBioStat/lgspline
+BugReports: https://github.com/matthewlouisdavisBioStat/lgspline/issues
+SystemRequirements: C++11
+Encoding: UTF-8
+RoxygenNote: 7.3.2
+Config/testthat/edition: 3
+VignetteBuilder: knitr
