@@ -54,3 +54,4 @@ matmult_block_diagonal(A, B, K=1, parallel=FALSE, cl=NULL,
                       chunk_size=1, num_chunks=1, rem_chunks=0)
 
 }
+\keyword{internal}

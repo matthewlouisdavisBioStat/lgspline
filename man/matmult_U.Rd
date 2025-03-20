@@ -21,3 +21,4 @@ Matrix of UG
 \description{
 Useful for computing UG where G is a list of block-diagonal matrices for each partition, and U is a square P by P dense matrix
 }
+\keyword{internal}

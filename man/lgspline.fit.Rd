@@ -41,13 +41,13 @@ lgspline.fit(
   use_custom_bfgs = TRUE,
   delta = NULL,
   tol = 10 * sqrt(.Machine$double.eps),
-  log_initial_wiggle = c(-25, 20, -15, -10, -5),
-  log_initial_flat = c(-14, -7),
+  invsoftplus_initial_wiggle = c(-25, 20, -15, -10, -5),
+  invsoftplus_initial_flat = c(-14, -7),
   wiggle_penalty = 2e-07,
-  flat_ridge_penalty = 2e-08,
+  flat_ridge_penalty = 0.5,
   unique_penalty_per_partition = TRUE,
   unique_penalty_per_predictor = TRUE,
-  penalty_ridge = 1e-08,
+  meta_penalty = 1e-08,
   predictor_penalties = NULL,
   partition_penalties = NULL,
   include_quadratic_terms = TRUE,
@@ -55,7 +55,8 @@ lgspline.fit(
   include_quartic_terms = FALSE,
   include_2way_interactions = TRUE,
   include_3way_interactions = TRUE,
-  include_quadratic_interactions = TRUE,
+  include_quadratic_interactions = FALSE,
+  offset = c(),
   just_linear_with_interactions = NULL,
   just_linear_without_interactions = NULL,
   exclude_interactions_for = NULL,
@@ -79,9 +80,24 @@ lgspline.fit(
   keep_weighted_Lambda = FALSE,
   iterate_tune = TRUE,
   iterate_final_fit = TRUE,
+  blockfit = FALSE,
+  qp_score_function = function(X, y, mu, order_list, dispersion, VhalfInv,
+    observation_weights, ...) {
+     if (!is.null(observation_weights)) {
+         t(X)
+    \%**\% cbind((y - mu) * observation_weights)
+     }
+     else {
+         t(X) \%**\%
+    cbind((y - mu))
+     }
+ },
+  qp_observations = NULL,
   qp_Amat = NULL,
   qp_bvec = NULL,
   qp_meq = 0,
+  qp_positive_derivative = FALSE,
+  qp_negative_derivative = FALSE,
   qp_monotonic_increase = FALSE,
   qp_monotonic_decrease = FALSE,
   qp_range_upper = NULL,
@@ -89,12 +105,13 @@ lgspline.fit(
   qp_Amat_fxn = NULL,
   qp_bvec_fxn = NULL,
   qp_meq_fxn = NULL,
-  constraint_value_vectors = cbind(),
+  constraint_values = cbind(),
   constraint_vectors = cbind(),
   return_G = TRUE,
   return_Ghalf = TRUE,
   return_U = TRUE,
   estimate_dispersion = TRUE,
+  unbias_dispersion = TRUE,
   return_varcovmat = TRUE,
   custom_penalty_mat = NULL,
   cluster_args = c(custom_centers = NA, nstart = 10),
@@ -108,186 +125,199 @@ lgspline.fit(
   neighbor_tolerance = 1 + 1e-16,
   no_intercept = FALSE,
   VhalfInv = NULL,
+  Vhalf = NULL,
   include_warnings = TRUE,
   ...
 )
 }
 \arguments{
-\item{predictors}{Numeric matrix or data frame of predictor variables. Supports direct matrix input or formula interface when used with `data` argument. Must contain numeric predictors, with categorical variables pre-converted to numeric indicators.}
+\item{predictors}{Default: NULL. Numeric matrix or data frame of predictor variables. Supports direct matrix input or formula interface when used with `data` argument. Must contain numeric predictors, with categorical variables pre-converted to numeric indicators.}
 
-\item{y}{Numeric response variable vector representing the target outcome to be modeled.}
+\item{y}{Default: NULL. Numeric response variable vector representing the target/outcome/dependent variable etc. to be modeled.}
 
-\item{standardize_response}{Logical indicator controlling whether the response variable should be centered and scaled before model fitting. When TRUE, improves numerical stability and comparability of coefficients across different scales.}
+\item{standardize_response}{Default: TRUE. Logical indicator controlling whether the response variable should be centered by mean and scaled by standard deviation before model fitting. When TRUE, tends to improve numerical stability. Only offered for identity link functions (when family$link == 'identity')}
 
-\item{standardize_predictors_for_knots}{Logical flag determining whether predictor variables should be standardized before knot placement. Ensures consistent knot selection across different predictor scales.}
+\item{standardize_predictors_for_knots}{Default: TRUE. Logical flag determining whether predictor variables should be standardized before knot placement. Ensures consistent knot selection across different predictor scales, and that no one predictor dominates in terms of influence on knot placement. For all expansions (x), standardization corresponds to dividing by the difference in 69 and 31st percentiles = x / (quantile(x, 0.69) - quantile(x, 0.31)).}
 
-\item{standardize_expansions_for_fitting}{Logical switch to standardize polynomial basis expansions during model fitting. Provides computational stability during penalty tuning without affecting statistical inference, as design matrices are systematically backtransformed.}
+\item{standardize_expansions_for_fitting}{Default: TRUE. Logical switch to standardize polynomial basis expansions during model fitting. Provides computational stability during penalty tuning without affecting statistical inference, as design matrices, variance-covariance matrices, and coefficient estimates are systematically backtransformed after fitting to account for the standardization. If TRUE, U and G will remain on the transformed scale, and B_raw as returned will correspond to the coefficients fitted on the expansion-standardized scale.}
 
-\item{family}{Generalized linear model (GLM) distribution family specifying the error distribution and link function for model fitting. Defaults to Gaussian distribution with identity link. Supports custom family specifications, including user-defined link functions and optional custom tuning loss criteria.}
+\item{family}{Default: gaussian(). Generalized linear model (GLM) distribution family specifying the error distribution and link function for model fitting. Defaults to Gaussian distribution with identity link. Supports custom family specifications, including user-defined link functions and optional custom tuning loss criteria. Minimally requires 1) family name (family) 2) link name (link) 3) linkfun (link function) 4) linkinv (link function inverse) 5) variance (mean variance relationship function).}
 
-\item{glm_weight_function}{User-specified function for calculating generalized linear model weights used in computing the G matrix. Allows flexible weight specification based on fitted values, response, observation ordering, and family characteristics.}
+\item{glm_weight_function}{Default: function that returns family$variance(mu) * observation_weights if weights exist, family$variance(mu) otherwise. Codes the mean-variance relationship of a GLM or GLM-like model, the diagonal "W" matrix of X^TWX that appears in the information. This can be replaced with a user-specified function. It is used for updating G = (X^{T}WX + L)^{-1} after obtaining constrained estimates of coefficients. This is not used for fitting unconstrained models, but for iterating between updates of U, G, and beta coefficients afterwards.}
 
-\item{shur_correction_function}{Advanced function for computing Schur complements to properly account for uncertainty in dispersion *or other) parameter estimation, preventing potential underestimation of parameter uncertainty.}
+\item{shur_correction_function}{Default: function that returns list of zeros. Advanced function for computing Schur complementsto add to G to properly account for uncertainty in dispersion or other nuisance parameter estimation.}
 
-\item{need_dispersion_for_estimation}{Logical indicator specifying whether a dispersion parameter is required for coefficient estimation, enabling more sophisticated modeling approaches.}
+\item{need_dispersion_for_estimation}{Default: FALSE. Logical indicator specifying whether a dispersion parameter is required for coefficient estimation. This is not needed for canonical regular exponential family models, but is often needed otherwise (such as fitting Weibull AFT models).}
 
-\item{dispersion_function}{Custom function for estimating the dispersion parameter, allowing flexible approaches to variance component estimation across different model specifications.}
+\item{dispersion_function}{Default: function that returns 1. Custom function for estimating the dispersion parameter. Unless need_dispersion_for_estimation is TRUE, this will not affect coefficient estimates.}
 
-\item{K}{Integer specifying the number of knot locations for spline partitions. When NULL, knots are automatically selected based on data characteristics to optimize model flexibility.}
+\item{K}{Default: NULL. Integer specifying the number of knot locations for spline partitions. This can intuitively be considered the total number of partitions - 1.}
 
-\item{custom_knots}{Optional matrix providing user-specified knot locations in 1-D, allowing precise control over spline partitioning that overrides automatic knot selection.}
+\item{custom_knots}{Default: NULL. Optional matrix providing user-specified knot locations in 1-D.}
 
-\item{cluster_on_indicators}{Logical flag determining whether indicator variables should be used for clustering knot locations, providing alternative clustering strategies.}
+\item{cluster_on_indicators}{Default: FALSE. Logical flag determining whether indicator variables should be used for clustering knot locations.}
 
-\item{make_partition_list}{Optional list allowing direct specification of custom partition assignments for advanced modeling scenarios.}
+\item{make_partition_list}{Default: NULL. Optional list allowing direct specification of custom partition assignments. The intent is that the make_partition_list returned by one model can be supplied here to keep the same knot locations for another.}
 
-\item{previously_tuned_penalties}{Optional list of pre-computed penalty components from previous model fits, enabling efficient model refinement and cross-validation.}
+\item{previously_tuned_penalties}{Default: NULL. Optional list of pre-computed penalty components from previous model fits.}
 
-\item{smoothing_spline_penalty}{Optional custom smoothing spline penalty matrix for fine-tuned complexity control.}
+\item{smoothing_spline_penalty}{Default: NULL. Optional custom smoothing spline penalty matrix for fine-tuned complexity control.}
 
-\item{opt}{Logical switch controlling whether model penalties should be automatically optimized via cross-validation.}
+\item{opt}{Default: TRUE. Logical switch controlling whether model penalties should be automatically optimized via generalized cross-validation. Turn this off if previously_tuned_penalties are supplied AND desired, otherwise, the previously_tuned_penalties will be ignored.}
 
-\item{use_custom_bfgs}{Logical indicator selecting between a custom damped-BFGS optimization method with analytical gradients or base R's BFGS implementation with finite-difference gradient approximation.}
+\item{use_custom_bfgs}{Default: TRUE. Logical indicator selecting between a native implementation of damped-BFGS optimization method with analytical gradients or base R's BFGS implementation with finite-difference approximation of gradients.}
 
-\item{delta}{Numeric pseudocount used for stabilizing optimization in non-identity link function scenarios.}
+\item{delta}{Default: NULL. Numeric pseudocount used for stabilizing optimization in non-identity link function scenarios.}
 
-\item{tol}{Numeric convergence tolerance controlling the precision of optimization algorithms.}
+\item{tol}{Default: 10*sqrt(.Machine$double.eps). Numeric convergence tolerance controlling the precision of optimization algorithms.}
 
-\item{log_initial_wiggle}{Numeric vector of initial grid points for wiggle penalty optimization, specified on the natural logarithmic scale.}
+\item{invsoftplus_initial_wiggle}{Default: c(-25, 20, -15, -10, -5). Numeric vector of initial grid points for wiggle penalty optimization, specified on the inverse-softplus ( softplus(x) = log(1+exp(x)) ) scale.}
 
-\item{log_initial_flat}{Numeric vector of initial grid points for ridge penalty optimization, specified on the natural logarithmic scale.}
+\item{invsoftplus_initial_flat}{Default: c(-7, 0). Numeric vector of initial grid points for ridge penalty optimization, specified on the inverse-softplus ( softplus(x) = log(1+exp(x)) ) scale.}
 
-\item{wiggle_penalty}{Numeric penalty controlling the integrated squared second derivative, governing function smoothness.}
+\item{wiggle_penalty}{Default: 2e-7. Numeric penalty controlling the integrated squared second derivative, governing function smoothness. Applied to both smoothing spline penalty (alone) and is multiplied by \code{flat_ridge_penalty} for penalizing linear terms.}
 
-\item{flat_ridge_penalty}{Numeric flat ridge penalty for additional regularization.}
+\item{flat_ridge_penalty}{Default: 0.5. Numeric flat ridge penalty for additional regularization on only intercepts and linear terms (won't affect interactions or quadratic/cubic/quartic terms by default). If \code{custom_penalty_mat} is supplied, the penalty will be for the custom penalty matrix instead. This penalty is multiplied with \code{wiggle_penalty} to obtain the total ridge penalty - hence, by default, the ridge penalization on linear terms is half of the magnitude of non-linear terms.}
 
-\item{unique_penalty_per_partition}{Logical flag allowing unique complexity penalties for each spline partition.}
+\item{unique_penalty_per_partition}{Default: TRUE. Logical flag allowing the magnitude of the smoothing spline penalty to differ across partition.}
 
-\item{unique_penalty_per_predictor}{Logical flag permitting unique complexity penalties for individual predictors.}
+\item{unique_penalty_per_predictor}{Default: TRUE. Logical flag allowing the magnitude of the smoothing spline penalty to differ between predictors.}
 
-\item{penalty_ridge}{Numeric "meta-penalty" applied to predictor and partition penalties during tuning, encouraging penalty values close to unity.}
+\item{meta_penalty}{Default: 1e-8. Numeric "meta-penalty" applied to predictor and partition penalties during tuning. The minimization of GCV is modified to be a penalized minimization problem, with penalty 0.5*meta_penalty*(sum of log predictor and log partition penalties)^2, such that penalties are pulled towards 1 on the absolute scale and thus, their multiplicative effect towards 0.}
 
-\item{predictor_penalties}{Optional list of custom penalties specified per predictor.}
+\item{predictor_penalties}{Default: NULL. Optional list of custom penalties specified per predictor.}
 
-\item{partition_penalties}{Optional list of custom penalties specified per partition.}
+\item{partition_penalties}{Default: NULL. Optional list of custom penalties specified per partition.}
 
-\item{include_quadratic_terms}{Logical switch to include squared predictor terms in basis expansion.}
+\item{include_quadratic_terms}{Default: TRUE. Logical switch to include squared predictor terms in basis expansions.}
 
-\item{include_cubic_terms}{Logical switch to include cubic predictor terms in basis expansion.}
+\item{include_cubic_terms}{Default: TRUE. Logical switch to include cubic predictor terms in basis expansions.}
 
-\item{include_quartic_terms}{Logical switch to include quartic predictor terms in basis expansion.}
+\item{include_quartic_terms}{Default: NULL. Logical switch to include quartic predictor terms in basis expansions. This is highly recommended for fitting models with multiple predictors to avoid over-specified constraints. When NULL (by default), will internally set to FALSE if only one predictor present, and TRUE otherwise.}
 
-\item{include_2way_interactions}{Logical switch to include two-way interactions between predictors.}
+\item{include_2way_interactions}{Default: TRUE. Logical switch to include linear two-way interactions between predictors.}
 
-\item{include_3way_interactions}{Logical switch to include three-way interactions between predictors.}
+\item{include_3way_interactions}{Default: TRUE. Logical switch to include three-way interactions between predictors.}
 
-\item{include_quadratic_interactions}{Logical switch to include quadratic interaction terms.}
+\item{include_quadratic_interactions}{Default: FALSE. Logical switch to include linear-quadratic interaction terms.}
 
-\item{just_linear_with_interactions}{Integer vector specifying columns to retain linear terms with interactions.}
+\item{offset}{Default: Empty vector. When non-missing, this is a vector of column indices/names to include as offsets. \code{lgspline} will automatically introduce constraints such that the coefficient for offset terms are 1.}
 
-\item{just_linear_without_interactions}{Integer vector specifying columns to retain only linear terms without interactions.}
+\item{just_linear_with_interactions}{Default: NULL. Integer vector specifying columns to retain linear terms with interactions.}
 
-\item{exclude_interactions_for}{Integer vector indicating columns to exclude from all interaction terms.}
+\item{just_linear_without_interactions}{Default: NULL. Integer vector specifying columns to retain only linear terms without interactions.}
 
-\item{exclude_these_expansions}{Character vector specifying basis expansions to be excluded from the model.}
+\item{exclude_interactions_for}{Default: NULL. Integer vector indicating columns to exclude from all interaction terms.}
 
-\item{custom_basis_fxn}{Optional user-defined function for generating custom basis expansions, following specific column naming conventions.}
+\item{exclude_these_expansions}{Default: NULL. Character vector specifying basis expansions to be excluded from the model. These must be named columns of the data, or in the form "_1_", "_2_", "_1_x_2_", "_2_^2" etc. where "1" and "2" indicate column indices of predictor matrix input.}
 
-\item{include_constrain_fitted}{Logical switch to constrain fitted values at knot points.}
+\item{custom_basis_fxn}{Default: NULL. Optional user-defined function for generating custom basis expansions. See ?get_polynomial_expansions.}
 
-\item{include_constrain_first_deriv}{Logical switch to constrain first derivatives at knot points.}
+\item{include_constrain_fitted}{Default: TRUE. Logical switch to constrain fitted values at knot points.}
 
-\item{include_constrain_second_deriv}{Logical switch to constrain second derivatives at knot points.}
+\item{include_constrain_first_deriv}{Default: TRUE. Logical switch to constrain first derivatives at knot points.}
 
-\item{include_constrain_interactions}{Logical switch to constrain interaction terms at knot points.}
+\item{include_constrain_second_deriv}{Default: TRUE. Logical switch to constrain second derivatives at knot points.}
 
-\item{cl}{Parallel processing cluster object for distributed computation.}
+\item{include_constrain_interactions}{Default: TRUE. Logical switch to constrain interaction terms at knot points.}
 
-\item{chunk_size}{Integer specifying custom fixed chunk size for parallel processing.}
+\item{cl}{Default: NULL. Parallel processing cluster object for distributed computation (use \code{parallel::makeCluster()}).}
 
-\item{parallel_eigen}{Logical flag to enable parallel processing for eigenvalue decomposition computations.}
+\item{chunk_size}{Default: NULL. Integer specifying custom fixed chunk size for parallel processing.}
 
-\item{parallel_trace}{Logical flag to enable parallel processing for trace computation.}
+\item{parallel_eigen}{Default: TRUE. Logical flag to enable parallel processing for eigenvalue decomposition computations.}
 
-\item{parallel_aga}{Logical flag to enable parallel processing for specific matrix operations.}
+\item{parallel_trace}{Default: FALSE. Logical flag to enable parallel processing for trace computation.}
 
-\item{parallel_matmult}{Logical flag to enable parallel processing for block-diagonal matrix multiplication.}
+\item{parallel_aga}{Default: FALSE. Logical flag to enable parallel processing for specific matrix operations involving G and A.}
 
-\item{parallel_unconstrained}{Logical flag to enable parallel processing for unconstrained maximum likelihood estimation.}
+\item{parallel_matmult}{Default: FALSE. Logical flag to enable parallel processing for block-diagonal matrix multiplication.}
 
-\item{parallel_find_neighbors}{Logical flag to enable parallel processing for neighbor identification.}
+\item{parallel_unconstrained}{Default: TRUE. Logical flag to enable parallel processing for unconstrained maximum likelihood estimation.}
 
-\item{parallel_penalty}{Logical flag to enable parallel processing for penalty matrix construction.}
+\item{parallel_find_neighbors}{Default: FALSE. Logical flag to enable parallel processing for neighbor identification (which partitions are neighbors).}
 
-\item{parallel_make_constraint}{Logical flag to enable parallel processing for constraint matrix generation.}
+\item{parallel_penalty}{Default: FALSE. Logical flag to enable parallel processing for penalty matrix construction.}
 
-\item{unconstrained_fit_fxn}{Custom function for fitting unconstrained models per partition.}
+\item{parallel_make_constraint}{Default: FALSE. Logical flag to enable parallel processing for constraint matrix generation.}
 
-\item{keep_weighted_Lambda}{Logical flag to retain generalized linear model weights in constraints using Tikhonov parameterization.}
+\item{unconstrained_fit_fxn}{Default: unconstrained_fit_default. Custom function for fitting unconstrained models per partition.}
 
-\item{iterate_tune}{Logical switch to use iterative optimization during penalty tuning.}
+\item{keep_weighted_Lambda}{Default: FALSE. Logical flag to retain generalized linear model weights in penalty constraints using Tikhonov parameterization. It is advised to turn this to TRUE when fitting non-canonical GLMs. The default \code{\link[lgspline]{unconstrained_fit_default}} by default assumes canonical GLMs for setting up estimating equations; this is not valid with non-canonical GLMs. With \code{\link[glm]{glm}}, the Tikhinov parameterization binds "Lambda^{1/2}", the square-root penalty matrix, to the design matrix "X_k" for each partition k, and family$linkinv(0) to the response vector y_k for each partition before finding unconstrained estimates using base R's glm function. The potential issue is that the weights of the information matrix will appear in the penalty, such that Lambda = L^{1/2}WL^{1/2} rather than just L^{1/2}L^{1/2}. If FALSE, this will only be used to supply initial values to a native implementation of damped Newton-Rapshon for fitting GLM models (see \code{\link[damped_newton_r]{damped_newton_r}} and \code{\link[unconstrained_fit_default]{unconstrained_fit_default}}). For Gamma with log-link, this is fortunately non-issue since the mean-variance relationship is essentially stabilized, so 'keep_weighted_Lambda = TRUE' is strongly advised.}
 
-\item{iterate_final_fit}{Logical switch to use iterative optimization for final model fitting.}
+\item{iterate_tune}{Default: TRUE. Logical switch to use iterative optimization during penalty tuning. If FALSE, G and U are constructed from unconstrained B estimates when tuning.}
 
-\item{qp_Amat}{Constraint matrix for quadratic programming formulation.}
+\item{iterate_final_fit}{Default: TRUE. Logical switch to use iterative optimization for final model fitting. If FALSE, G and U are constructed from unconstrained B estimates when fitting the final model after tuning.}
 
-\item{qp_bvec}{Constraint vector for quadratic programming formulation.}
+\item{blockfit}{Default: FALSE. Logical switch to abandon per-partition fitting for non-spline effects without interactions, collapse all matrices into block-diagonal single-matrix form, and fit agnostic to partition. This would be more efficient for many non-spline effects without interactions and relatively few spline effects or non-spline effects with interactions. Ignored if \code{length(just_linear_without_interactions) = 0} after processing formulas and input.}
 
-\item{qp_meq}{Number of equality constraints in quadratic programming setup.}
+\item{qp_score_function}{Default: \eqn{\textbf{X}^{T}(\textbf{y} - \text{E}[\textbf{y}])}, where \eqn{\text{E}[\textbf{y}] = \mu}. A function returning the score of the log-likelihood for optimization (excluding penalization/priors involving \eqn{\Lambda}), which is needed for the formulation of quadratic programming problems, when \code{blockfit = TRUE}, and correlation-structure fitting for GLMs, all relying on \code{\link[quadprog]{solve.QP}}. Accepts arguments "X, y, mu, order_list, dispersion, VhalfInv, observation_weights, ..." in order. As shown in the examples below, a gamma log-link model requires \eqn{\textbf{X}^{T}\textbf{W}(\textbf{y} - \text{E}[\textbf{y}])} instead, with \eqn{\textbf{W}} a diagonal matrix of \eqn{\text{E}[\textbf{y}]^2}. This argument is not needed when fitting non-canonical GLMs without quadratic programming constraints or correlation structures, situations for which \code{keep_weighted_Lambda=TRUE} is sufficient.}
 
-\item{qp_monotonic_increase}{Logical flag to constrain the function to be monotonically increasing.}
+\item{qp_observations}{Default: NULL. Numeric vector of observations to apply constraints to for monotonic and range quadratic programming constraints. Useful for saving computational resources.}
 
-\item{qp_monotonic_decrease}{Logical flag to constrain the function to be monotonically decreasing.}
+\item{qp_Amat}{Default: NULL. Constraint matrix for quadratic programming formulation. The Amat of quadprog's \code{\link[solve.QP]{solve.QP}}.}
 
-\item{qp_range_upper}{Numeric upper bound for constrained fitted values.}
+\item{qp_bvec}{Default: NULL. Constraint vector for quadratic programming formulation. The bvec of quadprog's \code{\link[solve.QP]{solve.QP}}.}
 
-\item{qp_range_lower}{Numeric lower bound for constrained fitted values.}
+\item{qp_meq}{Default: 0. Number of equality constraints in quadratic programming setup. The meq of quadprog's \code{\link[solve.QP]{solve.QP}}.}
 
-\item{qp_Amat_fxn}{Custom function for generating constraint matrix in quadratic programming.}
+\item{qp_positive_derivative, qp_monotonic_increase}{Default: FALSE. Logical flags to constrain the function to have positive first derivatives/be monotonically increasing using quadratic programming with respect to the order (ascending rows) of the input data set.}
 
-\item{qp_bvec_fxn}{Custom function for generating constraint vector in quadratic programming.}
+\item{qp_negative_derivative, qp_monotonic_decrease}{Default: FALSE. Logical flags to constrain the function to have negative first derivatives/be monotonically decreasing using quadratic programming with respect to the order (ascending rows) of the input data set.}
 
-\item{qp_meq_fxn}{Custom function for determining equality constraints in quadratic programming.}
+\item{qp_range_upper}{Default: NULL. Numeric upper bound for constrained fitted values using quadratic programming.}
 
-\item{constraint_value_vectors}{Matrix of constraint values for sum constraints.}
+\item{qp_range_lower}{Default: NULL. Numeric lower bound for constrained fitted values using quadratic programming.}
 
-\item{constraint_vectors}{Matrix of vectors for sum constraints.}
+\item{qp_Amat_fxn}{Default: NULL. Custom function for generating Amat matrix in quadratic programming.}
 
-\item{return_G}{Logical switch to return the unscaled variance-covariance matrix.}
+\item{qp_bvec_fxn}{Default: NULL. Custom function for generating bvec vector in quadratic programming.}
 
-\item{return_Ghalf}{Logical switch to return the square root of the variance-covariance matrix.}
+\item{qp_meq_fxn}{Default: NULL. Custom function for determining meq equality constraints in quadratic programming.}
 
-\item{return_U}{Logical switch to return the constraint matrix.}
+\item{constraint_values}{Default: cbind(). Matrix of constraint values for sum constraints. The constraint enforces constraint_vectors^{T}(B - constraint_values) = 0 in addition to smoothing constraints.}
 
-\item{estimate_dispersion}{Logical flag to estimate the dispersion parameter.}
+\item{constraint_vectors}{Default: cbind(). Matrix of vectors for sum constraints. The constraint enforces constraint_vectors^{T}(B - constraint_values) = 0 in addition to smoothing constraints.}
 
-\item{return_varcovmat}{Logical switch to return the scaled variance-covariance matrix.}
+\item{return_G}{Default: TRUE. Logical switch to return the unscaled variance-covariance matrix without smoothing constraints.}
 
-\item{custom_penalty_mat}{Optional custom penalty matrix for individual partitions.}
+\item{return_Ghalf}{Default: TRUE. Logical switch to return the matrix square root of the unscaled variance-covariance matrix without smoothing constraints.}
 
-\item{cluster_args}{Named vector of arguments controlling clustering procedures.}
+\item{return_U}{Default: TRUE. Logical switch to return the constraint projection matrix U.}
 
-\item{dummy_dividor}{Small numeric constant to prevent division by zero in computational routines.}
+\item{estimate_dispersion}{Default: TRUE. Logical flag to estimate the dispersion parameter after fitting.}
 
-\item{dummy_adder}{Small numeric constant to prevent division by zero in computational routines.}
+\item{unbias_dispersion}{Default NULL. Logical switch to multiply final dispersion estimates by N/(N-trace(XUGX^{T})), which in the case of Gaussian-distributed errors with identity link function, provides unbiased estimates of variance. When NULL (by default), gets set to TRUE for Gaussian + identity link and FALSE otherwise.}
 
-\item{verbose}{Logical flag to print general progress messages during model fitting.}
+\item{return_varcovmat}{Default: TRUE. Logical switch to return the variance-covariance matrix of the estimated coefficients. This is needed for performing Wald inference.}
 
-\item{verbose_tune}{Logical flag to print detailed progress messages during penalty tuning.}
+\item{custom_penalty_mat}{Default: NULL. Optional p x p custom penalty matrix for individual partitions to replace the default ridge penalty applied to linear-and-intercept terms only. This can be interpreted as proportional to the prior correlation matrix of coefficients for non-spline effects, and will appear in the penalty matrix for all partitions. It is recommended to first run the function using "expansions_only = TRUE" so you have an idea of where the expansions appear in each partition, what "p" is, and you can carefully customize your penalty matrix after.}
 
-\item{expansions_only}{Logical switch to return only basis expansions without full model fitting, useful for advanced modeling tasks.}
+\item{cluster_args}{Default: c(custom_centers = NA, nstart = 10). Named vector of arguments controlling clustering procedures. If the first argument is not NA, this will be treated as custom cluster centers and all other arguments ignored. Otherwise, default base R k-means clustering will be used with all other arguments supplied to \code{\link[plotly]{kmeans}} (for example, by default, the "nstart" argument as provided). Custom centers must be a (K x q) matrix with one column for each predictor in order of their appearance in input predictor/data, and one row for each center.}
 
-\item{observation_weights}{Numeric vector of observation-specific weights for generalized least squares estimation.}
+\item{dummy_dividor}{Default: 0.00000000000000000000012345672152894. Small numeric constant to prevent division by zero in computational routines.}
 
-\item{do_not_cluster_on_these}{Vector specifying predictor columns to exclude from clustering procedures.}
+\item{dummy_adder}{Default: 0.000000000000000002234567210529. Small numeric constant to prevent division by zero in computational routines.}
 
-\item{neighbor_tolerance}{Numeric tolerance for determining neighboring partitions in multivariate spline contexts.}
+\item{verbose}{Default: FALSE. Logical flag to print general progress messages during model fitting (does not include during tuning).}
 
-\item{no_intercept}{Logical flag to remove intercept, constraining it to a fixed value.}
+\item{verbose_tune}{Default: FALSE. Logical flag to print detailed progress messages during penalty tuning specifically.}
 
-\item{VhalfInv}{Matrix representing custom response covariance structure for advanced modeling.}
+\item{expansions_only}{Default: FALSE. Logical switch to return only basis expansions without full model fitting. Useful for setting up custom constraints and penalties.}
 
-\item{include_warnings}{Logical switch to control display of warning messages during model fitting.}
+\item{observation_weights}{Default: NULL. Numeric vector of observation-specific weights for generalized least squares estimation.}
+
+\item{do_not_cluster_on_these}{Default: c(). Vector specifying predictor columns to exclude from clustering procedures, in addition to the non-spline effects by default.}
+
+\item{neighbor_tolerance}{Default: 1 + 1e-8. Numeric tolerance for determining neighboring partitions using k-means clustering. Greater values means more partitions are likely to be considered neighbors. Intended for internal use only (modify at your own risk!).}
+
+\item{no_intercept}{Default: FALSE. Logical flag to remove intercept, constraining it to 0. The function automatically constructs constraint_vectors and constraint_values to achieve this. Calling formulas with a "0+" in it like "y ~ 0 + ." will set this option to TRUE.}
+
+\item{VhalfInv}{Default: NULL. Matrix representing a fixed, custom square-root-inverse covariance structure for the response variable of longitudinal and spatial modeling. Must be an N x N matrix where N is number of observations. This matrix V^(-1/2) serves as a fixed transformation matrix for the response, equivalent to GLS with known covariance V. This is known as "whitening" in some literature.}
+
+\item{Vhalf}{Default: NULL. Matrix representing a fixed, custom square-root covariance structure for the response variable of longitudinal and spatial modeling. Must be an N x N matrix where N is number of observations. This matrix V^(1/2) is used when backtransforming coefficients for fitting GLMs with arbitrary correlation structure.}
+
+\item{include_warnings}{Default: TRUE. Logical switch to control display of warning messages during model fitting.}
 
 \item{...}{Additional arguments passed to the unconstrained model fitting function.}
 }

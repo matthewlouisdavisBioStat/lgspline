@@ -1,17 +1,18 @@
-#' Lgspline: Lagrangian Multiplier Smoothing Spline Methods
+#' lgspline: Lagrangian Multiplier Smoothing Splines
 #'
 #' @description
-#' Provides S3 methods for lgspline model objects, including print, summary,
-#' plot, predict, and inference methods.
+#' Allows for common S3 methods including print, summary, coef, plot, and
+#' predict, with additional inference methods provided.
 #'
 #' @details
 #' This package implements various methods for working with lgspline models,
 #' including printing, summarizing, plotting, and conducting statistical inference.
 #'
-#' @docType _PACKAGE
-#' @name lgspline-package
-#' @aliases lgspline
+#' @docType methods
 #' @keywords internal
+#' @name lgspline-methods
+#' @rdname lgspline-methods
+#' @aliases lgspline-methods
 NULL
 
 #' Print Method for lgspline Objects
@@ -92,30 +93,34 @@ summary.lgspline <- function(object, ...) {
   )
 
   ## Typical summaries for Wald inference, like lm() or glm()
-  tr <- try({
-    wald_res <- Reduce('cbind',
-                       object$wald_univariate())
-    if(object$family$family == 'gaussian' &
-       object$family$link == 'identity'){
-      stat <- 't value'
+  if(object$return_varcovmat){
+    tr <- try({
+      wald_res <- Reduce('cbind',
+                         object$wald_univariate())
+      if(object$family$family == 'gaussian' &
+         object$family$link == 'identity'){
+        stat <- 't value'
+      } else {
+        stat <- 'z value'
+      }
+      colnames(wald_res) <- c('Estimate',
+                              'Std. Error',
+                              stat,
+                              'CI LB',
+                              'CI UB',
+                              'Pr(>|z|)')
+      wald_res <- wald_res[,c('Estimate',
+                              'Std. Error',
+                              stat,
+                              'Pr(>|z|)',
+                              'CI LB',
+                              'CI UB')]
+    }, silent = TRUE)
+    if(any(class(tr) != 'try-error')){
+      summary_list$coefficients <- tr
     } else {
-      stat <- 'z value'
+      summary_list$coefficients <- cbind(unlist(object$B))
     }
-    colnames(wald_res) <- c('Estimate',
-                            'Std. Error',
-                             stat,
-                            'CI LB',
-                            'CI UB',
-                            'Pr(>|z|)')
-    wald_res <- wald_res[,c('Estimate',
-                            'Std. Error',
-                            stat,
-                            'Pr(>|z|)',
-                            'CI LB',
-                            'CI UB')]
-  }, silent = TRUE)
-  if(any(class(tr) != 'try-error')){
-    summary_list$coefficients <- tr
   } else {
     summary_list$coefficients <- cbind(unlist(object$B))
   }

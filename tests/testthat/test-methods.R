@@ -1,4 +1,4 @@
-test_that("Basic S3 methods work correctly", {
+test_that("basic S3 methods work correctly", {
   x <- seq(-9, 9, length.out = 100)
   y <- sin(x) + rnorm(100, 0, 0.1) + 0.1*x^2
   fit <- lgspline(cbind(x), y, K = 5)

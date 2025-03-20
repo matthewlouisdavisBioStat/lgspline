@@ -15,3 +15,4 @@ Inverted matrix
 \description{
 Computes the inverse of a matrix using Armadillo's inversion method
 }
+\keyword{internal}

@@ -15,3 +15,4 @@ Gram matrix (X^T * X)
 \description{
 Calculates X^T * X for the input matrix X
 }
+\keyword{internal}

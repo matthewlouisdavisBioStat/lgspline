@@ -22,7 +22,24 @@ model.matrix() with dummy-intercept coding. Column names are cleaned by removing
 'x' prefix added by model.matrix().
 }
 \examples{
-x <- factor(c("A", "B", "A", "C"))
-create_onehot(x)
+
+## lgspline will not accept this format of "catvar", because inputting data
+# this way can cause difficult-to-diagnose issues in formula parsing
+# all variables must be numeric
+df <- data.frame(numvar = rnorm(100),
+                 catvar = rep(LETTERS[1:4],
+                                 25))
+print(head(df))
+
+## Instead, replace with dummy-intercept coding by
+# 1) applying one-hot encoding
+# 2) dropping the first column
+# 3) appending to our data
+
+dummy_intercept_coding <- create_onehot(df$catvar)[,-1]
+df$catvar <- NULL
+df <- cbind(df, dummy_intercept_coding)
+print(head(df))
+
 
 }

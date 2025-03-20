@@ -17,11 +17,13 @@ Matrix product of x and y
 \description{
 Operator wrapper around C++ efficient_matrix_mult() for matrix multiplication syntax.
 
-This is an internal helper function - use at your own risk.
+This is an internal function meant to provide improvement over base Rs operator for
+certain large matrix operations, at a cost of potential slight slowdown for
+smaller problems.
 }
 \examples{
-A <- matrix(1:4, 2, 2)
-B <- matrix(5:8, 2, 2)
-A \%**\% B
+M1 <- matrix(1:4, 2, 2)
+M2 <- matrix(5:8, 2, 2)
+M1 \%**\% M2
 
 }

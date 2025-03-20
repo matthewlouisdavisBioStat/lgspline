@@ -1,4 +1,4 @@
-test_that("lgspline works with parallel processing", {
+test_that("basic parallel processing works", {
   skip_on_cran()  # Skip on CRAN out of common courtesy
 
   # Setup test data
@@ -65,6 +65,8 @@ test_that("lgspline parallel processing handles errors and options", {
              response = y,
              cl = cl,
              K = 2,
+             parallel_eigen = TRUE,
+             parallel_aga = TRUE,
              parallel_find_neighbors = TRUE,
              parallel_trace = TRUE,
              parallel_matmult = TRUE,

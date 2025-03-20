@@ -9,6 +9,7 @@
 //' @param B Second input matrix
 //' @return Matrix product of A and B
 //' @export
+//' @keywords internal
 // [[Rcpp::export]]
 arma::mat efficient_matrix_mult(const arma::mat& A, const arma::mat& B) {
   return A * B;
@@ -21,6 +22,7 @@ arma::mat efficient_matrix_mult(const arma::mat& A, const arma::mat& B) {
 //' @param X Input matrix
 //' @return Gram matrix (X^T * X)
 //' @export
+//' @keywords internal
 // [[Rcpp::export]]
 arma::mat gramMatrix(const arma::mat& X) {
     return X.t() * X;
@@ -33,6 +35,7 @@ arma::mat gramMatrix(const arma::mat& X) {
 //' @param x Input matrix to be inverted
 //' @return Inverted matrix
 //' @export
+//' @keywords internal
 // [[Rcpp::export]]
 arma::mat armaInv(const arma::mat& x) {
     return arma::inv(x);
@@ -48,7 +51,8 @@ arma::mat armaInv(const arma::mat& x) {
 //' @param nc Number of columns
 //' @param nca Number of columns in A
 //' @return List of multiplied matrices
-//' @export
+//' @noRd
+//' @keywords internal
 // [[Rcpp::export]]
 Rcpp::List GAmult(const Rcpp::List& G,
                   const arma::mat& A,
@@ -72,39 +76,67 @@ Rcpp::List GAmult(const Rcpp::List& G,
 //'
 //' @param G List of matrices G
 //' @param A Input matrix A
-//' @param GXX List of GXX matrices
-//' @param Ghalf List of Ghalf matrices
+//' @param GXX List of GX^{T}X matrices
 //' @param AGAInv Matrix (A^{T}GA)^{-1}
-//' @param nc Number of columns
+//' @param nc Number of columns of each partition of G
 //' @param K Number of blocks
 //' @return Trace correction value
-//' @export
+//' @noRd
+//' @keywords internal
 // [[Rcpp::export]]
 double compute_trace_correction(const Rcpp::List& G,
-                                 const arma::mat& A,
-                                 const Rcpp::List& GXX,
-                                 const Rcpp::List& Ghalf,
-                                 const arma::mat& AGAInv,
-                                 int nc,
-                                 int K) {
+                              const arma::mat& A,
+                              const Rcpp::List& GXX,
+                              const arma::mat& AGAInv,
+                              int nc,
+                              int K) {
     double correction = 0.0;
+    
+    // Kahan summation for enhanced numerical stability
+    double c = 0.0;
+    
+    // Compute overall scaling to prevent over/underflow
+    double max_norm = 0.0;
+    for (int k = 0; k <= K; ++k) {
+        arma::mat G_k = Rcpp::as<arma::mat>(G[k]);
+        max_norm = std::max(max_norm, arma::norm(G_k, "fro"));
+    }
+    
+    // Add small epsilon to prevent division by zero
+    const double eps = std::numeric_limits<double>::epsilon();
+    max_norm = std::max(max_norm, eps);
+    
     for (int k = 0; k <= K; ++k) {
         arma::mat G_k = Rcpp::as<arma::mat>(G[k]);
         arma::mat A_k = A.rows(k*nc, (k+1)*nc-1);
         arma::mat GXX_k = Rcpp::as<arma::mat>(GXX[k]);
-
-        // Scale GXX_k by its norm
-        double norm_GXX = arma::norm(GXX_k);
-        if(norm_GXX > 0) {
-            GXX_k = GXX_k / norm_GXX;
-
-            arma::mat temp = G_k * A_k * AGAInv;
-            arma::mat temp2 = A_k.t() * GXX_k;
-
-            // Multiply correction by norm to preserve original scale
-            correction += arma::trace(temp * temp2) * norm_GXX;
+        
+        // Normalize matrices relative to max_norm to prevent scaling issues
+        G_k /= max_norm;
+        A_k /= max_norm;
+        GXX_k /= max_norm;
+        
+        // Check for zero/near-zero matrices
+        if (arma::norm(G_k, "fro") > eps && 
+            arma::norm(A_k, "fro") > eps && 
+            arma::norm(GXX_k, "fro") > eps) {
+            
+            // Compute intermediate matrix products more carefully
+            arma::mat temp1 = G_k * A_k;
+            arma::mat temp2 = temp1 * AGAInv;
+            arma::mat temp3 = A_k.t() * GXX_k;
+            
+            // Compute trace
+            double trace_k = arma::trace(temp2 * temp3);
+            
+            // Kahan summation for enhanced numerical stability
+            double y = trace_k - c;
+            double t = correction + y;
+            c = (t - correction) - y;
+            correction = t;
         }
     }
+    
     return correction;
 }
 
@@ -117,7 +149,8 @@ double compute_trace_correction(const Rcpp::List& G,
 //' @param K Number of partitions minus one
 //' @param nc Number of columns
 //' @return Resulting matrix
-//' @export
+//' @noRd
+//' @keywords internal
 // [[Rcpp::export]]
 arma::mat AGAmult(const Rcpp::List& G,
   const arma::mat& A,
@@ -156,7 +189,8 @@ arma::mat AGAmult(const Rcpp::List& G,
 //' @param chunk_end Ending chunk index
 //' @param nc Number of columns
 //' @return Resulting matrix
-//' @export
+//' @noRd
+//' @keywords internal
 // [[Rcpp::export]]
 arma::mat AGAmult_chunk(const Rcpp::List& G_chunk,
                         const arma::mat& A,
@@ -187,7 +221,8 @@ arma::mat AGAmult_chunk(const Rcpp::List& G_chunk,
 //' @param start Start index
 //' @param end End index
 //' @return Resulting vector
-//' @export
+//' @noRd
+//' @keywords internal
 // [[Rcpp::export]]
 arma::vec compute_AGXy(const Rcpp::List& G,
                        const arma::mat& A,
@@ -219,7 +254,8 @@ arma::vec compute_AGXy(const Rcpp::List& G,
 //' @param start Start index
 //' @param end End index
 //' @return Resulting vector of blocks
-//' @export
+//' @noRd
+//' @keywords internal
 // [[Rcpp::export]]
 arma::vec compute_result_blocks(const Rcpp::List& G,
                                 const Rcpp::List& Ghalf,
@@ -248,7 +284,8 @@ arma::vec compute_result_blocks(const Rcpp::List& G,
 //' @param B List of matrices B
 //' @param K Number of blocks
 //' @return List of multiplied matrices
-//' @export
+//' @noRd
+//' @keywords internal
 // [[Rcpp::export]]
 Rcpp::List matmult_block_diagonal_cpp(const Rcpp::List& A,
                                       const Rcpp::List& B,
@@ -273,6 +310,7 @@ Rcpp::List matmult_block_diagonal_cpp(const Rcpp::List& A,
 //' @param K Number of blocks
 //' @return List of resulting vectors
 //' @export
+//' @keywords internal
 // [[Rcpp::export]]
 Rcpp::List vectorproduct_block_diagonal(const Rcpp::List& A,
                                         const Rcpp::List& b,
@@ -296,7 +334,8 @@ Rcpp::List vectorproduct_block_diagonal(const Rcpp::List& A,
 //' @param B List of matrices B
 //' @param K Number of blocks
 //' @return List of resulting matrices
-//' @export
+//' @noRd
+//' @keywords internal
 // [[Rcpp::export]]
 Rcpp::List matadd_block_diagonal(const Rcpp::List& A,
                                   const Rcpp::List& B,
@@ -324,8 +363,9 @@ Rcpp::List matadd_block_diagonal(const Rcpp::List& A,
 //' @param AGAInv Matrix of A transpose times G times A within U = (I - GA(A^{T}GA)^{-1}A^{T})
 //' @param nc Numeric numeric of basis expansions of predictors per partition
 //' @param K Number of blocks
-//' @return Matrix representing the result
-//' @export
+//' @return Matrix representing the derivative
+//' @noRd
+//' @keywords internal
 // [[Rcpp::export]]
 double compute_dW_dlambda(const Rcpp::List& G,
                                     const arma::mat& A,
@@ -386,7 +426,8 @@ double compute_dW_dlambda(const Rcpp::List& G,
 //' @param nc Numeric numeric of basis expansions of predictors per partition
 //' @param K Number of blocks
 //' @return Matrix representing the operation
-//' @export
+//' @noRd
+//' @keywords internal
 // [[Rcpp::export]]
 arma::vec compute_GhalfXy_temp(const Rcpp::List& G, const Rcpp::List& Ghalf,
                               const arma::mat& A, const arma::mat& AGAInv,
@@ -428,6 +469,7 @@ arma::vec compute_GhalfXy_temp(const Rcpp::List& G, const Rcpp::List& Ghalf,
 //' @param K Number of blocks
 //' @return Matrix of UG
 //' @export
+//' @keywords internal
 // [[Rcpp::export]]
 arma::mat matmult_U(const arma::mat& U, const Rcpp::List& G, int nc, int K) {
     int n_rows_U = U.n_rows;

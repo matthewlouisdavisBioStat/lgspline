@@ -9,6 +9,7 @@
 #' @param B Second input matrix
 #' @return Matrix product of A and B
 #' @export
+#' @keywords internal
 efficient_matrix_mult <- function(A, B) {
     .Call('_lgspline_efficient_matrix_mult', PACKAGE = 'lgspline', A, B)
 }
@@ -20,6 +21,7 @@ efficient_matrix_mult <- function(A, B) {
 #' @param X Input matrix
 #' @return Gram matrix (X^T * X)
 #' @export
+#' @keywords internal
 gramMatrix <- function(X) {
     .Call('_lgspline_gramMatrix', PACKAGE = 'lgspline', X)
 }
@@ -31,6 +33,7 @@ gramMatrix <- function(X) {
 #' @param x Input matrix to be inverted
 #' @return Inverted matrix
 #' @export
+#' @keywords internal
 armaInv <- function(x) {
     .Call('_lgspline_armaInv', PACKAGE = 'lgspline', x)
 }
@@ -45,7 +48,8 @@ armaInv <- function(x) {
 #' @param nc Number of columns
 #' @param nca Number of columns in A
 #' @return List of multiplied matrices
-#' @export
+#' @noRd
+#' @keywords internal
 GAmult <- function(G, A, K, nc, nca) {
     .Call('_lgspline_GAmult', PACKAGE = 'lgspline', G, A, K, nc, nca)
 }
@@ -56,15 +60,15 @@ GAmult <- function(G, A, K, nc, nca) {
 #'
 #' @param G List of matrices G
 #' @param A Input matrix A
-#' @param GXX List of GXX matrices
-#' @param Ghalf List of Ghalf matrices
+#' @param GXX List of GX^{T}X matrices
 #' @param AGAInv Matrix (A^{T}GA)^{-1}
-#' @param nc Number of columns
+#' @param nc Number of columns of each partition of G
 #' @param K Number of blocks
 #' @return Trace correction value
-#' @export
-compute_trace_correction <- function(G, A, GXX, Ghalf, AGAInv, nc, K) {
-    .Call('_lgspline_compute_trace_correction', PACKAGE = 'lgspline', G, A, GXX, Ghalf, AGAInv, nc, K)
+#' @noRd
+#' @keywords internal
+compute_trace_correction <- function(G, A, GXX, AGAInv, nc, K) {
+    .Call('_lgspline_compute_trace_correction', PACKAGE = 'lgspline', G, A, GXX, AGAInv, nc, K)
 }
 
 #' AGAmult Computation Overall
@@ -76,7 +80,8 @@ compute_trace_correction <- function(G, A, GXX, Ghalf, AGAInv, nc, K) {
 #' @param K Number of partitions minus one
 #' @param nc Number of columns
 #' @return Resulting matrix
-#' @export
+#' @noRd
+#' @keywords internal
 AGAmult <- function(G, A, K, nc, nca) {
     .Call('_lgspline_AGAmult', PACKAGE = 'lgspline', G, A, K, nc, nca)
 }
@@ -91,7 +96,8 @@ AGAmult <- function(G, A, K, nc, nca) {
 #' @param chunk_end Ending chunk index
 #' @param nc Number of columns
 #' @return Resulting matrix
-#' @export
+#' @noRd
+#' @keywords internal
 AGAmult_chunk <- function(G_chunk, A, chunk_start, chunk_end, nc) {
     .Call('_lgspline_AGAmult_chunk', PACKAGE = 'lgspline', G_chunk, A, chunk_start, chunk_end, nc)
 }
@@ -108,7 +114,8 @@ AGAmult_chunk <- function(G_chunk, A, chunk_start, chunk_end, nc) {
 #' @param start Start index
 #' @param end End index
 #' @return Resulting vector
-#' @export
+#' @noRd
+#' @keywords internal
 compute_AGXy <- function(G, A, Xy, nc, K, start, end) {
     .Call('_lgspline_compute_AGXy', PACKAGE = 'lgspline', G, A, Xy, nc, K, start, end)
 }
@@ -125,7 +132,8 @@ compute_AGXy <- function(G, A, Xy, nc, K, start, end) {
 #' @param start Start index
 #' @param end End index
 #' @return Resulting vector of blocks
-#' @export
+#' @noRd
+#' @keywords internal
 compute_result_blocks <- function(G, Ghalf, A, AAGAInvAGXy, nc, start, end) {
     .Call('_lgspline_compute_result_blocks', PACKAGE = 'lgspline', G, Ghalf, A, AAGAInvAGXy, nc, start, end)
 }
@@ -138,7 +146,8 @@ compute_result_blocks <- function(G, Ghalf, A, AAGAInvAGXy, nc, start, end) {
 #' @param B List of matrices B
 #' @param K Number of blocks
 #' @return List of multiplied matrices
-#' @export
+#' @noRd
+#' @keywords internal
 matmult_block_diagonal_cpp <- function(A, B, K) {
     .Call('_lgspline_matmult_block_diagonal_cpp', PACKAGE = 'lgspline', A, B, K)
 }
@@ -152,6 +161,7 @@ matmult_block_diagonal_cpp <- function(A, B, K) {
 #' @param K Number of blocks
 #' @return List of resulting vectors
 #' @export
+#' @keywords internal
 vectorproduct_block_diagonal <- function(A, b, K) {
     .Call('_lgspline_vectorproduct_block_diagonal', PACKAGE = 'lgspline', A, b, K)
 }
@@ -164,7 +174,8 @@ vectorproduct_block_diagonal <- function(A, b, K) {
 #' @param B List of matrices B
 #' @param K Number of blocks
 #' @return List of resulting matrices
-#' @export
+#' @noRd
+#' @keywords internal
 matadd_block_diagonal <- function(A, B, K) {
     .Call('_lgspline_matadd_block_diagonal', PACKAGE = 'lgspline', A, B, K)
 }
@@ -181,8 +192,9 @@ matadd_block_diagonal <- function(A, B, K) {
 #' @param AGAInv Matrix of A transpose times G times A within U = (I - GA(A^{T}GA)^{-1}A^{T})
 #' @param nc Numeric numeric of basis expansions of predictors per partition
 #' @param K Number of blocks
-#' @return Matrix representing the result
-#' @export
+#' @return Matrix representing the derivative
+#' @noRd
+#' @keywords internal
 compute_dW_dlambda <- function(G, A, GXX, Ghalf, dG_dlambda, dGhalf_dlambda, AGAInv, nc, K) {
     .Call('_lgspline_compute_dW_dlambda', PACKAGE = 'lgspline', G, A, GXX, Ghalf, dG_dlambda, dGhalf_dlambda, AGAInv, nc, K)
 }
@@ -199,7 +211,8 @@ compute_dW_dlambda <- function(G, A, GXX, Ghalf, dG_dlambda, dGhalf_dlambda, AGA
 #' @param nc Numeric numeric of basis expansions of predictors per partition
 #' @param K Number of blocks
 #' @return Matrix representing the operation
-#' @export
+#' @noRd
+#' @keywords internal
 compute_GhalfXy_temp <- function(G, Ghalf, A, AGAInv, Xy, nc, K) {
     .Call('_lgspline_compute_GhalfXy_temp', PACKAGE = 'lgspline', G, Ghalf, A, AGAInv, Xy, nc, K)
 }
@@ -214,6 +227,7 @@ compute_GhalfXy_temp <- function(G, Ghalf, A, AGAInv, Xy, nc, K) {
 #' @param K Number of blocks
 #' @return Matrix of UG
 #' @export
+#' @keywords internal
 matmult_U <- function(U, G, nc, K) {
     .Call('_lgspline_matmult_U', PACKAGE = 'lgspline', U, G, nc, K)
 }

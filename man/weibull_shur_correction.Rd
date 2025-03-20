@@ -33,20 +33,68 @@ weibull_shur_correction(
 
 \item{observation_weights}{Optional observation weights (default = 1)}
 
-\item{status}{Censoring indicator (1 = event, 0 = censored)}
+\item{status}{Censoring indicator (1 = event, 0 = censored)
+Indicates whether an event of interest occurred (1) or the observation was
+right-censored (0). In survival analysis, right-censoring occurs when the
+full survival time is unknown, typically because the study ended or the
+subject was lost to follow-up before the event of interest occurred.}
 }
 \value{
 List of p x p matrices representing the shur-complement corrections to be
 elementwise added to each block of the information matrix, before inversion.
 }
 \description{
-Computes the shur complement "S" such that G* = (G^{-1} - S)^{-1} properly
+Computes the shur complement "S" such that G* = (G^{-1} + S)^{-1} properly
 accounts for uncertainty in estimating dispersion when estimating
 variance-covariance. Otherwise, the variance-covariance matrix is optimistic
-and assumes the scale is known, when it was in fact estimated.
+and assumes the scale is known, when it was in fact estimated. Note that the
+parameterization adds the output of this function elementwise (not subtract)
+so for most cases, the output of this function will be negative or a
+negative definite/semi-definite matrix.
 }
 \details{
-Adjusts the variance-covariance matrix unscaled (G) to account for uncertainty
-in estimating the Weibull scale parameter, that otherwise would be lost
-if naievely using just G=(X^{T}WX + L)^{-1}.
+Adjusts the variance-covariance matrix unscaled for coefficients to account
+for uncertainty in estimating the Weibull scale parameter, that otherwise
+would be lost if simply using G=(X^{T}WX + L)^{-1}. This is accomplished
+using a correction based on the Shur complement so we avoid having to
+construct the entire variance-covariance matrix, or modifying the procedure
+for  \code{\link[lgspline]{lgspline}} substantially.
+For any model with nuisance parameters that must have uncertainty accounted
+for, this tool will be helpful.
+
+This both provides a tool for actually fitting Weibull AFT Models, and
+boilerplate code for users who wish to incorporate Lagrangian multiplier
+smoothing splines into their own custom models.
+}
+\examples{
+\donttest{
+# Minimal example of fitting a Weibull Accelerated Failure Time model
+# Simulating survival data with right-censoring
+set.seed(1234)
+x1 <- rnorm(1000)
+x2 <- rbinom(1000, 1, 0.5)
+yraw <- rexp(exp(0.01*x1 + 0.01*x2))
+# status: 1 = event occurred, 0 = right-censored
+status <- rbinom(1000, 1, 0.25)
+yobs <- ifelse(status, runif(1, 0, yraw), yraw)
+df <- data.frame(
+  y = yobs,
+  x1 = x1,
+  x2 = x2
+)
+
+## Fit model using lgspline with Weibull AFT specifics
+model_fit <- lgspline(y ~ spl(x1) + x2,
+                      df,
+                      unconstrained_fit_fxn = unconstrained_fit_weibull,
+                      family = weibull_family(),
+                      need_dispersion_for_estimation = TRUE,
+                      dispersion_function = weibull_dispersion_function,
+                      glm_weight_function = weibull_glm_weight_function,
+                      shur_correction_function = weibull_shur_correction,
+                      status = status,
+                      opt = FALSE,
+                      K = 1)
+}
+
 }

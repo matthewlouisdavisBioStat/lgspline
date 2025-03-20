@@ -24,7 +24,11 @@ weibull_dispersion_function(
 
 \item{observation_weights}{Optional observation weights}
 
-\item{status}{Censoring indicator (1 = event, 0 = censored)}
+\item{status}{Censoring indicator (1 = event, 0 = censored)
+Indicates whether an event of interest occurred (1) or the observation was
+right-censored (0). In survival analysis, right-censoring occurs when the
+full survival time is unknown, typically because the study ended or the
+subject was lost to follow-up before the event of interest occurred.}
 }
 \value{
 Squared scale estimate for the Weibull AFT model
@@ -32,10 +36,24 @@ Squared scale estimate for the Weibull AFT model
 \description{
 Computes the scale parameter for a Weibull Accelerated Failure Time (AFT)
 model, supporting right-censored survival data.
+
+This both provides a tool for actually fitting Weibull AFT Models, and
+boilerplate code for users who wish to incorporate Lagrangian multiplier
+smoothing splines into their own custom models.
 }
 \details{
 Estimates model scale through:
-- Initial scale estimation with intercept-only model
-- Optimization of log-likelihood for right-censored data
+- Initial scale estimation with intercept-only model using
+  \code{\link[weibull_scale]{weibull_scale}}
+- Optimization of log-likelihood for right-censored data using Brent's method
 - Handling of observation weights and censoring status
+}
+\examples{
+\donttest{
+## Simulate survival data with covariates
+}
+
+}
+\seealso{
+[weibull_scale()] for the underlying scale estimation function
 }

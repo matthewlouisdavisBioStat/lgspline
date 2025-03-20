@@ -17,3 +17,4 @@ Matrix product of A and B
 \description{
 Performs matrix multiplication using RcppArmadillo
 }
+\keyword{internal}

@@ -61,19 +61,18 @@ BEGIN_RCPP
 END_RCPP
 }
 // compute_trace_correction
-double compute_trace_correction(const Rcpp::List& G, const arma::mat& A, const Rcpp::List& GXX, const Rcpp::List& Ghalf, const arma::mat& AGAInv, int nc, int K);
-RcppExport SEXP _lgspline_compute_trace_correction(SEXP GSEXP, SEXP ASEXP, SEXP GXXSEXP, SEXP GhalfSEXP, SEXP AGAInvSEXP, SEXP ncSEXP, SEXP KSEXP) {
+double compute_trace_correction(const Rcpp::List& G, const arma::mat& A, const Rcpp::List& GXX, const arma::mat& AGAInv, int nc, int K);
+RcppExport SEXP _lgspline_compute_trace_correction(SEXP GSEXP, SEXP ASEXP, SEXP GXXSEXP, SEXP AGAInvSEXP, SEXP ncSEXP, SEXP KSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< const Rcpp::List& >::type G(GSEXP);
     Rcpp::traits::input_parameter< const arma::mat& >::type A(ASEXP);
     Rcpp::traits::input_parameter< const Rcpp::List& >::type GXX(GXXSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::List& >::type Ghalf(GhalfSEXP);
     Rcpp::traits::input_parameter< const arma::mat& >::type AGAInv(AGAInvSEXP);
     Rcpp::traits::input_parameter< int >::type nc(ncSEXP);
     Rcpp::traits::input_parameter< int >::type K(KSEXP);
-    rcpp_result_gen = Rcpp::wrap(compute_trace_correction(G, A, GXX, Ghalf, AGAInv, nc, K));
+    rcpp_result_gen = Rcpp::wrap(compute_trace_correction(G, A, GXX, AGAInv, nc, K));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -236,7 +235,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_lgspline_gramMatrix", (DL_FUNC) &_lgspline_gramMatrix, 1},
     {"_lgspline_armaInv", (DL_FUNC) &_lgspline_armaInv, 1},
     {"_lgspline_GAmult", (DL_FUNC) &_lgspline_GAmult, 5},
-    {"_lgspline_compute_trace_correction", (DL_FUNC) &_lgspline_compute_trace_correction, 7},
+    {"_lgspline_compute_trace_correction", (DL_FUNC) &_lgspline_compute_trace_correction, 6},
     {"_lgspline_AGAmult", (DL_FUNC) &_lgspline_AGAmult, 5},
     {"_lgspline_AGAmult_chunk", (DL_FUNC) &_lgspline_AGAmult_chunk, 5},
     {"_lgspline_compute_AGXy", (DL_FUNC) &_lgspline_compute_AGXy, 7},

@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{weibull_glm_weight_function}
 \alias{weibull_glm_weight_function}
-\title{Weibull glm weight function for computing the diagonal W matrix of G = (X^{T}WX + L)^{-1}}
+\title{Weibull GLM Weight Function for Constructing Information Matrix}
 \usage{
 weibull_glm_weight_function(
   mu,
@@ -15,25 +15,71 @@ weibull_glm_weight_function(
 )
 }
 \arguments{
-\item{y}{Response/survival times}
+\item{mu}{Predicted survival times}
+
+\item{y}{Observed response/survival times}
 
 \item{order_indices}{Order of observations when partitioned to match "status" to "response"}
 
 \item{family}{Weibull AFT family}
 
+\item{dispersion}{Estimated dispersion parameter}
+
 \item{observation_weights}{Weights of observations submitted to function}
 
-\item{status}{Censoring indicator (1 = event, 0 = censored)}
-
-\item{Mu}{Predicted survival times}
+\item{status}{Censoring indicator (1 = event, 0 = censored)
+Indicates whether an event of interest occurred (1) or the observation was
+right-censored (0). In survival analysis, right-censoring occurs when the
+full survival time is unknown, typically because the study ended or the
+subject was lost to follow-up before the event of interest occurred.}
 }
 \value{
-Vector of weights such that W = diag(weights)
+Vector of weights for constructing the diagonal weight matrix W
+in the information matrix G = (X^{T}WX + L)^{-1}
 }
 \description{
-Function for estimating dispersion, needed for estimating coefficients,
-when using a Weibull AFT model
+Computes diagonal weight matrix W for the information matrix
+G = (X^{T}WX + L)^{-1} in Weibull Accelerated Failure Time (AFT) models.
 }
 \details{
-Not used for unconstrained fitting, but instead, for computing G under constraint afterwards
+This function generates weights used in constructing the information matrix
+after unconstrained estimates have been found. Specifically, it is used in
+the construction of the U and G matrices following initial unconstrained
+parameter estimation.
+
+These weights are analogous to the variance terms in generalized linear
+models (GLMs). Like logistic regression uses μ(1-μ), Poisson regression uses
+exp(μ), and Linear regression uses constant weights, Weibull AFT models use
+exp((log y - log μ)/s) where 's' is the scale (= dispersion) parameter.
+}
+\examples{
+\donttest{
+## Demonstration of weight function in constrained model estimation
+set.seed(1234)
+n <- 1000
+x1 <- rnorm(n)
+x2 <- rbinom(n, 1, 0.5)
+
+## Generate survival times
+lambda <- exp(0.5 * x1 + 0.3 * x2)
+yraw <- rexp(n, rate = 1/lambda)
+
+## Introduce right-censoring
+status <- rbinom(n, 1, 0.75)
+y <- ifelse(status, yraw, runif(1, 0, yraw))
+
+## Fit model demonstrating use of custom weight function
+model_fit <- lgspline(y ~ spl(x1) + x2,
+                      data.frame(y = y, x1 = x1, x2 = x2),
+                      unconstrained_fit_fxn = unconstrained_fit_weibull,
+                      family = weibull_family(),
+                      need_dispersion_for_estimation = TRUE,
+                      dispersion_function = weibull_dispersion_function,
+                      glm_weight_function = weibull_glm_weight_function,
+                      shur_correction_function = weibull_shur_correction,
+                      status = status,
+                      opt = FALSE,
+                      K = 1)
+}
+
 }

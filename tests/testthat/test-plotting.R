@@ -1,4 +1,4 @@
-test_that("Basic plotting functions work", {
+test_that("basic plotting functions work", {
   set.seed(1234)
   x <- seq(-9, 9, length.out = 100)
   y <- sin(x) + rnorm(100, 0, 0.1)

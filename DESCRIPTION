@@ -18,13 +18,11 @@ Depends:
     R (>= 3.5.0)
 Imports:
     Rcpp (>= 1.0.7),
+    RcppArmadillo,
     stats,
     graphics,
-    FNN,
-    quadprog,
-    RColorBrewer,
-    plotly,
-    parallel
+    parallel,
+    FNN
 LinkingTo:
     Rcpp,
     RcppArmadillo,
@@ -35,6 +33,10 @@ Suggests:
     testthat (>= 3.0.0),
     knitr,
     rmarkdown,
+    quadprog,
+    plotly,
+    FNN,
+    RColorBrewer,
     survival
 URL: https://github.com/matthewlouisdavisBioStat/lgspline
 BugReports: https://github.com/matthewlouisdavisBioStat/lgspline/issues

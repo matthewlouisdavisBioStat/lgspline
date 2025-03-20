@@ -11,7 +11,11 @@ weibull_scale(log_y, log_mu, status, weights = 1)
 
 \item{log_mu}{Logarithm of predicted survival times}
 
-\item{status}{Censoring indicator (1 = event, 0 = censored)}
+\item{status}{Censoring indicator (1 = event, 0 = censored)
+Indicates whether an event of interest occurred (1) or the observation was
+right-censored (0). In survival analysis, right-censoring occurs when the
+full survival time is unknown, typically because the study ended or the
+subject was lost to follow-up before the event of interest occurred.}
 
 \item{weights}{Optional observation weights (default = 1)}
 }
@@ -20,8 +24,35 @@ Scalar representing the estimated scale
 }
 \description{
 Computes maximum log-likelihood scale estimate of Weibull AFT survival model
+
+This both provides a tool for actually fitting Weibull AFT Models, and
+boilerplate code for users who wish to incorporate Lagrangian multiplier
+smoothing splines into their own custom models.
 }
 \details{
 Calculates maximum log-likelihood estimate of scale for Weibull AFT model
-accounting for right-censored observations using Brent
+accounting for right-censored observations using Brent's method for
+optimization.
+}
+\examples{
+\donttest{
+## Simulate exponential data with censoring
+set.seed(1234)
+mu <- 2  # mean of exponential distribution
+n <- 500
+y <- rexp(n, rate = 1/mu)
+
+## Introduce censoring (25\% of observations)
+status <- rbinom(n, 1, 0.75)
+y_obs <- ifelse(status, y, NA)
+
+## Compute scale estimate
+scale_est <- weibull_scale(
+  log_y = log(y_obs[!is.na(y_obs)]),
+  log_mu = log(mu),
+  status = status[!is.na(y_obs)]
+)
+print(scale_est)
+}
+
 }

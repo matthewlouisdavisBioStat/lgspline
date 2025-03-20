@@ -4,10 +4,12 @@
 \alias{invert}
 \title{Matrix Inversion with Fallback Methods}
 \usage{
-invert(mat)
+invert(mat, include_warnings = FALSE)
 }
 \arguments{
 \item{mat}{Square matrix to invert}
+
+\item{include_warnings}{Logical; default FALSE for current implementation.}
 }
 \value{
 Inverted matrix or identity matrix if all methods fail
@@ -35,3 +37,4 @@ B <- matrix(c(1,1,1,1), 2, 2)
 invert(B) \%**\% B
 
 }
+\keyword{internal}

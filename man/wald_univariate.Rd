@@ -2,38 +2,65 @@
 % Please edit documentation in R/lgspline-methods-doc.R
 \name{wald_univariate}
 \alias{wald_univariate}
-\title{Univariate Wald Tests for Lagrangian Multiplier Smoothing Spline}
+\title{Univariate Wald Tests and Confidence Intervals for Lagrangian Multiplier Smoothing Splines}
 \usage{
 wald_univariate(object, ...)
 }
 \arguments{
-\item{object}{A fitted lgspline model object}
+\item{object}{A fitted lgspline model object containing coefficient estimates and
+variance-covariance matrix (requires return_varcovmat = TRUE in fitting)}
 
-\item{scale_vcovmat_by}{Scaling factor for variance-covariance matrix. Default 1}
+\item{scale_vcovmat_by}{Numeric; Scaling factor for variance-covariance matrix.
+Adjusts standard errors and test statistics. Default 1}
 
-\item{cv}{Critical value of confidence interval bounds. Default to the same as passed through the lgspline() function when fitting.}
+\item{cv}{Numeric; Critical value for confidence interval construction. Defaults to
+value specified in lgspline() fit. Common choices:
+\itemize{
+  \item qnorm(0.975) for normal-based 95% intervals
+  \item qt(0.975, df) for t-based 95% intervals, where df = N - trace(XUGX)
+}}
 }
 \value{
-A list containing:
+A data frame with rows for each coefficient (across all partitions) and columns:
 \itemize{
-  \item est: Coefficient estimates
-  \item se: Standard errors
-  \item stat: Test statistics
-  \item interval_lb: Lower confidence bounds
-  \item interval_ub: Upper confidence bounds
-  \item pval: Two-sided p-values
+  \item{estimate}{Numeric; Coefficient estimate}
+  \item{std_error}{Numeric; Standard error}
+  \item{statistic}{Numeric; Wald test statistic (estimate/std_error)}
+  \item{p_value}{Numeric; Two-sided p-value based on normal distribution}
+  \item{lower_ci}{Numeric; Lower confidence bound (estimate - cv*std_error)}
+  \item{upper_ci}{Numeric; Upper confidence bound (estimate + cv*std_error)}
 }
 }
 \description{
-S3 method for performing univariate Wald tests on individual coefficients.
+Performs coefficient-specific Wald tests and constructs confidence intervals for fitted
+lgspline models, providing inference for each partition and term within partitions.
 }
 \details{
-Performs individual Wald tests for each coefficient.
-Requires variance-covariance matrix (return_varcovmat = TRUE).
+For each coefficient, provides:
+\itemize{
+  \item Point estimates
+  \item Standard errors from the model's variance-covariance matrix
+  \item Two-sided Wald test statistics and p-values
+  \item Confidence intervals using specified critical values
+}
 }
 \examples{
-\dontrun{
-  wald_univariate(model_fit)
+\donttest{
+
+## Simulate some data and fit using default settings
+set.seed(1234)
+x <- runif(1000, -10, 10)
+y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
+model_fit <- lgspline(x, y)
+
+## The critical value defaults to qnorm(0.975),
+# but with the cv (critical value) argument, we can set this to the
+# critical value of a t-distribution, and obtain a 95\% t-interval.
+# Effective degrees of freedom = N - trace(XUGX^T)
+wald_univariate(
+  model_fit,
+  cv = qt(0.975, model_fit$N - model_fit$trace_XUGX)
+)
 }
 
 }

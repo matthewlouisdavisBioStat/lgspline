@@ -7,28 +7,53 @@
 \method{coef}{lgspline}(object, ...)
 }
 \arguments{
-\item{object}{A fitted lgspline model object}
+\item{object}{A fitted lgspline model object containing coefficient vectors.}
 }
 \value{
-A list of coefficient vectors, one per partition, containing:
+A list of matrices, one per partition, where:
 \itemize{
-  \item Intercept terms
-  \item Linear terms
-  \item Quadratic terms
-  \item Cubic terms
-  \item Interaction terms (if present)
+  \item Each vector contains coefficient values as a single-column matrix
+  \item Row names indicate the term type (intercept, linear, quadratic, cubic)
+  \item List elements are named "partition1", "partition2", etc.
+  \item Each matrix has an attribute "names" identifying the terms in addition to "rownames"
 }
 }
 \description{
-S3 method for extracting coefficients from a fitted lgspline model.
+Extracts polynomial coefficients for each partition from a fitted lgspline model. Returns
+either a list of partition-specific coefficients.
+}
+\details{
+For each partition, coefficients represent a polynomial expansion of the predictor(s) by column index, for example:
+\itemize{
+  \item intercept: Constant term
+  \item _1_: Linear term
+  \item _1_^2: Quadratic term
+  \item _1_^3: Cubic term
+  \item Additional interaction terms for multivariate models
+}
+
+If column/variable names are present, indices will be replaced with column/variable names.
+
+Coefficients can be accessed either as separate vectors per partition or combined into
+a single matrix using \code{Reduce('cbind', coef(model_fit))}.
 }
 \examples{
-\dontrun{
-# Extract coefficients
+\donttest{
+
+## Simulate some data and fit using default settings
+set.seed(1234)
+x <- runif(1000, -10, 10)
+y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
+model_fit <- lgspline(x, y)
+
+## Extract coefficients
 coefficients <- coef(model_fit)
 
-# Print coefficients for first partition
+## Print coefficients for first partition
 print(coefficients[[1]])
+
+## Compare coefficients across all partitions
+print(Reduce('cbind', coefficients))
 }
 
 }

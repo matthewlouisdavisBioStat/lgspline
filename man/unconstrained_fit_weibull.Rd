@@ -54,12 +54,66 @@ unconstrained_fit_weibull(
 
 \item{weights}{Optional observation weights}
 
-\item{status}{Censoring status indicator}
+\item{status}{Censoring status indicator (1 = event, 0 = censored)
+Indicates whether an event of interest occurred (1) or the observation was
+right-censored (0). In survival analysis, right-censoring occurs when the
+full survival time is unknown, typically because the study ended or the
+subject was lost to follow-up before the event of interest occurred.}
 }
 \value{
 Optimized beta parameter estimates for Weibull AFT model
 }
 \description{
-Estimates parameters for an unconstrained Weibull Accelerated Failure Time model
-supporting right-censored survival data
+Estimates parameters for an unconstrained Weibull AFT model supporting
+right-censored survival data.
+
+This both provides a tool for actually fitting Weibull AFT Models, and
+boilerplate code for users who wish to incorporate Lagrangian multiplier
+smoothing splines into their own custom models.
 }
+\details{
+Estimation Approach:
+The function employs a two-stage optimization strategy for fitting
+accelerated failure time models via maximum likelihood:
+
+1. Outer Loop: Estimate Scale Parameter using Brent's method
+
+2. Inner Loop: Estimate Regression Coefficients (given scale) using
+   damped Newton-Raphson.
+}
+\examples{
+\donttest{
+# Simulate survival data with covariates
+set.seed(1234)
+n <- 1000
+x1 <- rnorm(n)
+x2 <- rbinom(n, 1, 0.5)
+
+# Generate survival times with Weibull-like structure
+lambda <- exp(0.5 * x1 + 0.3 * x2)
+yraw <- rexp(n, rate = 1/lambda)
+
+# Introduce right-censoring
+status <- rbinom(n, 1, 0.75)
+y <- ifelse(status, yraw, runif(1, 0, yraw))
+df <- data.frame(y = y, x1 = x1, x2 = x2)
+
+# Fit model using lgspline with Weibull AFT specifics
+model_fit <- lgspline(y ~ spl(x1) + x2,
+                      df,
+                      unconstrained_fit_fxn = unconstrained_fit_weibull,
+                      family = weibull_family(),
+                      need_dispersion_for_estimation = TRUE,
+                      dispersion_function = weibull_dispersion_function,
+                      glm_weight_function = weibull_glm_weight_function,
+                      shur_correction_function = weibull_shur_correction,
+                      status = status,
+                      opt = FALSE,
+                      K = 1)
+
+# Print model summary
+summary(model_fit)
+}
+
+}
+\keyword{internal}

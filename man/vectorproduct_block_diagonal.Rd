@@ -19,3 +19,4 @@ List of resulting vectors
 \description{
 Performs vector-matrix multiplication for block diagonal matrices
 }
+\keyword{internal}

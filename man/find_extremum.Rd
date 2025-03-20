@@ -7,68 +7,122 @@
 find_extremum(object, ...)
 }
 \arguments{
-\item{object}{A fitted lgspline model object}
+\item{object}{A fitted lgspline model object containing partition information and fitted values}
 
-\item{quick_heuristic}{Logical; whether to search only the top-performing partition. Default TRUE}
+\item{vars}{Vector; A vector of numeric indices (or character variable names) of predictors to optimize for. If NULL (by default), all predictors will be optimized.}
 
-\item{initial}{Optional initial values for optimization, useful for fixing binary predictors. Default NULL}
+\item{quick_heuristic}{Logical; whether to search only the top-performing partition. When TRUE (default),
+optimizes within the best partition. When FALSE, initiates searches from all partition local maxima.}
 
-\item{parallel}{Logical; whether to run optimization in parallel across partitions. Default FALSE}
+\item{initial}{Numeric vector; Optional initial values for optimization. Useful for fixing binary
+predictors or providing starting points. Default NULL}
 
-\item{cl}{Optional cluster object for parallel processing. Default NULL}
-
-\item{B_predict}{Optional custom coefficient matrix for prediction. Default NULL}
+\item{B_predict}{Matrix; Optional custom coefficient list for prediction. Useful for posterior
+draws in Bayesian optimization. Default NULL}
 
 \item{minimize}{Logical; whether to find minimum instead of maximum. Default FALSE}
 
-\item{stochastic}{Logical; whether to add noise for stochastic optimization. Default FALSE}
+\item{stochastic}{Logical; whether to add noise for stochastic optimization. Enables better
+exploration of the function space. Default FALSE}
 
-\item{stochastic_draw}{function; function for generating random draws from a distribution, analogous to posterior_predictive_draw. Takes two arguments, first is predicted values (mu), second is the square-root of sigmasq_tilde (sigma).}
+\item{stochastic_draw}{Function; Generates random noise/modifies predictions for stochastic optimization, analogous to
+posterior_predictive_draw. Takes three arguments:
+\itemize{
+  \item mu: Vector of predicted values
+  \item sigma: Vector of standard deviations (square-root of sigmasq_tilde)
+  \item ...: Additional arguments to pass through
+}
+Default \code{rnorm(length(mu), mu, sigma)}}
 
-\item{sigmasq_tilde}{Numeric; Variance for stochastic optimization. Default (object$sigmasq_tilde)}
+\item{sigmasq_predict}{Numeric; Variance parameter for stochastic optimization. Controls
+the magnitude of random perturbations. Defaults to object$sigmasq_tilde}
 
-\item{custom_objective_function}{function; Optional custom objective function for maximization/minimization. Default NULL.
-Function should take arguments:
-- mu: Prediction of response
-- sigma: Standard deviation
-- y_best: Best observed response}
+\item{custom_objective_function}{Function; Optional custom objective function for optimization.
+Takes arguments:
+\itemize{
+  \item mu: Vector of predicted response values
+  \item sigma: Vector of standard deviations
+  \item y_best: Numeric; Best observed response value
+  \item ...: Additional arguments passed through
+}
+Default NULL}
 
-\item{custom_objective_gradient}{Optional gradient function for custom optimization objective. Default NULL.
-Function should take arguments:
-- mu: Prediction of response
-- sigma: Standard deviation
-- y_best: Best observed response thus far
-- d_mu: Gradient of fitted function (use for chain-rule computations)}
+\item{custom_objective_derivative}{Function; Optional gradient function for custom optimization
+objective. Takes arguments:
+\itemize{
+  \item mu: Vector of predicted response values
+  \item sigma: Vector of standard deviations
+  \item y_best: Numeric; Best observed response value
+  \item d_mu: Gradient of fitted function (for chain-rule computations)
+  \item ...: Additional arguments passed through
+}
+Default NULL}
 }
 \value{
 A list containing:
 \itemize{
-  \item t: Input values at extremum
-  \item y: Function value at extremum
+  \item{t}{Numeric vector of input values at the extremum}
+  \item{y}{Numeric value of the objective function at the extremum}
 }
 }
 \description{
-S3 method for finding maximum or minimum of a fitted lgspline model using various optimization strategies.
+Finds global extrema of a fitted lgspline model using deterministic or stochastic
+optimization strategies. Supports custom objective functions for advanced applications like
+Bayesian optimization acquisition functions.
 }
 \details{
-This method finds the extremum (maximum or minimum) of the fitted Lagrangian multiplier smoothing splinepline.
-It supports several optimization strategies:
+This method finds extrema (maxima or minima) of the fitted function or composite functions
+of the fit. The optimization process can be customized through several approaches:
 \itemize{
-  \item Quick heuristic search within top-performing partition
-  \item Stochastic optimization for exploration
-  \item Custom objective functions for advanced optimization
+  \item Partition-based search: Either focuses on the top-performing partition (quick_heuristic = TRUE)
+        or searches across all partition local maxima
+  \item Stochastic optimization: Adds random noise during optimization for better exploration
+  \item Custom objectives: Supports user-defined objective functions and gradients for
+        specialized optimization tasks like Bayesian optimization
 }
-
-Parallelism is experimental, and should not be used unless the user knows what they are doing.
 }
 \examples{
-\dontrun{
-# Find maximum of fitted model
+\donttest{
+## Basic usage with simulated data
+set.seed(1234)
+x <- runif(1000, -10, 10)
+y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
+model_fit <- lgspline(x, y)
+plot(model_fit)
+
+## Find global maximum and minimum
 max_point <- find_extremum(model_fit)
-
-# Find minimum
 min_point <- find_extremum(model_fit, minimize = TRUE)
+abline(v = max_point$t, col = 'blue')  # Add maximum point
+abline(v = min_point$t, col = 'red')   # Add minimum point
 
+## Advanced usage: custom objective functions
+# expected improvement acquisition function
+ei_custom_objective_function = function(mu, sigma, y_best, ...) {
+  d <- y_best - mu
+  d * pnorm(d/sigma) + sigma * dnorm(d/sigma)
+}
+# derivative of ei
+ei_custom_objective_derivative = function(mu, sigma, y_best, d_mu, ...) {
+  d <- y_best - mu
+  z <- d/sigma
+  d_z <- -d_mu/sigma
+  pnorm(z)*d_mu - d*dnorm(z)*d_z + sigma*z*dnorm(z)*d_z
 }
 
+## Single iteration of Bayesian optimization
+post_draw <- generate_posterior(model_fit)
+acq <- find_extremum(model_fit,
+                     stochastic = TRUE,  # Enable stochastic exploration
+                     B_predict = post_draw$post_draw_coefficients,
+                     sigmasq_predict = post_draw$post_draw_sigmasq,
+                     custom_objective_function = ei_custom_objective_function,
+                     custom_objective_derivative = ei_custom_objective_derivative)
+abline(v = acq$t, col = 'green')  # Add acquisition point
+}
+
+}
+\seealso{
+\code{\link{lgspline}} for fitting the model,
+\code{\link{generate_posterior}} for generating posterior draws
 }

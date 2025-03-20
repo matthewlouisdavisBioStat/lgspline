@@ -1,8 +1,8 @@
-test_that("Basic lgspline fits 1D data correctly", {
+test_that("basic lgspline fits 1D data correctly using base R BFGS for tuning", {
   x <- seq(-9, 9, length.out = 100)
   y <- sin(x) + rnorm(100, 0, 0.1)
 
-  fit <- lgspline(cbind(x), y, K = 5)
+  fit <- lgspline(cbind(x), y, K = 5, use_custom_bfgs = FALSE)
 
   expect_s3_class(fit, "lgspline")
   expect_length(fit$B, fit$K + 1)

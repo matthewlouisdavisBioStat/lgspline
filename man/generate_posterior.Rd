@@ -7,53 +7,107 @@
 generate_posterior(object, ...)
 }
 \arguments{
-\item{object}{A fitted lgspline model object}
+\item{object}{A fitted lgspline model object containing model parameters and fit statistics}
 
-\item{new_sigmasq_tilde}{Dispersion parameter for sampling. Default object$sigmasq_tilde}
+\item{new_sigmasq_tilde}{Numeric; Dispersion parameter for sampling. Controls variance of
+posterior draws. Default object$sigmasq_tilde}
 
-\item{new_predictors}{New data for posterior predictive sampling. Default object$X[[1]]}
+\item{new_predictors}{Matrix; New data matrix for posterior predictive sampling. Should match
+structure of original predictors. Default = predictors as input to \code{lgspline}.}
 
-\item{theta_1}{First parameter for prior gamma distribution of inverse-dispersion. Default 0}
+\item{theta_1}{Numeric; Shape parameter for prior gamma distribution of inverse-dispersion.
+Default 0 implies uniform prior}
 
-\item{theta_2}{Second parameter for prior gamma distribution of inverse-dispersion. Default 0}
+\item{theta_2}{Numeric; Rate parameter for prior gamma distribution of inverse-dispersion.
+Default 0 implies uniform prior}
 
-\item{posterior_predictive_draw}{Random number generation function. Default standard normal generator}
+\item{posterior_predictive_draw}{Function; Random number generator for posterior predictive
+samples. Takes arguments:
+\itemize{
+  \item N: Integer; Number of samples to draw
+  \item mean: Numeric vector; Predicted mean values
+  \item sqrt_dispersion: Numeric vector; Square root of dispersion parameter
+  \item ...: Additional arguments passed through
+}}
 
-\item{draw_dispersion}{Logical; whether to sample dispersion parameter. Default TRUE}
+\item{draw_dispersion}{Logical; whether to sample the dispersion parameter from its
+posterior distribution. When FALSE, uses point estimate. Default TRUE}
 
-\item{include_posterior_predictive}{Logical; whether to generate predictive samples. Default FALSE.}
+\item{include_posterior_predictive}{Logical; whether to generate posterior predictive
+samples for new observations. Default FALSE}
 
-\item{num_draws}{Number of posterior draws. Default 1}
+\item{num_draws}{Integer; Number of posterior draws to generate. Default 1}
 }
 \value{
 A list containing:
 \itemize{
-  \item post_draw_coefficients: Matrix of posterior coefficient draws
-  \item post_draw_sigmasq: Vector of posterior dispersion parameter draws
-  \item post_pred_draw: Matrix of posterior predictive draws (if include_posterior_predictive = TRUE)
+  \item{post_draw_coefficients}{List of length num_draws containing posterior coefficient samples}
+  \item{post_draw_sigmasq}{List of length num_draws containing posterior dispersion parameter
+        samples (or repeated point estimate if draw_dispersion = FALSE)}
+  \item{post_pred_draw}{List of length num_draws containing posterior predictive samples
+        (only if include_posterior_predictive = TRUE)}
 }
 }
 \description{
-S3 method for generating posterior samples from a fitted lgspline model.
+Draws samples from the posterior distribution of model parameters and optionally generates
+posterior predictive samples. Uses Laplace approximation for non-Gaussian responses.
 }
 \details{
-This method implements several posterior sampling strategies:
+Implements posterior sampling using the following approach:
 \itemize{
-  \item Coefficient sampling using model variance-covariance matrix
-  \item Optional dispersion parameter sampling
+  \item Coefficient posterior: Assumes sqrt(N)B ~ N(Btilde, sigma^2UG)
+  \item Dispersion parameter: Sampled from inverse-gamma distribution with user-specified
+        prior parameters (theta_1, theta_2) and model-based sufficient statistics
+  \item Posterior predictive: Generated using custom sampling function, defaulting to
+        Gaussian for standard normal responses
 }
+
+For the dispersion parameter, the sampling process follows:
+\preformatted{
+shape <- theta_1 + 0.5 * model_fit$N
+rate <- theta_2 + 0.5 * sum((model_fit$y - model_fit$ytilde)^2)
+post_draw_sigmasq <- 1/rgamma(1, shape, rate)
+}
+
+Users can modify sufficient statistics by adjusting theta_1 and theta_2 relative to
+the default model-based values.
 }
 \examples{
-\dontrun{
-# Generate standard posterior draws
-post_draws <- generate_posterior(model_fit)
+\donttest{
+## Generate example data
+x <- runif(1000, -10, 10)
+true_y <- 2*sin(x) + -0.06*x^2
+y <- rnorm(length(true_y), true_y, 1)
 
-# Generate posterior with custom random number generator
-custom_draws <- generate_posterior(
-  model_fit,
-  posterior_predictive_draw = function(N, mean, sqrt_dispersion)
-    rt(N, df = 3, ncp = mean)
-)
+## Fit model (using unstandardized expansions for consistent inference)
+model_fit <- lgspline(x, y,
+                     K = 7,
+                     standardize_expansions_for_fitting = FALSE)
+
+## Compare Wald (= t-intervals here) to Monte Carlo credible intervals
+# Get Wald intervals
+wald <- wald_univariate(model_fit,
+                        cv = qt(0.975, df = model_fit$trace_XUGX))
+wald_bounds <- cbind(wald[,"lower_ci"], wald[,"upper_ci"])
+
+## Generate posterior samples (uniform prior)
+post_draws <- generate_posterior(model_fit,
+                               theta_1 = -1,
+                               theta_2 = 0,
+                               num_draws = 2000)
+
+## Convert to matrix and compute credible intervals
+post_mat <- Reduce('cbind',
+                  lapply(post_draws$post_draw_coefficients,
+                        function(x) Reduce("rbind", x)))
+post_bounds <- t(apply(post_mat, 1, quantile, c(0.025, 0.975)))
+
+## Compare intervals
+print(round(cbind(wald_bounds, post_bounds), 4))
 }
 
+}
+\seealso{
+\code{\link{lgspline}} for model fitting,
+\code{\link{wald_univariate}} for Wald-type inference
 }

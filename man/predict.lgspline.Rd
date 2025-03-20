@@ -7,61 +7,115 @@
 \method{predict}{lgspline}(object, ...)
 }
 \arguments{
-\item{object}{A fitted lgspline model object}
+\item{object}{A fitted lgspline model object containing model parameters and fit}
 
-\item{newdata}{New data for prediction. Default NULL uses training data}
+\item{newdata}{Matrix or data.frame; New predictor values for out-of-sample prediction.
+If NULL (default), uses training data}
 
-\item{parallel}{Logical; whether to use parallel processing. Default FALSE}
+\item{parallel}{Logical; whether to use parallel processing for prediction computations.
+Experimental feature - use with caution. Default FALSE}
 
-\item{cl}{Optional cluster object for parallel processing. Default NULL}
+\item{cl}{Optional cluster object for parallel processing. Required if parallel=TRUE.
+Default NULL}
 
-\item{chunk_size}{Size of computational chunks for parallel processing. Default NULL}
+\item{chunk_size}{Integer; Size of computational chunks for parallel processing.
+Default NULL}
 
-\item{num_chunks}{Number of chunks for parallel processing. Default NULL}
+\item{num_chunks}{Integer; Number of chunks for parallel processing. Default NULL}
 
-\item{rem_chunks}{Number of remainder chunks for parallel processing. Default NULL}
+\item{rem_chunks}{Integer; Number of remainder chunks for parallel processing.
+Default NULL}
 
-\item{B_predict}{Optional custom coefficient matrix for prediction. Default object$B}
+\item{B_predict}{Matrix; Optional custom coefficient matrix for prediction.
+Default object$B}
 
-\item{take_first_derivatives}{Logical; whether to compute first derivatives. Default FALSE}
+\item{take_first_derivatives}{Logical; whether to compute first derivatives of the
+fitted function. Default FALSE}
 
-\item{take_second_derivatives}{Logical; whether to compute second derivatives. Default FALSE}
+\item{take_second_derivatives}{Logical; whether to compute second derivatives of the
+fitted function. Default FALSE}
 
-\item{just_expansions}{Logical; whether to return only basis expansions. Default FALSE}
+\item{expansions_only}{Logical; whether to return only basis expansions without
+computing predictions. Default FALSE}
 }
 \value{
-One of:
+Depending on the options selected, returns one of:
 \itemize{
-  \item Vector of predicted values (default)
-  \item List containing predictions and derivatives (if derivatives requested)
-  \item List of basis expansions (if just_expansions = TRUE)
+  \item Numeric vector of predicted values (default)
+  \item List containing:
+    \itemize{
+      \item predictions: Numeric vector of fitted values
+      \item first_deriv: Numeric vector of first derivatives (if requested)
+      \item second_deriv: Numeric vector of second derivatives (if requested)
+    }
+  \item List of basis expansions (if expansions_only = TRUE)
 }
 }
 \description{
-S3 method for generating predictions from a fitted lgspline model.
+Generates predictions, derivatives, and basis expansions from a fitted lgspline model.
+Supports both in-sample and out-of-sample prediction with optional parallel processing.
 }
 \details{
-This method implements several prediction strategies:
+Implements multiple prediction capabilities:
 \itemize{
-  \item Standard value prediction
-  \item First and second derivative computation
+  \item Standard prediction: Returns fitted values for new data points
+  \item Derivative computation: Calculates first and/or second derivatives
+  \item Basis expansion: Returns design matrix of basis functions
+  \item Correlation structures: Supports non-Gaussian GLM correlation via
+        variance-covariance matrices
 }
 
-Parallelism for making predictions is experimental, and should not be used unless the user knows what they are doing.
+The parallel processing feature is experimental and should be used with caution.
+When enabled, computations are split across chunks and processed in parallel,
+which may improve performance for large datasets.
 }
 \examples{
-\dontrun{
-## Standard predictions
+\donttest{
+## Generate example data
+set.seed(1234)
+x <- runif(1000, -10, 10)
+y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
+
+## Fit model
+model_fit <- lgspline(x, y)
+
+## Generate predictions for new data
+newdata <- sort(rnorm(10000))
 preds <- predict(model_fit, newdata)
 
-## Compute first derivatives
-deriv_preds1 <- predict(model_fit, newdata,
-                      take_first_derivatives = TRUE)
+## Compute derivatives
+deriv1 <- predict(model_fit, newdata,
+                 take_first_derivatives = TRUE)
+deriv2 <- predict(model_fit, newdata,
+                 take_second_derivatives = TRUE)
 
-## Compute second derivatives
-deriv_preds2 <- predict(model_fit, newdata,
-                      take_second_derivatives = TRUE)
+## Visualize results
+layout(matrix(c(1,1,2,2,3,3,1,1,2,2,3,3),
+             byrow = TRUE, nrow = 2))
 
+## Plot function
+plot(newdata, preds,
+     main = 'Fitted Function',
+     xlab = 't',
+     ylab = "f(t)")
+
+## Plot first derivative
+plot(newdata,
+     deriv1$first_deriv,
+     main = 'First Derivative',
+     xlab = 't',
+     ylab = "f'(t)")
+
+## Plot second derivative
+plot(newdata,
+     deriv2$second_deriv,
+     main = 'Second Derivative',
+     xlab = 't',
+     ylab = "f''(t)")
 }
 
+}
+\seealso{
+\code{\link{lgspline}} for model fitting,
+\code{\link{plot.lgspline}} for visualizing predictions
 }

@@ -7,60 +7,125 @@
 \method{plot}{lgspline}(object, ...)
 }
 \arguments{
-\item{object}{lgspline model fit object to plot (default uses current model)}
+\item{object}{A fitted lgspline model object containing the model fit to be plotted}
 
-\item{...}{Additional arguments passed to plot/plotly for 1-D/2-D respectively}
+\item{...}{Additional arguments passed to underlying plot functions:
+\itemize{
+  \item 1D: Passed to \code{\link[graphics]{plot}}
+  \item 2D: Passed to \code{\link[plotly]{plot_ly}}
+}}
 
-\item{show_formulas}{Logical, whether to display model formulas (default FALSE)}
+\item{show_formulas}{Logical; whether to display analytical formulas for each partition.
+Default FALSE}
 
-\item{digits}{Number of decimal places for formula display (default 4)}
+\item{digits}{Integer; Number of decimal places for coefficient display in formulas.
+Default 4}
 
-\item{legend_pos}{Position of legend for 1D plots (default "topright")}
+\item{legend_pos}{Character; Position of legend for 1D plots ("top", "bottom", "left",
+"right", "topleft", etc.). Default "topright"}
 
-\item{custom_response_lab}{Label for response variable (default "y")}
+\item{custom_response_lab}{Character; Label for response variable axis. Default "y"}
 
-\item{custom_predictor_lab}{Label for predictor variable, x-axis, for one-dimensional plots only (default NULL, which gets converted to column name of predictor if so)}
+\item{custom_predictor_lab}{Character; Label for predictor axis in 1D plots. If NULL
+(default), uses predictor column name}
 
-\item{custom_predictor_lab1}{Label for predictor variable, x1-axis, for two-dimensional plots only (default NULL, which gets converted to corresponding column name of predictors if so)}
+\item{custom_predictor_lab1}{Character; Label for first predictor axis (x1) in 2D plots.
+If NULL (default), uses first predictor column name}
 
-\item{custom_predictor_lab2}{Label for predictor variable, x2-axis, for two-dimensional plots only (default NULL, which gets converted to corresponding column name of predictors if so)}
+\item{custom_predictor_lab2}{Character; Label for second predictor axis (x2) in 2D plots.
+If NULL (default), uses second predictor column name}
 
-\item{custom_formula_lab}{Label for predicted/fitted response on link-fxn scale. When NULL (by default), is set equal to "link(E[custom_response_lab])".}
+\item{custom_formula_lab}{Character; Label for fitted response on link function scale.
+If NULL (default), uses "link(E[custom_response_lab])" for non-Gaussian models
+with non-identity link, otherwise uses custom_response_lab}
 
-\item{custom_title}{Plot title (default "Fitted Function")}
+\item{custom_title}{Character; Main plot title. Default "Fitted Function"}
 
-\item{text_size_formula}{Passes into cex argument of legend() for 1-D plots, and into hover font size of 2-D plots. When NULL (by default), it gets converted to 0.8 for 1-D, 8 for 2-D.}
+\item{text_size_formula}{Numeric; Text size for formula display. Passed to cex in legend()
+for 1D plots and hover font size for 2D plots. If NULL (default), uses 0.8 for 1D
+and 8 for 2D}
 
-\item{new_predictors}{Passes a matrix of new predictors predictors to plot (default uses in-sample fit)}
+\item{legend_args}{List; Additional arguments passed to legend() for 1D plots}
 
-\item{xlim}{Passes into xlim argument of plot() if not NULL, for 1-D only}
+\item{new_predictors}{Matrix; Optional new predictor values for prediction. If NULL
+(default), uses original fitting data}
 
-\item{ylim}{Passes into the ylim argument of plot() if not NULL, for 1-D only}
+\item{xlim}{Numeric vector; Optional x-axis limits for 1D plots. Default NULL}
+
+\item{ylim}{Numeric vector; Optional y-axis limits for 1D plots. Default NULL}
+
+\item{color_function}{Function; Returns colors for plotting by partition, must return K+1 vector of valid colors. Defaults to NULL, in which case \code{rainbow(K+1)} is used for 1D and \code{color_function <- colorRampPalette(RColorBrewer::brewer.pal(8, "Spectral"))(K+1)} used in multiple.}
+
+\item{add}{Logical; If TRUE, adds to existing plot (1D only). Similar to add in
+\code{\link[graphics]{hist}}. Default FALSE}
+
+\item{vars}{Numeric or character vector; Optional indices for selecting variables to plot. Can either be numeric (the column indices of "predictors" or "data") or character (the column names, if available from "predictors" or "data")}
 }
 \value{
-Generates a plot of the fitted model:
+Returns
 \itemize{
-  \item 1D models: Line plot with partitions
-  \item 2D models: 3D scatter plot
-  \item Optional formula annotations
+  \item 1D: Base R plot object showing fitted curve and optional formulas
+  \item 2D: Plotly object showing interactive surface plot
 }
 }
 \description{
-Visualize the fitted Lagrangian multiplier smoothing splinepline model
+Creates visualizations of fitted spline models, supporting both 1D line plots and 2D surface
+plots with optional formula annotations and customizable aesthetics.
 }
 \details{
-Plotting strategies:
+Produces different visualizations based on model dimensionality:
 \itemize{
-  \item Supports 1D and 2D model visualizations
-  \item Optional smooth interpolation
-  \item Customizable plot aesthetics
+  \item 1D models: Line plot showing fitted function across partitions, with optional
+        data points and formula annotations
+  \item 2D models: Interactive 3D surface plot using plotly, with hover text showing
+        predicted values and optional formula display
 }
+
+Partition boundaries are indicated by color changes in both 1D and 2D plots.
+
+When plotting using "select_vars" option, it is recommended to use the
+"new_predictors" argument to set all terms not involved with plotting to 0
+to avoid non-sensical results. But for some cases, it may be useful to set
+other predictors fixed at certain values. By default, observed values in the
+data set are used.
+
+The function relies on linear expansions being present - if (for example) a
+user includes the argument "_1_" or "_2_" in "exclude_these_expansions", then
+this function will not be able to extract the predictors needed for plotting.
+
+For this case, try constraining the effects of these terms to 0 instead using
+"constraint_vectors" and "constraint_values" argument, so they are kept in
+the expansions but their corresponding coefficients will be 0.
 }
 \examples{
-\dontrun{
-# Standard plot with formulas
-plot(model_fit, show_formulas = TRUE)
+\donttest{
+## Generate example data
+set.seed(1234)
+x <- runif(1000, -10, 10)
+y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
 
+## Fit model with 10 partitions
+model_fit <- lgspline(x, y, K = 9)
+
+## Basic plot
+plot(model_fit)
+
+## Customized plot with formulas
+plot(model_fit,
+     show_formulas = TRUE,           # Show partition formulas
+     custom_response_lab = 'Price',   # Custom axis labels
+     custom_predictor_lab = 'Size',
+     custom_title = 'Price vs Size',  # Custom title
+     digits = 2,                      # Round coefficients
+     legend_pos = 'bottom',           # Move legend
+     text_size_formula = 0.375,       # Adjust formula text size
+     pch = 16,                        # Point style
+     cex.main = 1.25)                 # Title size
 }
 
+}
+\seealso{
+\code{\link{lgspline}} for model fitting,
+\code{\link[graphics]{plot}} for additional 1D plot parameters,
+\code{\link[plotly]{plot_ly}} for additional 2D plot parameters
 }

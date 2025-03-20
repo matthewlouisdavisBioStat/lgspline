@@ -67,7 +67,7 @@ test_that("1D complex function examples run without error", {
 })
 
 
-test_that("Trees data examples run without error", {
+test_that("trees data examples run without error", {
   expect_no_error({
 
     ## 2-D Setup
@@ -80,22 +80,23 @@ test_that("Trees data examples run without error", {
       trees,
       log_initial_flat = 1,
       log_initial_wiggle = 1e-8,
-      K = 0,
+      K = 1,
       expansions_only = TRUE,
       family = Gamma(link = 'log')
     )
     expect_null(exp_only$B)
 
-    ## Fit model assuming gamma-distributed outcome, no knots
-    # no intercept,
-    # with Height kept for linear effects + interaction effects only
+    ## Fit model assuming gamma-distributed outcome
     model_fit <- lgspline(
       Volume ~ spl(Girth) + Height*Girth,
       trees,
       log_initial_flat = 1,
       log_initial_wiggle = 1e-8,
-      K = 0,
-      family = Gamma(link = 'log')
+      K = 1,
+      opt = FALSE,
+      family = Gamma(link = 'log'),
+      custom_knots = exp_only$knots,
+      make_partition_list = exp_only$make_partition_list
     )
 
     ## Some basic functionality
@@ -136,15 +137,15 @@ test_that("Trees data examples run without error", {
       unique_penalty_per_predictor = FALSE,
       opt = FALSE,
       K = 4,
-      qp_Amat_fxn = function(N, p, K, X_block, colnm, scales) {
+      qp_Amat_fxn = function(N, p, K, X_block, colnm, scales, fxn, ...) {
         mat <- l1_constraint_matrix(p, K)
         mat
       },
-      qp_bvec_fxn = function(qp_Amat, N, p, K, X_block, colnm, scales) {
+      qp_bvec_fxn = function(qp_Amat, N, p, K, X_block, colnm, scales, fxn, ...) {
         vec <- l1_bound_vector(qp_Amat, scales, l1_bound)
         vec
       },
-      qp_meq_fxn = function(qp_Amat, N, p, K, X_block, colnm, scales) 0
+      qp_meq_fxn = function(qp_Amat, N, p, K, X_block, colnm, scales, fxn, ... ) 0
     )
 
     ## Plotting with some custom options
@@ -169,7 +170,7 @@ test_that("Trees data examples run without error", {
       custom_objective_function = function(mu, sigma, ybest){
         0.5*(mu - median(trees$Volume))^2
       },
-      custom_objective_gradient = function(mu, sigma, ybest, d_mu){
+      custom_objective_derivative = function(mu, sigma, ybest, d_mu){
         (mu - median(trees$Volume)) * d_mu
       }
     )
@@ -215,12 +216,12 @@ test_that("simple linear regression approximately matches base R inference", {
 
 })
 
-test_that("Nested Weibull AFT models can be fit under custom constraints", {
+test_that("Weibull AFT models can be fit under custom constraints", {
   set.seed(1234)
-  x1 <- rnorm(100)
-  x2 <- rbinom(100, 1, 0.5)
+  x1 <- rnorm(1000)
+  x2 <- rbinom(1000, 1, 0.5)
   yraw <- rexp(exp(0.01*x1 + 0.01*x2))
-  status <- rbinom(100, 1, 0.25)
+  status <- rbinom(1000, 1, 0.25)
   yobs <- ifelse(status, runif(1, 0, yraw), yraw)
   df <- data.frame(
     y = yobs,
@@ -228,152 +229,25 @@ test_that("Nested Weibull AFT models can be fit under custom constraints", {
     x2 = x2
   )
 
-  ## Full model
-  # Using custom functionalty
-  model_fit <- lgspline(y ~ spl(x1) + x1*x2,
+  ## Weibull AFT
+  model_fit <- lgspline(y ~ spl(x1) + x2,
                         df,
-                        flat_ridge_penalty = 0,
-                        wiggle_penalty = 0,
-                        log_initial_wiggle = log(c(10)),
-                        log_initial_flat = log(c(10)),
-                        include_quadratic_interactions = FALSE,
-                        ## Unconstrained fit functions and associates
-                        unconstrained_fit_fxn = unconstrained_fit_weibull,
-                        family = list(family = "weibull",
-                                      link = "log",
-                                      linkfun = log,
-                                      linkinv = exp,
-                                      custom_tuning_loss =
-                                       function(y,
-                                                mu,
-                                                order_indices,
-                                                family,
-                                                observation_weights,
-                                                status){
-                                        log_mu <- log(mu)
-                                        log_y <- log(y)
-                                        status <- status[order_indices]
-
-                                        ## Initialize scale
-                                        init_scale <-
-                                          weibull_scale(log_y,
-                                                        mean(log_y),
-                                                        status[order_indices],
-                                                        observation_weights)
-                                        ## Find scale
-                                        scale <- optim(
-                                          init_scale,
-                                          fn = function(par){
-                                            -loglik_weibull(log_y,
-                                                            log_mu,
-                                                            status,
-                                                            par,
-                                                            observation_weights)
-                                          },
-                                          lower = init_scale/5,
-                                          upper = init_scale*5,
-                                          method = 'Brent'
-                                        )$par
-
-                                        ## -2 * log-likelihood
-                                        dev <- -2*(
-                                          ## Log-likelihood contributions
-                                          status * (-log(scale) +
-                                                      (1/scale - 1)*log_y -
-                                                      log_mu/scale) -
-                                            (exp((log_y - log_mu)/scale))
-                                        )
-
-                                        return(dev * observation_weights)
-                                      }),
-                        need_dispersion_for_estimation = TRUE,
-                        dispersion_function = function(mu,
-                                                       y,
-                                                       order_indices,
-                                                       family,
-                                                       observation_weights,
-                                                       status){
-
-                          ## Maximizes log-likelihood of right-censored data
-                          log_mu <- log(mu)
-                          log_y <- log(y)
-                          observation_weights <- c(observation_weights)
-                          status <- status[order_indices]
-
-                          ## Initialize scale
-                          init_scale <-
-                            weibull_scale(log_y,
-                                          mean(log_y),
-                                          status[order_indices],
-                                          observation_weights)
-                          ## Find scale
-                          scale <- optim(
-                            init_scale,
-                            fn = function(par){
-                              -loglik_weibull(log_y,
-                                              log_mu,
-                                              status,
-                                              par,
-                                              observation_weights)
-                            },
-                            lower = init_scale/5,
-                            upper = init_scale*5,
-                            method = 'Brent'
-                          )$par
-
-                          return(scale)
-                        },
-                        ## Shows up as diagonal D in the G matrix,
-                        # G = (X^TDX + L)^{-1}
-                        # Coincides with the IRWLS or Newton-Raphson weights
-                        glm_weight_function = function(mu,
-                                                       y,
-                                                       order_indices,
-                                                       family,
-                                                       dispersion,
-                                                       observation_weights,
-                                                       status){
-                          val <- exp((log(y) - log(mu))/dispersion)
-                          if(any(!is.finite(val))){
-                            return(rep(1, length(val)))
-                          }
-                          newval <- val * c(observation_weights)
-                          return(newval)
-                        },
-                        shur_correction_function = weibull_shur_correction,
-                        K = 0,
-                        opt = FALSE,
-                        return_varcovmat = TRUE,
-                        observation_weights = abs(rnorm(nrow(df))),
-                        standardize_response = FALSE,
-                        VhalfInv = diag(nrow(df)),
-                        status = status)
-
-  ## Nested model, coefficients must sum to 1
-  # Using default Weibull functions
-  # And previously selected knots + penalties
-  model_fit <- lgspline(y ~ spl(x1) + x1*x2,
-                        df,
-                        log_initial_wiggle = log(c(10)),
-                        log_initial_flat = log(c(10)),
-                        include_quadratic_interactions = FALSE,
                         unconstrained_fit_fxn = unconstrained_fit_weibull,
                         family = weibull_family(),
                         need_dispersion_for_estimation = TRUE,
+                        qp_score_function = weibull_qp_score_function(),
                         dispersion_function = weibull_dispersion_function,
                         glm_weight_function = weibull_glm_weight_function,
                         shur_correction_function = weibull_shur_correction,
-                        K = model_fit$K,
-                        previously_tuned_penalties = model_fit$penalties,
-                        make_partition_list = model_fit$make_partition_list,
-                        custom_knots = model_fit$knots,
+                        K = 1,
                         opt = FALSE,
                         return_varcovmat = TRUE,
-                        observation_weights = abs(rnorm(100)),
-                        constraint_vectors = cbind(rep(1, model_fit$P)),
-                        null_constraint = 1,
-                        status = status)
+                        observation_weights = abs(rnorm(1000)),
+                        constraint_vectors = cbind(rep(1, 12)),
+                        null_constraint = matrix(12),
+                        status = status,
+                        verbose = TRUE)
 
-  ## Check sum-to-one constraint
-  expect_equal(round(sum(unlist(model_fit$B)), 8), 1)
+  ## Check sum-to-P constraint
+  expect_equal(round(sum(unlist(model_fit$B)), 10), 12)
 })
