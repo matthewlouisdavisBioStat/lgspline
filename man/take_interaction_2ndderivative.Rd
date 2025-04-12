@@ -41,10 +41,4 @@ This function is necessary to compute total second derivatives as the sum of
 second partial "pure" derivatives (d^2/dx^2) plus second partial "mixed"
 derivative (d^2/dxdz), for a predictor x and all other predictors z
 }
-\details{
-Calculates second derivatives for:
-* Linear-linear interactions (constant)
-* Linear-quadratic interactions (linear in other variable)
-* Three-way interactions (sum of other variables)
-}
 \keyword{internal}

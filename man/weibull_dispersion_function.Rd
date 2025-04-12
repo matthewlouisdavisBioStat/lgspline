@@ -41,13 +41,6 @@ This both provides a tool for actually fitting Weibull AFT Models, and
 boilerplate code for users who wish to incorporate Lagrangian multiplier
 smoothing splines into their own custom models.
 }
-\details{
-Estimates model scale through:
-- Initial scale estimation with intercept-only model using
-  \code{\link[weibull_scale]{weibull_scale}}
-- Optimization of log-likelihood for right-censored data using Brent's method
-- Handling of observation weights and censoring status
-}
 \examples{
 \donttest{
 ## Simulate survival data with covariates

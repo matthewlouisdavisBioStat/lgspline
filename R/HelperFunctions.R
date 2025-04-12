@@ -127,8 +127,11 @@ softplus <- function(x){
 #'
 #' @details
 #' Tries methods in order:
+#'
 #' 1. Direct inversion using armaInv()
+#'
 #' 2. Generalized inverse using eigendecomposition
+#'
 #' 3. Returns identity matrix with warning if both fail
 #'
 #' For eigendecomposition, uses a small ridge penalty (1e-16) for stability and
@@ -507,10 +510,6 @@ get_polynomial_expansions <- function(predictors,
 #'
 #' @return Numeric matrix containing derivatives of polynomial terms, with same dimensions as input matrix
 #'
-#' @details
-#' * For first derivatives: linear terms → 1, quadratic → 2x, cubic → 3x², quartic → 4x³
-#' * For second derivatives: linear terms → 0, quadratic → 2, cubic → 6x, quartic → 12x²
-#'
 #' @keywords internal
 #' @export
 take_derivative <- function(dat, var, second = FALSE, scale) {
@@ -594,12 +593,6 @@ take_derivative <- function(dat, var, second = FALSE, scale) {
 #' @param triplet_cols Integer vector; column indices for three-way interactions
 #' @param colnm_expansions Character vector; column names of expansions for each partition
 #' @param power1_cols Integer vector; column indices of linear terms
-#'
-#' @details
-#' Calculates second derivatives for:
-#' * Linear-linear interactions (constant)
-#' * Linear-quadratic interactions (linear in other variable)
-#' * Three-way interactions (sum of other variables)
 #'
 #' @return Numeric matrix of second derivatives, same dimensions as input
 #'
@@ -714,12 +707,6 @@ take_interaction_2ndderivative <-
 #' @param nr Integer; number of rows in input matrix
 #' @param mat Numeric matrix; data to be partitioned
 #' @param K Integer; number of interior knots (resulting in K+1 partitions)
-#'
-#' @details
-#' * For K=0, returns original matrix in a single-element list
-#' * For K>0, creates K+1 partitions using (-Inf, knot_1, ..., knot_K, Inf) as boundaries
-#' * Each row is assigned to partition i if partition_codes[row] falls between bounds[i] and bounds[i+1]
-#' * Empty partitions return 0-row matrices
 #'
 #' @return List of length K+1, each element containing the submatrix for that partition
 #'
@@ -950,18 +937,6 @@ make_derivative_matrix  <-  function(
 #' @param include_quadratic_interactions Logical; include quadratic interactions
 #' @param colnm_expansions Character vector; column names for basis expansions
 #' @param expansion_scales Numeric vector; scaling factors for standardization
-#'
-#' @details
-#' Constraint matrix structure:
-#' - Rows: Each constraint at knot locations
-#' - Columns: Coefficients for each partition
-#' - Values: +1/-1 pattern enforcing equality between adjacent partitions
-#'
-#' Constraints enforced (if enabled):
-#' - Function value continuity at knots
-#' - First derivative continuity at knots
-#' - Second derivative continuity at knots
-#' - Interaction term continuity at knots
 #'
 #' @return Matrix A of constraint coefficients. Columns correspond to
 #' constraints, rows to coefficients across all partitions.
@@ -5272,20 +5247,6 @@ expgrid <- function(vec_list, indices) {
 #' @param colnm_expansions Character; column names for linking penalties to predictors
 #' @param just_Lambda Logical; return only combined penalty matrix
 #'
-#' @details
-#' Penalty matrix structure:
-#' - Base penalty = wiggle_penalty * (L1 + L2)
-#' - L1 = integrated squared second derivative penalty
-#' - L2 = ridge penalty (diagonal or custom)
-#' - Predictor penalties scale L1 elements involving specific predictors
-#' - Partition penalties create unique L1 scaling per partition
-#'
-#' Implementation features:
-#' - Memory efficient for large problems
-#' - Handles missing/zero penalties
-#' - Maintains sparsity where possible
-#' - Links penalties to predictors via column names
-#'
 #' @return List containing:
 #' \itemize{
 #'   \item Lambda - Combined nc x nc penalty matrix
@@ -5584,19 +5545,6 @@ compute_G_eigen <- function(X_gram,
 #' @param K Integer; number of interior knots
 #' @param parallel,cl,chunk_size,num_chunks,rem_chunks Parallel computation parameters
 #'
-#' @details
-#' Key steps:
-#' * Handles NA/zero values in input matrices
-#' * Uses eigendecomposition to compute matrix square root derivative
-#' * Ensures numerical stability via eigenvalue thresholding
-#' * Supports parallel processing with chunking
-#'
-#' Mathematical details:
-#' * For each partition k:
-#'   - Compute eigendecomposition of dG_k/dλ
-#'   - Floor eigenvalues at 1, zero out negatives
-#'   - Compute dG_k^{1/2}/dλ for all k = 1...(K+1) partitions
-#'
 #' @return List of nc x nc = p x p matrices containing dG_k^{1/2}/dλ for each partition k
 #'
 #' @keywords internal
@@ -5679,8 +5627,11 @@ compute_dGhalf <- function(dG_dlambda,
 #'
 #' @details
 #' Returns partition centers via:
+#'
 #' 1. Custom supplied centers if provided as a valid K x q matrix
+#'
 #' 2. kmeans clustering on all non-spline variables if cluster_on_indicators=TRUE
+#'
 #' 3. kmeans clustering excluding binary variables if cluster_on_indicators=FALSE
 #'
 #' @return Matrix of cluster centers
@@ -5721,17 +5672,6 @@ get_centers <- function(data, K, cluster_args, cluster_on_indicators) {
 #' @param parallel Logical; use parallel processing
 #' @param cl Cluster object for parallel execution
 #' @param neighbor_tolerance Numeric; scaling factor for distance comparisons
-#'
-#' @details
-#' Algorithm:
-#' 1. For each pair of centers (i,j):
-#'    - Compute midpoint m = (c_i + c_j)/2
-#'    - Compare d(m,c_i) to d(m,c_k) for all other centers k
-#'    - Centers are neighbors if midpoint closer to i,j than others
-#' 2. Supports parallel processing for large numbers of centers:
-#'    - Divides center pairs into chunks
-#'    - Processes chunks in parallel
-#'    - Combines results into neighbor list
 #'
 #' @return List where element i contains indices of centers neighboring center i
 #'
@@ -6738,13 +6678,10 @@ weibull_scale <- function(log_y, log_mu, status, weights = 1){
 #' A list containing family-specific components for survival model estimation
 #'
 #' @details
-#' Provides a comprehensive family specification for Weibull AFT models, including:
-#' - Family name
-#' - Link function
-#' - Inverse link function
-#' - Custom loss function for model tuning
+#' Provides a comprehensive family specification for Weibull AFT models, including Family
+#' name, link function, inverse link function, and custom loss function for model tuning
 #'
-#' Supports right-censored survival data with flexible parameter estimation
+#' Supports right-censored survival data with flexible parameter estimation.
 #'
 #' @examples
 #' \donttest{
@@ -6855,13 +6792,6 @@ weibull_family <- function()list(family = "weibull",
 #'
 #' @return
 #' Squared scale estimate for the Weibull AFT model
-#'
-#' @details
-#' Estimates model scale through:
-#' - Initial scale estimation with intercept-only model using
-#'   \code{\link[weibull_scale]{weibull_scale}}
-#' - Optimization of log-likelihood for right-censored data using Brent's method
-#' - Handling of observation weights and censoring status
 #'
 #' @seealso [weibull_scale()] for the underlying scale estimation function
 #'
@@ -7510,12 +7440,6 @@ collapse_block_diagonal <- function(matlist){
 #' @return
 #' Character vector of interaction pattern strings
 #'
-#' @details
-#' Supports generating:
-#' - Linear interactions for 2 variables
-#' - Quadratic interactions for 2 variables
-#' - Three-way interactions for 3 variables
-#'
 #' @keywords internal
 #' @export
 get_interaction_patterns <- function(vars) {
@@ -7571,16 +7495,11 @@ get_interaction_patterns <- function(vars) {
 #' }
 #'
 #' @details
-#' Implements BFGS with following features:
-#' - Uses inverse Hessian updates to avoid matrix inversion
-#' - Combined objective/gradient evaluation for computational efficiency
-#' - Damped line search with backtracking
-#' - Restarts if curvature condition fails
-#' - Early termination if step size too small
-#' - Defaults to finite-difference approximation if gradient is NULL or NA
-#'
-#' Used internally by lgspline() for optimizing correlation parameters via REML
+#' Implements BFGS, used internally by lgspline() for optimizing correlation parameters via REML
 #' when argument for computing gradient \code{VhalfInv_grad} is not NULL.
+#'
+#' This is more efficient than native BFGS, since gradient and loss can be computed simultaneously,
+#' avoiding re-computing components in "fn" and "gr" separately.
 #'
 #' @examples
 #' \donttest{

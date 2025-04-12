@@ -22,8 +22,4 @@ Numeric matrix containing derivatives of polynomial terms, with same dimensions 
 Computes first or second derivatives of polynomial terms in a design matrix with
 respect to a specified variable. Handles polynomial terms up to fourth degree.
 }
-\details{
-* For first derivatives: linear terms → 1, quadratic → 2x, cubic → 3x², quartic → 4x³
-* For second derivatives: linear terms → 0, quadratic → 2, cubic → 6x, quartic → 12x²
-}
 \keyword{internal}

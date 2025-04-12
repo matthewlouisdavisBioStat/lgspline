@@ -22,15 +22,4 @@ List where element i contains indices of centers neighboring center i
 Identifies neighboring partitions by evaluating whether the midpoint between
 cluster centers is closer to those centers than to any other center.
 }
-\details{
-Algorithm:
-1. For each pair of centers (i,j):
-   - Compute midpoint m = (c_i + c_j)/2
-   - Compare d(m,c_i) to d(m,c_k) for all other centers k
-   - Centers are neighbors if midpoint closer to i,j than others
-2. Supports parallel processing for large numbers of centers:
-   - Divides center pairs into chunks
-   - Processes chunks in parallel
-   - Combines results into neighbor list
-}
 \keyword{internal}

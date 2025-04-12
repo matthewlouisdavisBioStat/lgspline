@@ -24,10 +24,4 @@ List of length K+1, each element containing the submatrix for that partition
 Takes an input N x p matrix of polynomial expansions and outputs a list of
 length K+1, isolating the rows of the input corresponding to assigned partition.
 }
-\details{
-* For K=0, returns original matrix in a single-element list
-* For K>0, creates K+1 partitions using (-Inf, knot_1, ..., knot_K, Inf) as boundaries
-* Each row is assigned to partition i if partition_codes[row] falls between bounds[i] and bounds[i+1]
-* Empty partitions return 0-row matrices
-}
 \keyword{internal}

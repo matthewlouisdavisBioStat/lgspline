@@ -67,16 +67,4 @@ constraints, rows to coefficients across all partitions.
 Constructs constraint matrix A enforcing continuity and smoothness at knot boundaries
 by constraining function values, derivatives, and interactions between partitions.
 }
-\details{
-Constraint matrix structure:
-- Rows: Each constraint at knot locations
-- Columns: Coefficients for each partition
-- Values: +1/-1 pattern enforcing equality between adjacent partitions
-
-Constraints enforced (if enabled):
-- Function value continuity at knots
-- First derivative continuity at knots
-- Second derivative continuity at knots
-- Interaction term continuity at knots
-}
 \keyword{internal}

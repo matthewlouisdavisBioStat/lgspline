@@ -62,7 +62,7 @@ print.summary.lgspline <- function(x, ...) {
   cat("Basis Functions per Partition:", x$basis_functions, "\n")
   if(length(unlist(x$coefficients)) > 1){
     cat("----------------------------------------------------\n")
-    cat("Coefficients and Wald Inference: \n")
+    cat("Univariate Inference: \n")
     print(x$coefficients)
     cat('\n')
     cat("Dispersion:", x$sigmasq_tilde, "\n")
@@ -100,19 +100,21 @@ summary.lgspline <- function(object, ...) {
       if(object$family$family == 'gaussian' &
          object$family$link == 'identity'){
         stat <- 't value'
+        pvallab <- 'Pr(>|t|)'
       } else {
         stat <- 'z value'
+        pvallab <- 'Pr(>|z|)'
       }
       colnames(wald_res) <- c('Estimate',
                               'Std. Error',
                               stat,
                               'CI LB',
                               'CI UB',
-                              'Pr(>|z|)')
+                              pvallab)
       wald_res <- wald_res[,c('Estimate',
                               'Std. Error',
                               stat,
-                              'Pr(>|z|)',
+                              pvallab,
                               'CI LB',
                               'CI UB')]
     }, silent = TRUE)
@@ -142,7 +144,7 @@ summary.lgspline <- function(object, ...) {
     cat("Partitions:", x$knots + 1, "\n")
     cat("Basis Functions per Partition:", x$basis_functions, "\n")
     cat("----------------------------------------------------\n")
-    cat("Wald Inference: \n")
+    cat("Univariate Inference: \n")
     print(x$coefficients)
     cat('\n')
     cat("Dispersion:", x$sigmasq_tilde, "\n")

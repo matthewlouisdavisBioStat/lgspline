@@ -347,7 +347,7 @@ This penalty structure defines a meaningful metric for function smoothness, pull
 \subsection{Penalty Optimization}{
 A penalized variant of Generalized Cross Validation (GCV) is used to find optimal penalties:
 
-\deqn{\text{GCV} = \frac{\sum_{i=1}^N r_i^2}{N \big(1-\frac{1}{N}\text{trace}(\mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^T) \big)} + \frac{mp}{2} \sum_{l=1}^{L}(\log \lambda_{l})^2}
+\deqn{\text{GCV} = \frac{\sum_{i=1}^N r_i^2}{N \big(1-\frac{1}{N}\text{trace}(\mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^T) \big)^2} + \frac{mp}{2} \sum_{l=1}^{L}(\log (1+\lambda_{l})-1)^2}
 
 where:
 \itemize{
@@ -369,19 +369,3 @@ Optimization employs:
 }
 }
 
-\references{
-Wood, S.N. (2017). Generalized Additive Models: An Introduction with R
-(2nd edition). Chapman and Hall/CRC Press, Boca Raton, FL.
-
-Wahba, G. (1990). Spline Models for Observational Data. SIAM, Philadelphia.
-
-Goldfarb, D. and Idnani, A. (1983). A numerically stable dual method for
-solving strictly convex quadratic programs. Mathematical Programming, 27, 1-33.
-
-Craven, P. and Wahba, G. (1979). Smoothing noisy data with spline functions:
-Estimating the correct degree of smoothing by the method of generalized
-cross-validation. Numerische Mathematik, 31, 377-403.
-
-Buse, A. and Lim, L. (1977). Cubic splines as a special case of restricted
-least squares. Journal of the American Statistical Association, 72, 64-68.
-}

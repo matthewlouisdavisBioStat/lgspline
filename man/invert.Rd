@@ -20,8 +20,11 @@ approaches if standard inversion fails.
 }
 \details{
 Tries methods in order:
+
 1. Direct inversion using armaInv()
+
 2. Generalized inverse using eigendecomposition
+
 3. Returns identity matrix with warning if both fail
 
 For eigendecomposition, uses a small ridge penalty (1e-16) for stability and

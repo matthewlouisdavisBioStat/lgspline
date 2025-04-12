@@ -53,18 +53,4 @@ If just_Lambda=TRUE and no partition penalties, returns only Lambda matrix.
 Builds penalty matrix combining smoothing spline and ridge penalties with optional
 predictor/partition-specific components. Handles custom penalties and scaling.
 }
-\details{
-Penalty matrix structure:
-- Base penalty = wiggle_penalty * (L1 + L2)
-- L1 = integrated squared second derivative penalty
-- L2 = ridge penalty (diagonal or custom)
-- Predictor penalties scale L1 elements involving specific predictors
-- Partition penalties create unique L1 scaling per partition
-
-Implementation features:
-- Memory efficient for large problems
-- Handles missing/zero penalties
-- Maintains sparsity where possible
-- Links penalties to predictors via column names
-}
 \keyword{internal}

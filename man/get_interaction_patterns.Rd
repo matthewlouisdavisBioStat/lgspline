@@ -18,10 +18,4 @@ used in part for identifying which interactions and expansions to exclude
 (provided to "exclude_these_expansions" argument of lgspline) based on
 formulas provided.
 }
-\details{
-Supports generating:
-- Linear interactions for 2 variables
-- Quadratic interactions for 2 variables
-- Three-way interactions for 3 variables
-}
 \keyword{internal}

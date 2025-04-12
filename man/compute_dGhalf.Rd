@@ -31,17 +31,4 @@ List of nc x nc = p x p matrices containing dG_k^{1/2}/dλ for each partition k
 Calculates dG^{1/2}/dλ matrices for each partition using eigendecomposition.
 Follows similar approach to compute_G_eigen() but for matrix derivatives.
 }
-\details{
-Key steps:
-* Handles NA/zero values in input matrices
-* Uses eigendecomposition to compute matrix square root derivative
-* Ensures numerical stability via eigenvalue thresholding
-* Supports parallel processing with chunking
-
-Mathematical details:
-* For each partition k:
-  - Compute eigendecomposition of dG_k/dλ
-  - Floor eigenvalues at 1, zero out negatives
-  - Compute dG_k^{1/2}/dλ for all k = 1...(K+1) partitions
-}
 \keyword{internal}

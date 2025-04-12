@@ -23,8 +23,11 @@ Get Centers for Partitioning
 }
 \details{
 Returns partition centers via:
+
 1. Custom supplied centers if provided as a valid K x q matrix
+
 2. kmeans clustering on all non-spline variables if cluster_on_indicators=TRUE
+
 3. kmeans clustering excluding binary variables if cluster_on_indicators=FALSE
 }
 \keyword{internal}

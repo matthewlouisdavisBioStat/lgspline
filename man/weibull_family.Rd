@@ -18,13 +18,10 @@ boilerplate code for users who wish to incorporate Lagrangian multiplier
 smoothing splines into their own custom models.
 }
 \details{
-Provides a comprehensive family specification for Weibull AFT models, including:
-- Family name
-- Link function
-- Inverse link function
-- Custom loss function for model tuning
+Provides a comprehensive family specification for Weibull AFT models, including Family
+name, link function, inverse link function, and custom loss function for model tuning
 
-Supports right-censored survival data with flexible parameter estimation
+Supports right-censored survival data with flexible parameter estimation.
 }
 \examples{
 \donttest{
