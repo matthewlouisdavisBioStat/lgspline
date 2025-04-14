@@ -130,7 +130,7 @@ lgspline.fit(predictors, y = NULL, standardize_response = TRUE,
 
 \item{unique_penalty_per_predictor}{Default: TRUE. Logical flag allowing the magnitude of the smoothing spline penalty to differ between predictors.}
 
-\item{meta_penalty}{Default: 1e-8. Numeric "meta-penalty" applied to predictor and partition penalties during tuning. The minimization of GCV is modified to be a penalized minimization problem, with penalty \eqn{0.5 \times \text{meta_penalty} \times (\sum \log(\text{penalty}))^2}, such that penalties are pulled towards 1 on the absolute scale and thus, their multiplicative effect towards 0.}
+\item{meta_penalty}{Default: 1e-8. Numeric "meta-penalty" applied to predictor and partition penalties during tuning. The minimization of GCV is modified to be a penalized minimization problem, with penalty \eqn{0.5 \times \text{meta\_penalty} \times (\sum \log(\text{penalty}))^2}, such that penalties are pulled towards 1 on the absolute scale and thus, their multiplicative effect towards 0.}
 
 \item{predictor_penalties}{Default: NULL. Optional list of custom penalties specified per predictor.}
 

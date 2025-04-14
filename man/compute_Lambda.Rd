@@ -43,8 +43,8 @@ List containing:
   \item Lambda - Combined \eqn{nc \times nc} penalty matrix (\eqn{\boldsymbol{\Lambda}})
   \item L1 - Smoothing spline penalty matrix (\eqn{\textbf{L}_1})
   \item L2 - Ridge penalty matrix (\eqn{\textbf{L}_2})
-  \item L_predictor_list - List of predictor-specific penalty matrices (\eqn{\textbf{L}_\text{predictor_list}})
-  \item L_partition_list - List of partition-specific penalty matrices (\eqn{\textbf{L}_\text{partition_list}})
+  \item L_predictor_list - List of predictor-specific penalty matrices (\eqn{\textbf{L}_\text{predictor\_list}})
+  \item L_partition_list - List of partition-specific penalty matrices (\eqn{\textbf{L}_\text{partition\_list}})
 }
 
 If \code{just_Lambda=TRUE} and no partition penalties, returns only Lambda matrix \eqn{\boldsymbol{\Lambda}}.

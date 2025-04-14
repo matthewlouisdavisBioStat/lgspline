@@ -155,7 +155,7 @@
 #' @param flat_ridge_penalty Default: 0.5. Numeric flat ridge penalty for additional regularization on only intercepts and linear terms (won't affect interactions or quadratic/cubic/quartic terms by default). If \code{custom_penalty_mat} is supplied, the penalty will be for the custom penalty matrix instead. This penalty is multiplied with \code{wiggle_penalty} to obtain the total ridge penalty - hence, by default, the ridge penalization on linear terms is half of the magnitude of non-linear terms.
 #' @param unique_penalty_per_partition Default: TRUE. Logical flag allowing the magnitude of the smoothing spline penalty to differ across partition.
 #' @param unique_penalty_per_predictor Default: TRUE. Logical flag allowing the magnitude of the smoothing spline penalty to differ between predictors.
-#' @param meta_penalty Default: 1e-8. Numeric "meta-penalty" applied to predictor and partition penalties during tuning. The minimization of GCV is modified to be a penalized minimization problem, with penalty \eqn{0.5 \times \text{meta_penalty} \times (\sum \log(\text{penalty}))^2}, such that penalties are pulled towards 1 on the absolute scale and thus, their multiplicative effect towards 0.
+#' @param meta_penalty Default: 1e-8. Numeric "meta-penalty" applied to predictor and partition penalties during tuning. The minimization of GCV is modified to be a penalized minimization problem, with penalty \eqn{0.5 \times \text{meta\_penalty} \times (\sum \log(\text{penalty}))^2}, such that penalties are pulled towards 1 on the absolute scale and thus, their multiplicative effect towards 0.
 #' @param predictor_penalties Default: NULL. Optional list of custom penalties specified per predictor.
 #' @param partition_penalties Default: NULL. Optional list of custom penalties specified per partition.
 #' @param include_quadratic_terms Default: TRUE. Logical switch to include squared predictor terms in basis expansions.
@@ -220,7 +220,7 @@
 #' @param do_not_cluster_on_these Default: c(). Vector specifying predictor columns to exclude from clustering procedures, in addition to the non-spline effects by default.
 #' @param neighbor_tolerance Default: 1 + 1e-8. Numeric tolerance for determining neighboring partitions using k-means clustering. Greater values means more partitions are likely to be considered neighbors. Intended for internal use only (modify at your own risk!).
 #' @param null_constraint Default: NULL. Alternative parameterization of constraint values.
-#' @param critical_value Default: \code{qnorm(1-0.05/2)}. Numeric critical value value used for constructing Wald confidence intervals of the form \eqn{\text{estimate} \pm \text{critical_value} \times (\text{standard error})}.
+#' @param critical_value Default: \code{qnorm(1-0.05/2)}. Numeric critical value value used for constructing Wald confidence intervals of the form \eqn{\text{estimate} \pm \text{critical\_value} \times (\text{standard error})}.
 #' @param data Default: NULL. Optional data frame providing context for formula-based model specification.
 #' @param weights Default: NULL. Alternative name for observation weights, maintained for interface compatibility.
 #' @param no_intercept Default: FALSE. Logical flag to remove intercept, constraining it to 0. The function automatically constructs constraint_vectors and constraint_values to achieve this. Calling formulas with a "0+" in it like \code{y ~ 0 + .} will set this option to TRUE.
@@ -252,11 +252,11 @@
 #'   \item{N}{Number of observations.}
 #'   \item{penalties}{List containing optimized penalty matrices and components:
 #'     \itemize{
-#'       \item Lambda: Combined penalty matrix (\eqn{\boldsymbol{\Lambda}}), includes \eqn{\textbf{L}_{\text{predictor list}}} contributions but not \eqn{\textbf{L}_{\text{partition list}}}.
+#'       \item Lambda: Combined penalty matrix (\eqn{\boldsymbol{\Lambda}}), includes \eqn{\textbf{L}_{\text{predictor\_list}}} contributions but not \eqn{\textbf{L}_{\text{partition\_list}}}.
 #'       \item L1: Smoothing spline penalty matrix (\eqn{\textbf{L}_1}).
 #'       \item L2: Ridge penalty matrix (\eqn{\textbf{L}_2}).
-#'       \item L_predictor_list: Predictor-specific penalty matrices (\eqn{\textbf{L}_{\text{predictor list}}}).
-#'       \item L_partition_list: Partition-specific penalty matrices (\eqn{\textbf{L}_{\text{partition list}}}).
+#'       \item L predictor list: Predictor-specific penalty matrices (\eqn{\textbf{L}_{\text{predictor\_list}}}).
+#'       \item L partition list: Partition-specific penalty matrices (\eqn{\textbf{L}_{\text{partition\_list}}}).
 #'     }
 #'   }
 #'   \item{knot_scale_transf}{Function for transforming predictors to standardized scale used for knot placement.}

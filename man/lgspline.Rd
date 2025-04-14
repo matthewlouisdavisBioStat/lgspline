@@ -130,7 +130,7 @@ lgspline(predictors = NULL, y = NULL, formula = NULL, response = NULL,
 
 \item{unique_penalty_per_predictor}{Default: TRUE. Logical flag allowing the magnitude of the smoothing spline penalty to differ between predictors.}
 
-\item{meta_penalty}{Default: 1e-8. Numeric "meta-penalty" applied to predictor and partition penalties during tuning. The minimization of GCV is modified to be a penalized minimization problem, with penalty \eqn{0.5 \times \text{meta_penalty} \times (\sum \log(\text{penalty}))^2}, such that penalties are pulled towards 1 on the absolute scale and thus, their multiplicative effect towards 0.}
+\item{meta_penalty}{Default: 1e-8. Numeric "meta-penalty" applied to predictor and partition penalties during tuning. The minimization of GCV is modified to be a penalized minimization problem, with penalty \eqn{0.5 \times \text{meta\_penalty} \times (\sum \log(\text{penalty}))^2}, such that penalties are pulled towards 1 on the absolute scale and thus, their multiplicative effect towards 0.}
 
 \item{predictor_penalties}{Default: NULL. Optional list of custom penalties specified per predictor.}
 
@@ -260,7 +260,7 @@ lgspline(predictors = NULL, y = NULL, formula = NULL, response = NULL,
 
 \item{null_constraint}{Default: NULL. Alternative parameterization of constraint values.}
 
-\item{critical_value}{Default: \code{qnorm(1-0.05/2)}. Numeric critical value value used for constructing Wald confidence intervals of the form \eqn{\text{estimate} \pm \text{critical_value} \times (\text{standard error})}.}
+\item{critical_value}{Default: \code{qnorm(1-0.05/2)}. Numeric critical value value used for constructing Wald confidence intervals of the form \eqn{\text{estimate} \pm \text{critical\_value} \times (\text{standard error})}.}
 
 \item{data}{Default: NULL. Optional data frame providing context for formula-based model specification.}
 
@@ -308,11 +308,11 @@ A list containing the following components:
   \item{N}{Number of observations.}
   \item{penalties}{List containing optimized penalty matrices and components:
     \itemize{
-      \item Lambda: Combined penalty matrix (\eqn{\boldsymbol{\Lambda}}), includes \eqn{\textbf{L}_{\text{predictor list}}} contributions but not \eqn{\textbf{L}_{\text{partition list}}}.
+      \item Lambda: Combined penalty matrix (\eqn{\boldsymbol{\Lambda}}), includes \eqn{\textbf{L}_{\text{predictor\_list}}} contributions but not \eqn{\textbf{L}_{\text{partition\_list}}}.
       \item L1: Smoothing spline penalty matrix (\eqn{\textbf{L}_1}).
       \item L2: Ridge penalty matrix (\eqn{\textbf{L}_2}).
-      \item L_predictor_list: Predictor-specific penalty matrices (\eqn{\textbf{L}_{\text{predictor list}}}).
-      \item L_partition_list: Partition-specific penalty matrices (\eqn{\textbf{L}_{\text{partition list}}}).
+      \item L predictor list: Predictor-specific penalty matrices (\eqn{\textbf{L}_{\text{predictor\_list}}}).
+      \item L partition list: Partition-specific penalty matrices (\eqn{\textbf{L}_{\text{partition\_list}}}).
     }
   }
   \item{knot_scale_transf}{Function for transforming predictors to standardized scale used for knot placement.}

@@ -41,7 +41,7 @@ compute_G_eigen(
 
 \item{unique_penalty_per_partition}{Use partition penalties}
 
-\item{L_partition_list}{Partition penalty list (\eqn{\textbf{L}_\text{partition_list}})}
+\item{L_partition_list}{Partition penalty list (\eqn{\textbf{L}_\text{partition\_list}})}
 
 \item{keep_G}{Return full G matrix (\eqn{\textbf{G}})}
 
