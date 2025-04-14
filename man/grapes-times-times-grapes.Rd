@@ -15,9 +15,9 @@ x \%**\% y
 Matrix product of x and y
 }
 \description{
-Operator wrapper around C++ efficient_matrix_mult() for matrix multiplication syntax.
+Operator wrapper around C++ \code{efficient_matrix_mult()} for matrix multiplication syntax.
 
-This is an internal function meant to provide improvement over base Rs operator for
+This is an internal function meant to provide improvement over base R's operator for
 certain large matrix operations, at a cost of potential slight slowdown for
 smaller problems.
 }

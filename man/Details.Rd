@@ -16,7 +16,7 @@ relationship follows a generalized linear model with an unknown smooth function 
 
 \deqn{y_i \sim \mathcal{D}(g^{-1}(f(\mathbf{t}_i)), \sigma^2)}
 
-where \eqn{\mathcal{D}} is a distribution from the exponential family, \eqn{g} is a link function,
+where \eqn{\mathcal{D}} is a distribution, \eqn{g} is a link function,
 \eqn{\mathbf{t}_i} is the \eqn{i}th row of \eqn{\mathbf{T}}, and \eqn{\sigma^2} is a dispersion parameter.
 
 The objective is to estimate the unknown function \eqn{f} that balances:
@@ -33,6 +33,11 @@ Lagrangian Multiplier Smoothing Splines address this by:
   \item Explicitly enforcing smoothness where partitions meet using Lagrangian multipliers
   \item Penalizing the integrated squared second derivative of the estimated function
 }
+
+Unlike other smoothing spline formulations, this technique ensures that no
+post-fitting algebraic rearrangement or disentangelement of a spline basis is needed
+to obtain interpretable models. The relationship between predictor and response is explicit,
+and the basis expansions for each partition are homogeneous.
 }
 
 \section{Overview}{
@@ -351,7 +356,7 @@ A penalized variant of Generalized Cross Validation (GCV) is used to find optima
 
 where:
 \itemize{
-  \item \eqn{r_i = y_i - \tilde{y}_i} are residuals
+  \item \eqn{r_i = y_i - \tilde{y}_i} are residuals (or replaced with custom alternative for GLMs)
   \item \eqn{\text{trace}(\mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^T)} represents effective degrees of freedom
   \item \eqn{mp} is the "meta-penalty" term that regularizes predictor/partition-specific penalties
 }
@@ -369,3 +374,26 @@ Optimization employs:
 }
 }
 
+\references{
+Buse, A., & Lim, L. (1977). Cubic Splines as a Special Case of Restricted Least Squares. Journal of the American Statistical Association, 72, 64-68.
+
+Craven, P., & Wahba, G. (1978). Smoothing noisy data with spline functions. Numerische Mathematik, 31, 377-403.
+
+Eilers, P. H. C., & Marx, B. D. (1996). Flexible smoothing with B-splines and penalties. Statistical Science, 11, 89-121.
+
+Ezhov, N., Neitzel, F., & Petrovic, S. (2018). Spline approximation, Part 1: Basic methodology. Journal of Applied Geodesy, 12, 139-155.
+
+Kisi, O., Heddam, S., Parmar, K. S., Petroselli, A., Külls, C., & Zounemat-Kermani, M. (2025). Integration of Gaussian process regression and K means clustering for enhanced short term rainfall runoff modeling. Scientific Reports, 15, 7444.
+
+Nocedal, J., & Wright, S. J. (2006). Numerical Optimization (2nd ed.). Springer.
+
+Reinsch, C. H. (1967). Smoothing by spline functions. Numerische Mathematik, 10, 177-183.
+
+Searle, S. R., Casella, G., & McCulloch, C. E. (2009). Variance Components. Wiley Series in Probability and Statistics. Wiley.
+
+Silverman, B. W. (1984). Spline Smoothing: The Equivalent Variable Kernel Method. The Annals of Statistics, 12, 898-916.
+
+Wahba, G. (1990). Spline Models for Observational Data. Society for Industrial and Applied Mathematics.
+
+Wood, S. N. (2006). Generalized Additive Models: An Introduction with R. Chapman & Hall/CRC, Boca Raton.
+}

@@ -19,17 +19,17 @@ compute_dG_dlambda(
 )
 }
 \arguments{
-\item{G}{A list of penalty matrices for each partition}
+\item{G}{A list of penalty matrices \eqn{\textbf{G}} for each partition}
 
-\item{L}{The base penalty matrix}
+\item{L}{The base penalty matrix \eqn{\textbf{L}}}
 
-\item{K}{Number of partitions minus 1}
+\item{K}{Number of partitions minus 1 (\eqn{K})}
 
-\item{lambda}{Smoothing parameter value}
+\item{lambda}{Smoothing parameter value \eqn{\lambda}}
 
 \item{unique_penalty_per_partition}{Logical indicating partition-specific penalties}
 
-\item{L_partition_list}{Optional list of partition-specific penalty matrices}
+\item{L_partition_list}{Optional list of partition-specific penalty matrices \eqn{\textbf{L}_k}}
 
 \item{parallel}{Logical to enable parallel processing}
 
@@ -42,11 +42,11 @@ compute_dG_dlambda(
 \item{rem_chunks}{Remainder chunks}
 }
 \value{
-A list of derivative matrices for each partition
+A list of derivative matrices \eqn{d\textbf{G}/d\lambda} for each partition
 }
 \description{
-Calculates the derivative of the penalty matrix G with respect to the
-smoothing parameter lambda, supporting both global and partition-specific penalties.
-(i.e. the derivative of diagonal weight matrix 1/(1+x^{T}UGx) w.r.t. penalty)
+Calculates the derivative of the penalty matrix \eqn{\textbf{G}} with respect to the
+smoothing parameter lambda (\eqn{\lambda}), supporting both global and partition-specific penalties.
+This is related to the derivative of the diagonal weight matrix \eqn{1/(1+\textbf{x}^{T}\textbf{U}\textbf{G}\textbf{x})} w.r.t. the penalty.
 }
 \keyword{internal}

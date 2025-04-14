@@ -7,29 +7,29 @@
 matsqrt(mat)
 }
 \arguments{
-\item{mat}{A symmetric, positive-definite matrix}
+\item{mat}{A symmetric, positive-definite matrix \eqn{\textbf{M}}}
 }
 \value{
-A matrix B such that BB = mat
+A matrix \eqn{\textbf{B}} such that \eqn{\textbf{B}\textbf{B} = \textbf{M}}
 }
 \description{
 Calculate Matrix Square Root
 }
 \details{
-For matrix M, computes B where BB = M using eigenvalue decomposition:
+For matrix \eqn{\textbf{M}}, computes \eqn{\textbf{B}} where \eqn{\textbf{B}\textbf{B} = \textbf{M}} using eigenvalue decomposition:
 
-1. Compute eigendecomposition M = VDV^T
+1. Compute eigendecomposition \eqn{\textbf{M} = \textbf{V}\textbf{D}\textbf{V}^T}
 
-2. Set eigenvalues below sqrt(.Machine$double.eps) to 0 for stability
+2. Set eigenvalues below \code{sqrt(.Machine$double.eps)} to 0 for stability
 
-3. Take elementwise square root of eigenvalues: D^(1/2)
+3. Take elementwise square root of eigenvalues: \eqn{\textbf{D}^{1/2}}
 
-4. Reconstruct as B = V D^(1/2) V^T
+4. Reconstruct as \eqn{\textbf{B} = \textbf{V} \textbf{D}^{1/2} \textbf{V}^T}
 
 This provides the unique symmetric positive-definite square root.
 
-You can use this to help construct a custom Vhalf_fxn for fitting
-correlation structures, see \code{\link[lgspline]{lgspline}}.
+You can use this to help construct a custom \code{Vhalf_fxn} for fitting
+correlation structures, see \code{\link{lgspline}}.
 }
 \examples{
 ## Identity matrix
@@ -49,7 +49,7 @@ block_size <- 3  # Measurements per subject
 rho <- 0.7  # Within-subject correlation
 # Correlation matrix for one subject
 R <- matrix(rho, block_size, block_size) +
-    diag(1-rho, block_size)
+     diag(1-rho, block_size)
 # Full correlation matrix for all subjects
 V <- kronecker(diag(n_blocks), R)
 Vhalf <- matsqrt(V)

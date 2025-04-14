@@ -21,11 +21,11 @@ compute_Lambda(
 \arguments{
 \item{custom_penalty_mat}{Matrix; optional custom ridge penalty structure}
 
-\item{L1}{Matrix; integrated squared second derivative penalty}
+\item{L1}{Matrix; integrated squared second derivative penalty (\eqn{\textbf{L}_1})}
 
 \item{wiggle_penalty, flat_ridge_penalty}{Numeric; smoothing and ridge penalty parameters}
 
-\item{K}{Integer; number of interior knots}
+\item{K}{Integer; number of interior knots (\eqn{K})}
 
 \item{nc}{Integer; number of basis columns per partition}
 
@@ -35,19 +35,19 @@ compute_Lambda(
 
 \item{colnm_expansions}{Character; column names for linking penalties to predictors}
 
-\item{just_Lambda}{Logical; return only combined penalty matrix}
+\item{just_Lambda}{Logical; return only combined penalty matrix (\eqn{\boldsymbol{\Lambda}})}
 }
 \value{
 List containing:
 \itemize{
-  \item Lambda - Combined nc x nc penalty matrix
-  \item L1 - Smoothing spline penalty matrix
-  \item L2 - Ridge penalty matrix
-  \item L_predictor_list - List of predictor-specific penalty matrices
-  \item L_partition_list - List of partition-specific penalty matrices
+  \item Lambda - Combined \eqn{nc \times nc} penalty matrix (\eqn{\boldsymbol{\Lambda}})
+  \item L1 - Smoothing spline penalty matrix (\eqn{\textbf{L}_1})
+  \item L2 - Ridge penalty matrix (\eqn{\textbf{L}_2})
+  \item L_predictor_list - List of predictor-specific penalty matrices (\eqn{\textbf{L}_\text{predictor_list}})
+  \item L_partition_list - List of partition-specific penalty matrices (\eqn{\textbf{L}_\text{partition_list}})
 }
 
-If just_Lambda=TRUE and no partition penalties, returns only Lambda matrix.
+If \code{just_Lambda=TRUE} and no partition penalties, returns only Lambda matrix \eqn{\boldsymbol{\Lambda}}.
 }
 \description{
 Builds penalty matrix combining smoothing spline and ridge penalties with optional

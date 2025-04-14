@@ -20,7 +20,7 @@ matmult_block_diagonal(
 
 \item{B}{List of matrices forming second block diagonal matrix}
 
-\item{K}{Number of blocks minus 1}
+\item{K}{Number of blocks minus 1 (\eqn{K})}
 
 \item{parallel}{Logical; whether to use parallel processing}
 
@@ -40,8 +40,8 @@ Multiplies two lists of matrices that form block diagonal structures, with optio
 parallel processing.
 }
 \details{
-When parallel=TRUE, splits computation into chunks processed in parallel.
-Handles remainder chunks separately. Uses matmult_block_diagonal_cpp() for
+When \code{parallel=TRUE}, splits computation into chunks processed in parallel.
+Handles remainder chunks separately. Uses \code{matmult_block_diagonal_cpp()} for
 actual multiplication.
 
 The function expects A and B to contain corresponding blocks that can be
@@ -51,7 +51,7 @@ matrix multiplied.
 A <- list(matrix(1:4,2,2), matrix(5:8,2,2))
 B <- list(matrix(1:4,2,2), matrix(5:8,2,2))
 matmult_block_diagonal(A, B, K=1, parallel=FALSE, cl=NULL,
-                      chunk_size=1, num_chunks=1, rem_chunks=0)
+                       chunk_size=1, num_chunks=1, rem_chunks=0)
 
 }
 \keyword{internal}

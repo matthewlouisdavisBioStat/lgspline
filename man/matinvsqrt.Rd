@@ -7,34 +7,34 @@
 matinvsqrt(mat)
 }
 \arguments{
-\item{mat}{A symmetric, positive-definite matrix}
+\item{mat}{A symmetric, positive-definite matrix \eqn{\textbf{M}}}
 }
 \value{
-A matrix B such that BB = mat^(-1)
+A matrix \eqn{\textbf{B}} such that \eqn{\textbf{B}\textbf{B} = \textbf{M}^{-1}}
 }
 \description{
 Calculate Matrix Inverse Square Root
 }
 \details{
-For matrix M, computes B where BB = M^(-1) using eigenvalue decomposition:
+For matrix \eqn{\textbf{M}}, computes \eqn{\textbf{B}} where \eqn{\textbf{B}\textbf{B} = \textbf{M}^{-1}} using eigenvalue decomposition:
 
-1. Compute eigendecomposition M = VDV^T
+1. Compute eigendecomposition \eqn{\textbf{M} = \textbf{V}\textbf{D}\textbf{V}^T}
 
-2. Set eigenvalues below sqrt(.Machine$double.eps) to 0
+2. Set eigenvalues below \code{sqrt(.Machine$double.eps)} to 0
 
-3. Take elementwise reciprocal square root: D^(-1/2)
+3. Take elementwise reciprocal square root: \eqn{\textbf{D}^{-1/2}}
 
-4. Reconstruct as B = V D^(-1/2) V^T
+4. Reconstruct as \eqn{\textbf{B} = \textbf{V} \textbf{D}^{-1/2} \textbf{V}^T}
 
 For nearly singular matrices, eigenvalues below the numerical threshold
-are set to 0, and their reciprocals in D^(-1/2) are also set to 0.
+are set to 0, and their reciprocals in \eqn{\textbf{D}^{-1/2}} are also set to 0.
 
 This implementation is particularly useful for whitening procedures in GLMs
 with correlation structures and for computing variance-covariance matrices
 under constraints.
 
-You can use this to help construct a custom VhalfInv_fxn for fitting
-correlation structures, see \code{\link[lgspline]{lgspline}}.
+You can use this to help construct a custom \code{VhalfInv_fxn} for fitting
+correlation structures, see \code{\link{lgspline}}.
 }
 \examples{
 ## Identity matrix
@@ -54,7 +54,7 @@ block_size <- 3  # Measurements per subject
 rho <- 0.7  # Within-subject correlation
 # Correlation matrix for one subject
 R <- matrix(rho, block_size, block_size) +
-    diag(1-rho, block_size)
+     diag(1-rho, block_size)
 ## Full correlation matrix for all subjects
 V <- kronecker(diag(n_blocks), R)
 ## Create whitening matrix
@@ -64,7 +64,7 @@ VhalfInv <- matinvsqrt(V)
 VhalfInv_fxn <- function(par) {
   rho <- tanh(par)  # Transform parameter to (-1, 1)
   R <- matrix(rho, block_size, block_size) +
-      diag(1-rho, block_size)
+       diag(1-rho, block_size)
   kronecker(diag(n_blocks), matinvsqrt(R))
 }
 

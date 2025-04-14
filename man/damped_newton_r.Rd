@@ -42,6 +42,6 @@ Newton-Raphson optimization technique.
 Implements a robust damped Newton-Raphson optimization algorithm.
 }
 \seealso{
-- \code{\link[lgspline]{nr_iterate}} for parameter update computation
+- \code{\link{nr_iterate}} for parameter update computation
 }
 \keyword{internal}

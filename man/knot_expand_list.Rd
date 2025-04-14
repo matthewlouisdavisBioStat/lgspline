@@ -15,13 +15,13 @@ knot_expand_list(partition_codes, partition_bounds, nr, mat, K)
 
 \item{mat}{Numeric matrix; data to be partitioned}
 
-\item{K}{Integer; number of interior knots (resulting in K+1 partitions)}
+\item{K}{Integer; number of interior knots (resulting in \eqn{K+1} partitions)}
 }
 \value{
-List of length K+1, each element containing the submatrix for that partition
+List of length \eqn{K+1}, each element containing the submatrix for that partition
 }
 \description{
-Takes an input N x p matrix of polynomial expansions and outputs a list of
-length K+1, isolating the rows of the input corresponding to assigned partition.
+Takes an input \eqn{N \times p} matrix of polynomial expansions and outputs a list of
+length \eqn{K+1}, isolating the rows of the input corresponding to assigned partition.
 }
 \keyword{internal}

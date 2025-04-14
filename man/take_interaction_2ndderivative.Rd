@@ -11,7 +11,8 @@ take_interaction_2ndderivative(
   interaction_quad_cols,
   triplet_cols,
   colnm_expansions,
-  power1_cols
+  power1_cols,
+  power2_cols
 )
 }
 \arguments{
@@ -28,6 +29,8 @@ take_interaction_2ndderivative(
 \item{colnm_expansions}{Character vector; column names of expansions for each partition}
 
 \item{power1_cols}{Integer vector; column indices of linear terms}
+
+\item{power2_cols}{Integer vector; column indices of quadratic terms}
 }
 \value{
 Numeric matrix of second derivatives, same dimensions as input
@@ -38,7 +41,7 @@ two-way linear, quadratic, and three-way interactions. Handles special cases
 for each type.
 
 This function is necessary to compute total second derivatives as the sum of
-second partial "pure" derivatives (d^2/dx^2) plus second partial "mixed"
-derivative (d^2/dxdz), for a predictor x and all other predictors z
+second partial "pure" derivatives (\eqn{d^2/dx^2}) plus second partial "mixed"
+derivative (\eqn{d^2/dxdz}), for a predictor x and all other predictors z.
 }
 \keyword{internal}

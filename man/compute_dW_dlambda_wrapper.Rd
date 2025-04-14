@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{compute_dW_dlambda_wrapper}
 \alias{compute_dW_dlambda_wrapper}
-\title{Compute Derivative of Penalty Matrix G with Respect to Lambda}
+\title{Compute Derivative of Penalty Matrix G with Respect to Lambda (Wrapper)}
 \usage{
 compute_dW_dlambda_wrapper(
   G,
@@ -22,9 +22,23 @@ compute_dW_dlambda_wrapper(
 )
 }
 \arguments{
-\item{G}{A list of penalty matrices for each partition}
+\item{G}{A list of penalty matrices \eqn{\textbf{G}} for each partition}
 
-\item{K}{Number of partitions minus 1}
+\item{A}{Constraint matrix \eqn{\textbf{A}}}
+
+\item{GXX}{List of \eqn{\textbf{G}\textbf{X}^{T}\textbf{X}} products}
+
+\item{Ghalf}{List of \eqn{\textbf{G}^{1/2}} matrices}
+
+\item{dG_dlambda}{List of \eqn{d\textbf{G}/d\lambda} matrices}
+
+\item{dGhalf_dlambda}{List of \eqn{d\textbf{G}^{1/2}/d\lambda} matrices}
+
+\item{AGAInv}{Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}}
+
+\item{nc}{Number of columns}
+
+\item{K}{Number of partitions minus 1 (\eqn{K})}
 
 \item{parallel}{Logical to enable parallel processing}
 
@@ -35,21 +49,12 @@ compute_dW_dlambda_wrapper(
 \item{num_chunks}{Number of chunks}
 
 \item{rem_chunks}{Remainder chunks}
-
-\item{L}{The base penalty matrix}
-
-\item{lambda}{Smoothing parameter value}
-
-\item{unique_penalty_per_partition}{Logical indicating partition-specific penalties}
-
-\item{L_partition_list}{Optional list of partition-specific penalty matrices}
 }
 \value{
-A list of derivative matrices for each partition
+Scalar value representing the trace derivative component.
 }
 \description{
-Calculates the derivative of the penalty matrix G with respect to the
-smoothing parameter lambda, supporting both global and partition-specific penalties.
-(i.e. the derivative of diagonal weight matrix 1/(1+x'UGx) w.r.t. penalty)
+Wrapper function for computing the derivative of the weight matrix w.r.t lambda \eqn{\lambda}.
+This involves computing terms related to the derivative of \eqn{1/(1+\textbf{x}^{T}\textbf{U}\textbf{G}\textbf{x})}.
 }
 \keyword{internal}

@@ -31,7 +31,7 @@ full survival time is unknown, typically because the study ended or the
 subject was lost to follow-up before the event of interest occurred.}
 }
 \value{
-Squared scale estimate for the Weibull AFT model
+Squared scale estimate for the Weibull AFT model (dispersion)
 }
 \description{
 Computes the scale parameter for a Weibull Accelerated Failure Time (AFT)
@@ -44,9 +44,37 @@ smoothing splines into their own custom models.
 \examples{
 \donttest{
 ## Simulate survival data with covariates
+set.seed(1234)
+n <- 1000
+x1 <- rnorm(n)
+x2 <- rbinom(n, 1, 0.5)
+
+## Generate survival times with Weibull-like structure
+lambda <- exp(0.5 * x1 + 0.3 * x2)
+yraw <- rexp(n, rate = 1/lambda)
+
+## Introduce right-censoring
+status <- rbinom(n, 1, 0.75)
+y <- ifelse(status, yraw, runif(1, 0, yraw))
+
+## Example of using dispersion function
+mu <- mean(y)
+order_indices <- seq_along(y)
+weights <- rep(1, n)
+
+## Estimate dispersion
+dispersion_est <- weibull_dispersion_function(
+  mu = mu,
+  y = y,
+  order_indices = order_indices,
+  family = weibull_family(),
+  observation_weights = weights,
+  status = status
+)
+print(dispersion_est)
 }
 
 }
 \seealso{
-[weibull_scale()] for the underlying scale estimation function
+\code{\link{weibull_scale}} for the underlying scale estimation function
 }

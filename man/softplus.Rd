@@ -14,8 +14,7 @@ Softplus transformed vector
 }
 \description{
 Computes the softplus transform, equivalent to the cumulant generating function
-of a logistic regression model.
-= log(1+exp(x))
+of a logistic regression model: \eqn{\log(1+e^x)}.
 }
 \examples{
 x <- runif(5)

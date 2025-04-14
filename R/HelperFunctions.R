@@ -14,8 +14,8 @@ NULL
 #'
 #' @details
 #' The function creates dummy variables for each unique value in the input vector using
-#' model.matrix() with dummy-intercept coding. Column names are cleaned by removing the
-#' 'x' prefix added by model.matrix().
+#' \code{model.matrix()} with dummy-intercept coding. Column names are cleaned by removing the
+#' 'x' prefix added by \code{model.matrix()}.
 #'
 #' @examples
 #'
@@ -24,7 +24,7 @@ NULL
 #' # all variables must be numeric
 #' df <- data.frame(numvar = rnorm(100),
 #'                  catvar = rep(LETTERS[1:4],
-#'                                  25))
+#'                               25))
 #' print(head(df))
 #'
 #' ## Instead, replace with dummy-intercept coding by
@@ -49,7 +49,7 @@ create_onehot <- function(x) {
 #'
 #' @description
 #' Centers a vector by its sample mean, then scales it by its sample standard deviation
-#' = (x-mean(x))/sd(x)
+#' \eqn{(\text{x}-\text{mean}(\text{x}))/\text{sd}(\text{x})}.
 #'
 #'
 #' @param x Numeric vector to standardize
@@ -72,8 +72,7 @@ std <- function(x){
 #'
 #' @description
 #' Computes the softplus transform, equivalent to the cumulant generating function
-#' of a logistic regression model.
-#' = log(1+exp(x))
+#' of a logistic regression model: \eqn{\log(1+e^x)}.
 #'
 #'
 #' @param x Numeric vector to apply softplus to
@@ -93,9 +92,9 @@ softplus <- function(x){
 #' Efficient Matrix Multiplication Operator
 #'
 #' @description
-#' Operator wrapper around C++ efficient_matrix_mult() for matrix multiplication syntax.
+#' Operator wrapper around C++ \code{efficient_matrix_mult()} for matrix multiplication syntax.
 #'
-#' This is an internal function meant to provide improvement over base Rs operator for
+#' This is an internal function meant to provide improvement over base R's operator for
 #' certain large matrix operations, at a cost of potential slight slowdown for
 #' smaller problems.
 #'
@@ -128,13 +127,13 @@ softplus <- function(x){
 #' @details
 #' Tries methods in order:
 #'
-#' 1. Direct inversion using armaInv()
+#' 1. Direct inversion using \code{armaInv()}
 #'
 #' 2. Generalized inverse using eigendecomposition
 #'
 #' 3. Returns identity matrix with warning if both fail
 #'
-#' For eigendecomposition, uses a small ridge penalty (1e-16) for stability and
+#' For eigendecomposition, uses a small ridge penalty (\code{1e-16}) for stability and
 #' zeroes eigenvalues below machine precision.
 #'
 #' @examples
@@ -156,7 +155,7 @@ invert <- function(mat, include_warnings = FALSE){
   }, silent = TRUE)
 
   ## Try generalized inverse with small ridge penalty
-  if(any(class(t) == 'try-error')){
+  if(any(inherits(t, 'try-error'))){
     t <- try({
       eig <- eigen(mat + 1e-16*diag(nrow(mat)), symmetric = TRUE)
       d_inv <- ifelse(eig$values <= sqrt(.Machine$double.eps),
@@ -171,7 +170,7 @@ invert <- function(mat, include_warnings = FALSE){
   ## Return diagonal matrix with warning
   # Justification for identity is that for Newton-Raphson, this reduces
   # to approx. gradient-descent. But this is a terrible option for inference!
-  if(any(class(t) == 'try-error')){
+  if(any(inherits(t, 'try-error'))){
     if(include_warnings) warning('Matrix not inverted, returning identity: ',
                                  print(t))
     return(diag(nrow(mat)))
@@ -188,7 +187,7 @@ invert <- function(mat, include_warnings = FALSE){
 #'
 #' @param A List of matrices forming first block diagonal matrix
 #' @param B List of matrices forming second block diagonal matrix
-#' @param K Number of blocks minus 1
+#' @param K Number of blocks minus 1 (\eqn{K})
 #' @param parallel Logical; whether to use parallel processing
 #' @param cl Cluster object for parallel processing
 #' @param chunk_size Number of blocks per chunk for parallel processing
@@ -198,8 +197,8 @@ invert <- function(mat, include_warnings = FALSE){
 #' @return List containing products of corresponding blocks
 #'
 #' @details
-#' When parallel=TRUE, splits computation into chunks processed in parallel.
-#' Handles remainder chunks separately. Uses matmult_block_diagonal_cpp() for
+#' When \code{parallel=TRUE}, splits computation into chunks processed in parallel.
+#' Handles remainder chunks separately. Uses \code{matmult_block_diagonal_cpp()} for
 #' actual multiplication.
 #'
 #' The function expects A and B to contain corresponding blocks that can be
@@ -209,7 +208,7 @@ invert <- function(mat, include_warnings = FALSE){
 #' A <- list(matrix(1:4,2,2), matrix(5:8,2,2))
 #' B <- list(matrix(1:4,2,2), matrix(5:8,2,2))
 #' matmult_block_diagonal(A, B, K=1, parallel=FALSE, cl=NULL,
-#'                       chunk_size=1, num_chunks=1, rem_chunks=0)
+#'                        chunk_size=1, num_chunks=1, rem_chunks=0)
 #'
 #' @keywords internal
 #' @export
@@ -232,7 +231,7 @@ matmult_block_diagonal <- function(A,
     }
     ## Handle the rest in parallel
     c(
-      Reduce("c",parLapply(cl, 1:num_chunks, function(k){
+      Reduce("c",parallel::parLapply(cl, 1:num_chunks, function(k){
         inds <- 1:chunk_size + (k-1)*chunk_size
         matmult_block_diagonal_cpp(A[inds],
                                    B[inds],
@@ -257,9 +256,9 @@ matmult_block_diagonal <- function(A,
 #' powers up to d = 4, and "_v_x_w_" for interactions between variables v and w,
 #' where v and w are column indices of the input predictor matrix.
 #'
-#' The custom_basis_fxn argumnet, if supplied, requires the same arguments
+#' The \code{custom_basis_fxn} argument, if supplied, requires the same arguments
 #' as this function, in the same order, minus the eponymous argument,
-#' "custom_basis_fxn"
+#' "custom_basis_fxn".
 #'
 #' @param predictors Numeric matrix of predictor variables
 #' @param numerics Integer vector; column indices for variables to expand as polynomials
@@ -274,7 +273,7 @@ matmult_block_diagonal <- function(A,
 #' @param include_quadratic_interactions Logical; whether to include interactions with squared terms (default TRUE)
 #' @param exclude_these_expansions Character vector; names of specific terms to exclude from final matrix
 #' @param custom_basis_fxn Function; optional custom basis expansion function that accepts all arguments listed here except itself
-#' @param ... Additional arguments passed to custom_basis_fxn
+#' @param ... Additional arguments passed to \code{custom_basis_fxn}
 #'
 #' @return Matrix with columns for intercept, polynomial terms, and specified interactions
 #'
@@ -583,8 +582,8 @@ take_derivative <- function(dat, var, second = FALSE, scale) {
 #' for each type.
 #'
 #' This function is necessary to compute total second derivatives as the sum of
-#' second partial "pure" derivatives (d^2/dx^2) plus second partial "mixed"
-#' derivative (d^2/dxdz), for a predictor x and all other predictors z
+#' second partial "pure" derivatives (\eqn{d^2/dx^2}) plus second partial "mixed"
+#' derivative (\eqn{d^2/dxdz}), for a predictor x and all other predictors z.
 #'
 #' @param dat Numeric matrix; design matrix containing basis expansions
 #' @param var Character; variable name to differentiate with respect to
@@ -593,6 +592,7 @@ take_derivative <- function(dat, var, second = FALSE, scale) {
 #' @param triplet_cols Integer vector; column indices for three-way interactions
 #' @param colnm_expansions Character vector; column names of expansions for each partition
 #' @param power1_cols Integer vector; column indices of linear terms
+#' @param power2_cols Integer vector; column indices of quadratic terms
 #'
 #' @return Numeric matrix of second derivatives, same dimensions as input
 #'
@@ -605,7 +605,8 @@ take_interaction_2ndderivative <-
            interaction_quad_cols,
            triplet_cols,
            colnm_expansions,
-           power1_cols) {
+           power1_cols,
+           power2_cols) {
 
     ## Initialize output matrix
     n_cols <- ncol(dat)
@@ -648,8 +649,8 @@ take_interaction_2ndderivative <-
               interqv2 <-
                 interq[substr(colnm_expansions[interq],
                               nchar(colnm_expansions[interq]) - nchv + 1,
-                        nchar(colnm_expansions[interq])) ==
-                              colnm_expansions[power2_cols[v]]]
+                              nchar(colnm_expansions[interq])) ==
+                         colnm_expansions[power2_cols[v]]]
 
               ## This is the _var_x_w_^2 term
               if(length(interqv2) > 0){
@@ -699,16 +700,16 @@ take_interaction_2ndderivative <-
 #' Expand Matrix into Partition Lists Based on Knot Boundaries
 #'
 #' @description
-#' Takes an input N x p matrix of polynomial expansions and outputs a list of
-#' length K+1, isolating the rows of the input corresponding to assigned partition.
+#' Takes an input \eqn{N \times p} matrix of polynomial expansions and outputs a list of
+#' length \eqn{K+1}, isolating the rows of the input corresponding to assigned partition.
 #'
 #' @param partition_codes Numeric vector; values determining partition assignment for each row
 #' @param partition_bounds Numeric vector; ordered knot locations defining partition boundaries
 #' @param nr Integer; number of rows in input matrix
 #' @param mat Numeric matrix; data to be partitioned
-#' @param K Integer; number of interior knots (resulting in K+1 partitions)
+#' @param K Integer; number of interior knots (resulting in \eqn{K+1} partitions)
 #'
-#' @return List of length K+1, each element containing the submatrix for that partition
+#' @return List of length \eqn{K+1}, each element containing the submatrix for that partition
 #'
 #' @keywords internal
 #' @export
@@ -727,7 +728,7 @@ knot_expand_list <- function(partition_codes,
     ## Isolate each partition
     expansions <- lapply(1:(K+1), function(partition){
       mat[partition_codes > partition_bounds_app[partition] &
-          partition_codes <= partition_bounds_app[partition+1],,drop=FALSE]
+            partition_codes <= partition_bounds_app[partition+1],,drop=FALSE]
     })
     return(expansions)
   }
@@ -779,7 +780,7 @@ create_block_diagonal <- function(matrix_list) {
 #' @param num_chunks Number of chunks
 #' @param rem_chunks Remaining chunks
 #'
-#' @return List of Gram matrices (X^{T}X) for each block
+#' @return List of Gram matrices (\eqn{\textbf{X}^{T}\textbf{X}}) for each block
 #'
 #' @details
 #' For a list of matrices, will compute the gram matrix of each element of the
@@ -808,7 +809,7 @@ compute_gram_block_diagonal <- function(list_in,
 
     # Process main chunks in parallel
     result <- c(
-      Reduce("c", parLapply(cl, 1:num_chunks, function(chunk) {
+      Reduce("c", parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         inds <- (chunk - 1)*chunk_size + 1:chunk_size
         lapply(inds, function(k) {
           gramMatrix(list_in[[k]])
@@ -827,11 +828,12 @@ compute_gram_block_diagonal <- function(list_in,
 #' @param nc Number of columns
 #' @param Cpredictors Predictor matrix
 #' @param power1_cols Indices of linear terms of spline effects
+#' @param power2_cols Indices of quadratic terms of spline effects
 #' @param nonspline_cols Indices of non-spline effects
 #' @param interaction_single_cols Indices of first-order interactions
 #' @param interaction_quad_cols Indices of quadratic interactions
 #' @param triplet_cols Indices of three-way interactions
-#' @param K Number of partitions minus 1
+#' @param K Number of partitions minus 1 (\eqn{K})
 #' @param include_2way_interactions Include 2-way interactions
 #' @param include_3way_interactions Include 3-way interactions
 #' @param include_quadratic_interactions Include quadratic interactions
@@ -848,6 +850,7 @@ make_derivative_matrix  <-  function(
     nc,
     Cpredictors,
     power1_cols,
+    power2_cols,
     nonspline_cols,
     interaction_single_cols,
     interaction_quad_cols,
@@ -890,7 +893,8 @@ make_derivative_matrix  <-  function(
           interaction_quad_cols,
           triplet_cols,
           colnm_expansions,
-          power1_cols
+          power1_cols,
+          power2_cols
         ) +
           take_derivative(dat = Cpredictors,
                           var = v,
@@ -917,17 +921,18 @@ make_derivative_matrix  <-  function(
 #' Create Smoothing Spline Constraint Matrix
 #'
 #' @description
-#' Constructs constraint matrix A enforcing continuity and smoothness at knot boundaries
+#' Constructs constraint matrix \eqn{\textbf{A}} enforcing continuity and smoothness at knot boundaries
 #' by constraining function values, derivatives, and interactions between partitions.
 #'
 #' @param nc Integer; number of columns in basis expansion
 #' @param CKnots Matrix; basis expansions evaluated at knot points
 #' @param power1_cols Integer vector; indices of linear terms
+#' @param power2_cols Integer vector; indices of quadratic terms
 #' @param nonspline_cols Integer vector; indices of non-spline terms
 #' @param interaction_single_cols Integer vector; indices of linear interaction terms
 #' @param interaction_quad_cols Integer vector; indices of quadratic interaction terms
 #' @param triplet_cols Integer vector; indices of three-way interaction terms
-#' @param K Integer; number of interior knots (K+1 partitions)
+#' @param K Integer; number of interior knots (\eqn{K+1} partitions)
 #' @param include_constrain_fitted Logical; constrain function values at knots
 #' @param include_constrain_first_deriv Logical; constrain first derivatives at knots
 #' @param include_constrain_second_deriv Logical; constrain second derivatives at knots
@@ -938,14 +943,15 @@ make_derivative_matrix  <-  function(
 #' @param colnm_expansions Character vector; column names for basis expansions
 #' @param expansion_scales Numeric vector; scaling factors for standardization
 #'
-#' @return Matrix A of constraint coefficients. Columns correspond to
-#' constraints, rows to coefficients across all partitions.
+#' @return Matrix \eqn{\textbf{A}} of constraint coefficients. Columns correspond to
+#' constraints, rows to coefficients across all \eqn{K+1} partitions.
 #'
 #' @keywords internal
 #' @export
 make_constraint_matrix <- function(nc,
                                    CKnots,
                                    power1_cols,
+                                   power2_cols,
                                    nonspline_cols,
                                    interaction_single_cols,
                                    interaction_quad_cols,
@@ -1014,7 +1020,7 @@ make_constraint_matrix <- function(nc,
 
   ## Expand out the constraints, located at knots
   constrain_fitted <- CKnots[,rep(1:nc, K+1), drop = FALSE] *
-                      checkered_fitted_expand
+    checkered_fitted_expand
 
   ## When non-spline and spline present, repeat fitted constraint for
   # spline-only
@@ -1022,7 +1028,7 @@ make_constraint_matrix <- function(nc,
     CKnots0 <- CKnots
     CKnots0[,nonspline_cols] <- 0
     constrain_fitted0 <- CKnots0[,rep(1:nc, K+1), drop = FALSE] *
-                         checkered_fitted_expand
+      checkered_fitted_expand
     constrain_fitted <- rbind(constrain_fitted, constrain_fitted0)
   }
 
@@ -1037,11 +1043,11 @@ make_constraint_matrix <- function(nc,
       take_derivative(dat = CKnots, var = v, scale = expansion_scales[v])
     })
     first_deriv = Reduce('rbind',
-        first_derivs
+                         first_derivs
     )
     constrain_first_deriv <- first_deriv[, rep(1:nc, K+1),
                                          drop = FALSE] *
-                             checkered_fitted_expand[
+      checkered_fitted_expand[
 
         rep(c(1:nrow(checkered_fitted_expand)),
             length(power1_cols)),
@@ -1058,7 +1064,7 @@ make_constraint_matrix <- function(nc,
                       scale = expansion_scales[v])
     })
     first_derivs <- Reduce('rbind',
-      first_derivs
+                           first_derivs
     )
 
     ## New constraint
@@ -1086,11 +1092,11 @@ make_constraint_matrix <- function(nc,
                           lapply(colnames(CKnots)[c(power1_cols,
                                                     nonspline_cols)],
                                  function(v){
-                            take_derivative(dat = CKnots,
-                                            var = v,
-                                            second = TRUE,
-                                            scale = expansion_scales[v])
-                          })
+                                   take_derivative(dat = CKnots,
+                                                   var = v,
+                                                   second = TRUE,
+                                                   scale = expansion_scales[v])
+                                 })
     )
     constrain_second_deriv <- second_deriv[, rep(1:nc, K+1),
                                            drop = FALSE] *
@@ -1106,54 +1112,55 @@ make_constraint_matrix <- function(nc,
        include_quadratic_interactions) &
       (length(c(power1_cols, nonspline_cols)) > 1) &
       include_constrain_interactions){
-        second_deriv_interaction <-
-          Reduce('rbind',
-                 lapply(colnames(CKnots)[
-                   c(power1_cols, nonspline_cols)],
-                        function(v) {
-                          if(v %in% nonspline_cols){
-                            take_derivative(dat = CKnots,
-                                      var = v,
-                                      scale = expansion_scales[v],
-                                      second = TRUE)
-                          } else {
-                            take_interaction_2ndderivative(
-                              dat = CKnots,
-                              var = v,
-                              interaction_single_cols,
-                              interaction_quad_cols,
-                              triplet_cols,
-                              colnm_expansions,
-                              power1_cols
-                            )
-                          }
-                        }))
-          constrain_second_deriv_interactions <-
-            second_deriv_interaction[, rep(1:nc, K+1), drop = FALSE] *
-            checkered_fitted_expand[
-              rep(c(1:nrow(checkered_fitted_expand)),
-                  length(c(power1_cols,nonspline_cols))),
-            ]
+    second_deriv_interaction <-
+      Reduce('rbind',
+             lapply(colnames(CKnots)[
+               c(power1_cols, nonspline_cols)],
+               function(v) {
+                 if(v %in% nonspline_cols){
+                   take_derivative(dat = CKnots,
+                                   var = v,
+                                   scale = expansion_scales[v],
+                                   second = TRUE)
+                 } else {
+                   take_interaction_2ndderivative(
+                     dat = CKnots,
+                     var = v,
+                     interaction_single_cols,
+                     interaction_quad_cols,
+                     triplet_cols,
+                     colnm_expansions,
+                     power1_cols,
+                     power2_cols
+                   )
+                 }
+               }))
+    constrain_second_deriv_interactions <-
+      second_deriv_interaction[, rep(1:nc, K+1), drop = FALSE] *
+      checkered_fitted_expand[
+        rep(c(1:nrow(checkered_fitted_expand)),
+            length(c(power1_cols,nonspline_cols))),
+      ]
   }
 
   ## Combine the constraints into a single full-rank matrix A
   if ((include_2way_interactions |
        include_3way_interactions |
        include_quadratic_interactions) &
-       (length(c(power1_cols, nonspline_cols)) > 1) &
-       include_constrain_interactions){
+      (length(c(power1_cols, nonspline_cols)) > 1) &
+      include_constrain_interactions){
     if (include_constrain_second_deriv) {
       if (include_constrain_first_deriv) {
         A = t(rbind(
           constrain_fitted,
           constrain_first_deriv,
           constrain_second_deriv +
-          constrain_second_deriv_interactions
+            constrain_second_deriv_interactions
         ))
       } else {
         A = t(rbind(constrain_fitted,
                     constrain_second_deriv +
-                    constrain_second_deriv_interactions))
+                      constrain_second_deriv_interactions))
       }
     } else {
       if (include_constrain_first_deriv) {
@@ -1216,16 +1223,16 @@ is_binary <- function(x){
 #' Compute Derivative of Penalty Matrix G with Respect to Lambda
 #'
 #' @description
-#' Calculates the derivative of the penalty matrix G with respect to the
-#' smoothing parameter lambda, supporting both global and partition-specific penalties.
-#' (i.e. the derivative of diagonal weight matrix 1/(1+x^{T}UGx) w.r.t. penalty)
+#' Calculates the derivative of the penalty matrix \eqn{\textbf{G}} with respect to the
+#' smoothing parameter lambda (\eqn{\lambda}), supporting both global and partition-specific penalties.
+#' This is related to the derivative of the diagonal weight matrix \eqn{1/(1+\textbf{x}^{T}\textbf{U}\textbf{G}\textbf{x})} w.r.t. the penalty.
 #'
-#' @param G A list of penalty matrices for each partition
-#' @param L The base penalty matrix
-#' @param K Number of partitions minus 1
-#' @param lambda Smoothing parameter value
+#' @param G A list of penalty matrices \eqn{\textbf{G}} for each partition
+#' @param L The base penalty matrix \eqn{\textbf{L}}
+#' @param K Number of partitions minus 1 (\eqn{K})
+#' @param lambda Smoothing parameter value \eqn{\lambda}
 #' @param unique_penalty_per_partition Logical indicating partition-specific penalties
-#' @param L_partition_list Optional list of partition-specific penalty matrices
+#' @param L_partition_list Optional list of partition-specific penalty matrices \eqn{\textbf{L}_k}
 #' @param parallel Logical to enable parallel processing
 #' @param cl Cluster object for parallel computation
 #' @param chunk_size Size of chunks for parallel processing
@@ -1233,7 +1240,7 @@ is_binary <- function(x){
 #' @param rem_chunks Remainder chunks
 #'
 #' @return
-#' A list of derivative matrices for each partition
+#' A list of derivative matrices \eqn{d\textbf{G}/d\lambda} for each partition
 #'
 #' @keywords internal
 #' @export
@@ -1274,7 +1281,7 @@ compute_dG_dlambda <- function(G,
 
     ## Process main chunks in parallel
     result <- c(
-      Reduce("c",parLapply(cl, 1:num_chunks, function(chunk) {
+      Reduce("c",parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         inds <- (chunk - 1)*chunk_size + 1:chunk_size
         lapply(inds, function(k) {
           if(unique_penalty_per_partition){
@@ -1301,19 +1308,21 @@ compute_dG_dlambda <- function(G,
   return(result)
 }
 
-#' Compute Derivative of Penalty Matrix G with Respect to Lambda
+#' Compute Derivative of Penalty Matrix G with Respect to Lambda (Wrapper)
 #'
 #' @description
-#' Calculates the derivative of the penalty matrix G with respect to the
-#' smoothing parameter lambda, supporting both global and partition-specific penalties.
-#' (i.e. the derivative of diagonal weight matrix 1/(1+x'UGx) w.r.t. penalty)
+#' Wrapper function for computing the derivative of the weight matrix w.r.t lambda \eqn{\lambda}.
+#' This involves computing terms related to the derivative of \eqn{1/(1+\textbf{x}^{T}\textbf{U}\textbf{G}\textbf{x})}.
 #'
-#' @param G A list of penalty matrices for each partition
-#' @param L The base penalty matrix
-#' @param K Number of partitions minus 1
-#' @param lambda Smoothing parameter value
-#' @param unique_penalty_per_partition Logical indicating partition-specific penalties
-#' @param L_partition_list Optional list of partition-specific penalty matrices
+#' @param G A list of penalty matrices \eqn{\textbf{G}} for each partition
+#' @param A Constraint matrix \eqn{\textbf{A}}
+#' @param GXX List of \eqn{\textbf{G}\textbf{X}^{T}\textbf{X}} products
+#' @param Ghalf List of \eqn{\textbf{G}^{1/2}} matrices
+#' @param dG_dlambda List of \eqn{d\textbf{G}/d\lambda} matrices
+#' @param dGhalf_dlambda List of \eqn{d\textbf{G}^{1/2}/d\lambda} matrices
+#' @param AGAInv Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}
+#' @param nc Number of columns
+#' @param K Number of partitions minus 1 (\eqn{K})
 #' @param parallel Logical to enable parallel processing
 #' @param cl Cluster object for parallel computation
 #' @param chunk_size Size of chunks for parallel processing
@@ -1321,7 +1330,7 @@ compute_dG_dlambda <- function(G,
 #' @param rem_chunks Remainder chunks
 #'
 #' @return
-#' A list of derivative matrices for each partition
+#' Scalar value representing the trace derivative component.
 #'
 #' @keywords internal
 #' @export
@@ -1357,7 +1366,7 @@ compute_dW_dlambda_wrapper <- function(G,
     dGXX <- matmult_block_diagonal_cpp(dG_dlambda, GXX, K)
 
     # Compute all traces and corrections in a single parallel operation
-    results <- parLapply(cl, chunk_indices, function(inds) {
+    results <- parallel::parLapply(cl, chunk_indices, function(inds) {
       start_idx <- min(inds) - 1
 
       # Compute initial trace
@@ -1402,15 +1411,15 @@ compute_dW_dlambda_wrapper <- function(G,
 }
 
 
-#' Calculate Trace of Matrix Product XUGX^{T}
+#' Calculate Trace of Matrix Product \eqn{\text{trace}(\textbf{X}\textbf{U}\textbf{G}\textbf{X}^{T})}
 #'
-#' @param G List of G matrices
-#' @param A Constraint matrix
-#' @param GXX List of GX'X products
-#' @param Ghalf List of G^(1/2) matrices
-#' @param AGAInv Inverse of A^{T}GA
+#' @param G List of G matrices (\eqn{\textbf{G}})
+#' @param A Constraint matrix (\eqn{\textbf{A}})
+#' @param GXX List of \eqn{\textbf{G}\textbf{X}^{T}\textbf{X}} products
+#' @param AGAInv Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}
 #' @param nc Number of columns
-#' @param K Number of partitions minus 1
+#' @param nca Number of constraint columns
+#' @param K Number of partitions minus 1 (\eqn{K})
 #' @param parallel Use parallel processing
 #' @param cl Cluster object
 #' @param chunk_size Size of parallel chunks
@@ -1418,13 +1427,8 @@ compute_dW_dlambda_wrapper <- function(G,
 #' @param rem_chunks Remaining chunks
 #'
 #' @details
-#' Computes trace(XUGX^{T}) = trace(GX^{T}X - PGX^{T}X)
-#' where P = GA(A^{T}GA)^(-1)A^{T}
+#' Computes \eqn{\text{trace}(\textbf{X}\textbf{U}\textbf{G}\textbf{X}^{T})} where \eqn{\textbf{U} = \textbf{I} - \textbf{G}\textbf{A}(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}}.
 #' Handles parallel computation by splitting into chunks.
-#'
-# = trace of UGX^{T}X = trace of (GX^{T}X - PGX^{T}X)
-# for P = GA(A^{T}GA)^{-1}A^{T}
-# trace of PGX^{T}X is the "correction" as described
 #'
 #' @return Trace value
 #'
@@ -1461,8 +1465,8 @@ compute_trace_UGXX_wrapper <- function(G,
       chunk_indices[[total_chunks]] <- num_chunks*chunk_size + 1:rem_chunks
     }
 
-    ## Compute traces in parallel with single parLapply call
-    results <- parLapply(cl, chunk_indices, function(inds) {
+    ## Compute traces in parallel with single parallel::parLapply call
+    results <- parallel::parLapply(cl, chunk_indices, function(inds) {
       start_idx <- min(inds) - 1
 
       ## Compute first trace
@@ -1504,20 +1508,20 @@ compute_trace_UGXX_wrapper <- function(G,
 }
 
 
-#' Compute Derivative of UGX^{T}y with Respect to Lambda
+#' Compute Derivative of \eqn{\textbf{U}\textbf{G}\textbf{X}^{T}\textbf{y}} with Respect to Lambda
 #'
-#' @param AGAInv_AGXy Product of (A^{T}GA)^{-1} and (A^{T}GX^{T}y)
-#' @param AGAInv Inverse of A^{T}GA
-#' @param G List of G matrices
-#' @param A Constraint matrix
-#' @param dG_dlambda List of dG/dλ matrices
+#' @param AGAInv_AGXy Product of \eqn{(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}} and \eqn{\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}
+#' @param AGAInv Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}
+#' @param G List of \eqn{\textbf{G}} matrices
+#' @param A Constraint matrix \eqn{\textbf{A}}
+#' @param dG_dlambda List of \eqn{d\textbf{G}/d\lambda} matrices
 #' @param nc Number of columns
 #' @param nca Number of constraint columns
-#' @param K Number of partitions minus 1
-#' @param Xy List of X^{T}y products
-#' @param Ghalf List of G^{1/2} matrices
-#' @param dGhalf List of dG^{1/2}/dλ matrices
-#' @param GhalfXy_temp Temporary storage for G^{1/2}X^{T}y
+#' @param K Number of partitions minus 1 (\eqn{K})
+#' @param Xy List of \eqn{\textbf{X}^{T}\textbf{y}} products
+#' @param Ghalf List of \eqn{\textbf{G}^{1/2}} matrices
+#' @param dGhalf List of \eqn{d\textbf{G}^{1/2}/d\lambda} matrices
+#' @param GhalfXy_temp Temporary storage for \eqn{\textbf{G}^{1/2}\textbf{X}^{T}\textbf{y}}
 #' @param parallel Use parallel processing
 #' @param cl Cluster object
 #' @param chunk_size Size of parallel chunks
@@ -1525,10 +1529,10 @@ compute_trace_UGXX_wrapper <- function(G,
 #' @param rem_chunks Remaining chunks
 #'
 #' @details
-#' Computes d(UGX^{T}y)/dλ = d[(I-GA(A^{T}GA)^{-1}A^{T})GX^{T}y]/dλ
+#' Computes \eqn{d(\textbf{U}\textbf{G}\textbf{X}^{T}\textbf{y})/d\lambda}.
 #' Uses efficient implementation avoiding large matrix construction.
-#' For large problems (K >= 10, nc > 4), uses chunked parallel processing.
-#' For smaller problems, uses simpler least squares approach.
+#' For large problems (\eqn{K \ge 10}, \eqn{nc > 4}), uses chunked parallel processing.
+#' For smaller problems, uses simpler least squares approach based on \eqn{\textbf{G}^{1/2}}.
 #'
 #' @return Vector of derivatives
 #'
@@ -1594,7 +1598,7 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
       }
 
       # Process main chunks in parallel
-      chunk_results <- parLapply(cl, 1:num_chunks, function(chunk) {
+      chunk_results <- parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         start_idx <- (chunk - 1) * chunk_size
         inds <- (start_idx + 1):min(start_idx + chunk_size, K+1)
 
@@ -1660,7 +1664,7 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
       }
 
       # Process main chunks in parallel
-      chunk_results <- parLapply(cl, 1:num_chunks, function(chunk) {
+      chunk_results <- parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         start_idx <- (chunk - 1) * chunk_size
         inds <- (start_idx + 1):min(start_idx + chunk_size, K+1)
 
@@ -1725,7 +1729,7 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
                                              num_chunks,
                                              rem_chunks))
 
-    ## Transform to least squares problem using d[G^(1/2)]/dN;
+    ## Transform to least squares problem using d[G^(1/2)]/dlambda;
     dGhalfA <- Reduce("rbind", GAmult_wrapper(dGhalf,
                                               A,
                                               K,
@@ -1756,7 +1760,7 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
     ## Get second residuals
     resids2 <- do.call('.lm.fit', list(x = dGhalfA / comp_stab_sc,
                                        y = dGhalfXy / comp_stab_sc)
-      )$residuals * comp_stab_sc
+    )$residuals * comp_stab_sc
 
     ## Compute b2 in parallel if requested
     if(parallel & !is.null(cl)) {
@@ -1773,7 +1777,7 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
 
       ## Process main chunks for b2 in parallel
       b2_result <- c(
-        Reduce("c",parLapply(cl, 1:num_chunks, function(chunk) {
+        Reduce("c",parallel::parLapply(cl, 1:num_chunks, function(chunk) {
           inds <- (chunk - 1) * chunk_size + 1:chunk_size
           lapply(inds, function(k) {
             dGhalf[[k]] %**% cbind(resids2[(k-1)*nc + 1:nc]) +
@@ -1796,15 +1800,15 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
 }
 
 
-#' Compute Component G^{1/2}A(A^{T}dGA)^{-1}A^{T}GX^{T}y
+#' Compute Component \eqn{\textbf{G}^{1/2}\textbf{A}(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}
 #'
-#' @param G List of G matrices
-#' @param Ghalf List of G^{1/2} matrices
-#' @param A Constraint matrix
-#' @param AGAInv Inverse of A^{T}GA
-#' @param Xy List of X^{T}y products
+#' @param G List of \eqn{\textbf{G}} matrices
+#' @param Ghalf List of \eqn{\textbf{G}^{1/2}} matrices
+#' @param A Constraint matrix \eqn{\textbf{A}}
+#' @param AGAInv Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}
+#' @param Xy List of \eqn{\textbf{X}^{T}\textbf{y}} products
 #' @param nc Number of columns
-#' @param K Number of partitions minus 1
+#' @param K Number of partitions minus 1 (\eqn{K})
 #' @param parallel Use parallel processing
 #' @param cl Cluster object
 #' @param chunk_size Size of parallel chunks
@@ -1812,13 +1816,14 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
 #' @param rem_chunks Remaining chunks
 #'
 #' @details
-#' Computes G^{1/2}A(A^{T}dGA)^{-1}A^{T}GX^{T}y efficiently in parallel chunks.
-#' Returns both the result and intermediate AGAInvAGXy product for reuse.
+#' Computes \eqn{\textbf{G}^{1/2}\textbf{A}(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}} efficiently in parallel chunks.
+#' Note: The description seems slightly off from the C++ helper functions called (e.g., `compute_AGXy`, `compute_result_blocks`). This computes a component needed for least-squares transformation involving \eqn{\textbf{G}^{1/2}}.
+#' Returns both the result and intermediate \eqn{\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}} product for reuse.
 #'
 #' @return List containing:
 #' \itemize{
 #'   \item Result vector
-#'   \item AGAInvAGXy intermediate product
+#'   \item AGAInvAGXy intermediate product \eqn{(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}
 #' }
 #'
 #' @keywords internal
@@ -1849,7 +1854,7 @@ compute_GhalfXy_temp_wrapper <- function(G,
     }
 
     ## Process main chunks for AGXy
-    AGXy_chunks <- parLapply(cl, 1:num_chunks, function(chunk) {
+    AGXy_chunks <- parallel::parLapply(cl, 1:num_chunks, function(chunk) {
       chunk_start <- (chunk - 1) * chunk_size + 1
       chunk_end <- min(chunk * chunk_size, K+1)
       compute_AGXy(G[chunk_start:chunk_end],
@@ -1881,7 +1886,7 @@ compute_GhalfXy_temp_wrapper <- function(G,
     }
 
     ## Process main chunks for final result
-    result_chunks <- parLapply(cl, 1:num_chunks, function(chunk) {
+    result_chunks <- parallel::parLapply(cl, 1:num_chunks, function(chunk) {
       chunk_start <- (chunk - 1) * chunk_size + 1
       chunk_end <- min(chunk * chunk_size, K+1)
       compute_result_blocks(G[chunk_start:chunk_end],
@@ -1955,7 +1960,7 @@ compute_GhalfXy_temp_wrapper <- function(G,
 #' @param tol Numeric; convergence tolerance
 #' @param sd_y,delta Response standardization parameters
 #' @param constraint_value_vectors List; constraint values
-#' @param parallel,parallel_* Logical; enable parallel computation
+#' @param parallel Logical; enable parallel computation
 #' @param cl,chunk_size,num_chunks,rem_chunks Parallel computation parameters
 #' @param custom_penalty_mat Optional custom penalty matrix
 #' @param order_list List; observation ordering by partition
@@ -3046,7 +3051,7 @@ tune_Lambda <- function(
         warning = function(w) if (include_warnings) warning(w) else invokeRestart("muffleWarning"),
         message = function(m) if (include_warnings) message(m) else invokeRestart("muffleMessage")
       )
-      if(any(class(res) == 'try-error')){
+      if(any(inherits(res, 'try-error'))){
         if(include_warnings) print(res)
         if(include_warnings) warning('Custom BFGS implementation failed. Try use_custom_bfgs =',
         ' FALSE, or manual tuning. Resorting to best as selected from',
@@ -3067,7 +3072,7 @@ tune_Lambda <- function(
         warning = function(w) if (include_warnings) warning(w) else invokeRestart("muffleWarning"),
         message = function(m) if (include_warnings) message(m) else invokeRestart("muffleMessage")
       )
-      if(any(class(res) == 'try-error')){
+      if(any(inherits(res, 'try-error'))){
         if(include_warnings) print(res)
         if(include_warnings) warning('Base R BFGS failed. Try use_custom_bfgs = TRUE, or manual',
         ' tuning. Resorting to best as selected from grid search.')
@@ -3170,7 +3175,7 @@ GAmult_wrapper <- function(G,
 
     ## Process main chunks in parallel
     result <- c(
-      Reduce("c",parLapply(cl, 1:num_chunks, function(chunk) {
+      Reduce("c",parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         start_idx <- (chunk - 1) * chunk_size
         G_chunk <- G[(start_idx + 1):min(start_idx + chunk_size, length(G))]
         A_chunk <- A[(start_idx*nc + 1):min((start_idx + chunk_size)*nc,
@@ -3512,7 +3517,7 @@ get_B <- function(X,
       }
 
       ## quadprog is very sensitive to positive definiteness
-      if(any(class(beta_new) == 'try-error')){
+      if(any(inherits(beta_new, 'try-error'))){
         beta_new <- 0*beta_block
       }
 
@@ -4027,7 +4032,7 @@ get_B <- function(X,
       }
 
       ## quadprog is very sensitive to positive definiteness
-      if(any(class(beta_new) == 'try-error')){
+      if(any(inherits(beta_new, 'try-error'))){
         beta_new <- 0*beta_block
       }
 
@@ -4091,7 +4096,7 @@ get_B <- function(X,
         } else if(is.null(family$dev.resids)){
           if(cor_fl){
             err_new <- mean(unlist(observation_weights)*
-                          (y_block - Vhalfinv %**% cbind(family$linkinv(XB))^2))
+                          (y_block - VhalfInv %**% cbind(family$linkinv(XB))^2))
           } else {
             err_new <- mean(unlist(observation_weights)*
                               (y_block - cbind(family$linkinv(XB))^2))
@@ -4330,7 +4335,7 @@ get_B <- function(X,
     if(any(is.null(prevUnconB)) & parallel_unconstrained){
       ## Unconstrained estimate, extract from each partition
       unconstrained_estimate <-
-        parLapply(cl,
+        parallel::parLapply(cl,
                   1:(K+1),
                   function(k,
                            unique_penalty_per_partition,
@@ -4609,7 +4614,7 @@ get_B <- function(X,
     }
   }
 
-  ## G^{1/2}A, the 'xstar' of the ols problem
+  ## \textbf{G}^{1/2}\textbf{A}, the 'xstar' of the ols problem
   GhalfA <- Reduce("rbind",
                    GAmult_wrapper(Ghalf,
                                   A,
@@ -4658,7 +4663,7 @@ get_B <- function(X,
     }
     ## Process main chunks in parallel
     result <- c(
-      Reduce("c",parLapply(cl, 1:num_chunks, function(chunk) {
+      Reduce("c",parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         start_idx <- (chunk - 1) * chunk_size + 1
         end_idx <- chunk * chunk_size
         lapply(start_idx:end_idx, function(k) {
@@ -4938,7 +4943,7 @@ get_B <- function(X,
         )$solution}, silent = TRUE)
 
         ## quadprog is very sensitive to positive definiteness
-        if(any(class(beta_new) == 'try-error')){
+        if(any(inherits(beta_new, 'try-error'))){
           beta_new <- 0*beta_block
         }
 
@@ -5103,11 +5108,11 @@ get_B <- function(X,
 }
 
 
-#' Efficient Matrix Multiplication for A^{T}GA
+#' Efficient Matrix Multiplication for \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}
 #'
-#' @param G List of G matrices
-#' @param A Constraint matrix
-#' @param K Number of partitions minus 1
+#' @param G List of G matrices (\eqn{\textbf{G}})
+#' @param A Constraint matrix (\eqn{\textbf{A}})
+#' @param K Number of partitions minus 1 (\eqn{K})
 #' @param nc Number of columns per partition
 #' @param nca Number of constraint columns
 #' @param parallel Use parallel processing
@@ -5117,9 +5122,9 @@ get_B <- function(X,
 #' @param rem_chunks Remaining chunks
 #'
 #' @details
-#' Computes A^{T}GA efficiently in parallel chunks using AGAmult_chunk().
+#' Computes \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}} efficiently in parallel chunks using \code{AGAmult_chunk()}.
 #'
-#' @return Matrix product A^{T}GA
+#' @return Matrix product \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}
 #'
 #' @keywords internal
 #' @export
@@ -5148,7 +5153,7 @@ AGAmult_wrapper <- function(G,
     }
 
     # Process main chunks in parallel
-    chunk_results <- parLapply(cl, 1:num_chunks, function(chunk) {
+    chunk_results <- parallel::parLapply(cl, 1:num_chunks, function(chunk) {
       chunk_start <- (chunk - 1) * chunk_size
       G_chunk <- G[(chunk_start + 1):(chunk_start + chunk_size)]
       AGAmult_chunk(G_chunk, A, chunk_start, chunk_start + chunk_size - 1, nc)
@@ -5164,17 +5169,17 @@ AGAmult_wrapper <- function(G,
 
 #' Efficiently Construct U Matrix
 #'
-#' @param G List of G matrices
-#' @param A Constraint matrix
-#' @param K Number of partitions minus 1
+#' @param G List of G matrices (\eqn{\textbf{G}})
+#' @param A Constraint matrix (\eqn{\textbf{A}})
+#' @param K Number of partitions minus 1 (\eqn{K})
 #' @param nc Number of columns per partition
 #' @param nca Number of constraint columns
 #'
-#' @return U matrix for constraints
+#' @return \eqn{\textbf{U}} matrix for constraints
 #'
 #' @details
-#' Computes U = I - GA(A^{T}GA)^{-1}A^{T} efficiently, avoiding unnecessary
-#' multiplication of blocks of G with all-0 elements.
+#' Computes \eqn{\textbf{U} = \textbf{I} - \textbf{G}\textbf{A}(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}} efficiently, avoiding unnecessary
+#' multiplication of blocks of \eqn{\textbf{G}} with all-0 elements.
 #'
 #' @keywords internal
 #' @export
@@ -5190,8 +5195,8 @@ get_U <- function(G, A, K, nc, nca){
 #' @param indices Indices of combinations to return
 #'
 #' @details
-#' Returns selected combinations from the cartesian product of vec_list
-#' without constructing full expand.grid() for memory efficiency
+#' Returns selected combinations from the cartesian product of \code{vec_list}
+#' without constructing full \code{expand.grid()} for memory efficiency.
 #'
 #' @return Data frame of selected combinations
 #'
@@ -5238,25 +5243,25 @@ expgrid <- function(vec_list, indices) {
 #' predictor/partition-specific components. Handles custom penalties and scaling.
 #'
 #' @param custom_penalty_mat Matrix; optional custom ridge penalty structure
-#' @param L1 Matrix; integrated squared second derivative penalty
+#' @param L1 Matrix; integrated squared second derivative penalty (\eqn{\textbf{L}_1})
 #' @param wiggle_penalty,flat_ridge_penalty Numeric; smoothing and ridge penalty parameters
-#' @param K Integer; number of interior knots
+#' @param K Integer; number of interior knots (\eqn{K})
 #' @param nc Integer; number of basis columns per partition
 #' @param unique_penalty_per_predictor,unique_penalty_per_partition Logical; enable predictor/partition-specific penalties
 #' @param penalty_vec Named numeric; custom penalty values for predictors/partitions
 #' @param colnm_expansions Character; column names for linking penalties to predictors
-#' @param just_Lambda Logical; return only combined penalty matrix
+#' @param just_Lambda Logical; return only combined penalty matrix (\eqn{\boldsymbol{\Lambda}})
 #'
 #' @return List containing:
 #' \itemize{
-#'   \item Lambda - Combined nc x nc penalty matrix
-#'   \item L1 - Smoothing spline penalty matrix
-#'   \item L2 - Ridge penalty matrix
-#'   \item L_predictor_list - List of predictor-specific penalty matrices
-#'   \item L_partition_list - List of partition-specific penalty matrices
+#'   \item Lambda - Combined \eqn{nc \times nc} penalty matrix (\eqn{\boldsymbol{\Lambda}})
+#'   \item L1 - Smoothing spline penalty matrix (\eqn{\textbf{L}_1})
+#'   \item L2 - Ridge penalty matrix (\eqn{\textbf{L}_2})
+#'   \item L_predictor_list - List of predictor-specific penalty matrices (\eqn{\textbf{L}_\text{predictor_list}})
+#'   \item L_partition_list - List of partition-specific penalty matrices (\eqn{\textbf{L}_\text{partition_list}})
 #' }
 #'
-#' If just_Lambda=TRUE and no partition penalties, returns only Lambda matrix.
+#' If \code{just_Lambda=TRUE} and no partition penalties, returns only Lambda matrix \eqn{\boldsymbol{\Lambda}}.
 #'
 #' @keywords internal
 #' @export
@@ -5326,9 +5331,9 @@ compute_Lambda <- function(custom_penalty_mat,
 
 #' Compute Eigenvalues and Related Matrices for G
 #'
-#' @param X_gram Gram matrix list
-#' @param Lambda Penalty matrix
-#' @param K Number of partitions minus 1
+#' @param X_gram Gram matrix list (\eqn{\textbf{X}^{T}\textbf{X}})
+#' @param Lambda Penalty matrix (\eqn{\boldsymbol{\Lambda}})
+#' @param K Number of partitions minus 1 (\eqn{K})
 #' @param parallel Use parallel processing
 #' @param cl Cluster object
 #' @param chunk_size Chunk size for parallel
@@ -5336,19 +5341,20 @@ compute_Lambda <- function(custom_penalty_mat,
 #' @param rem_chunks Remaining chunks
 #' @param family GLM family
 #' @param unique_penalty_per_partition Use partition penalties
-#' @param L_partition_list Partition penalty list
-#' @param keep_G Return full G matrix
+#' @param L_partition_list Partition penalty list (\eqn{\textbf{L}_\text{partition_list}})
+#' @param keep_G Return full G matrix (\eqn{\textbf{G}})
+#' @param shur_corrections List of Shur complement corrections (\eqn{\textbf{S}})
 #'
 #' @details
-#' Computes G, G^{1/2}, and G^{-1/2} matrices via eigendecomposition.
+#' Computes \eqn{\textbf{G}}, \eqn{\textbf{G}^{1/2}} and \eqn{\textbf{G}^{-1/2}} matrices via eigendecomposition of \eqn{\textbf{X}^{T}\textbf{X} + \boldsymbol{\Lambda}_\text{effective} + \textbf{S}}.
 #' Handles partition-specific penalties and parallel processing.
-#' For non-identity link functions, also returns G^{-1/2}.
+#' For non-identity link functions, also returns \eqn{\textbf{G}^{-1/2}}.
 #'
 #' @return List containing combinations of:
 #' \itemize{
-#'   \item G - Full G matrix (if keep_G=TRUE)
-#'   \item Ghalf - G^{1/2} matrix
-#'   \item GhalfInv - G^{-1/2} matrix (for non-identity links)
+#'   \item G - Full \eqn{\textbf{G}} matrix (if \code{keep_G=TRUE})
+#'   \item Ghalf - \eqn{\textbf{G}^{1/2}} matrix
+#'   \item GhalfInv - \eqn{\textbf{G}^{-1/2}} matrix (for non-identity links)
 #' }
 #'
 #' @keywords internal
@@ -5422,7 +5428,7 @@ compute_G_eigen <- function(X_gram,
 
     ## Process main chunks in parallel with same logic
     result <- c(
-      Reduce("c",parLapply(cl, 1:num_chunks, function(chunk) {
+      Reduce("c",parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         inds <- (chunk - 1)*chunk_size + 1:chunk_size
         lapply(inds, function(k) {
           if(unique_penalty_per_partition){
@@ -5537,15 +5543,15 @@ compute_G_eigen <- function(X_gram,
 #' Compute Matrix Square Root Derivative
 #'
 #' @description
-#' Calculates dG^{1/2}/dλ matrices for each partition using eigendecomposition.
-#' Follows similar approach to compute_G_eigen() but for matrix derivatives.
+#' Calculates \eqn{d\textbf{G}^{1/2}/d\lambda} matrices for each partition using eigendecomposition.
+#' Follows similar approach to \code{compute_G_eigen()} but for matrix derivatives.
 #'
-#' @param dG_dlambda List of nc x nc dG/dλ matrices by partition
+#' @param dG_dlambda List of \eqn{nc \times nc} \eqn{d\textbf{G}/d\lambda} matrices by partition
 #' @param nc Integer; number of columns per partition
-#' @param K Integer; number of interior knots
+#' @param K Integer; number of interior knots (\eqn{K})
 #' @param parallel,cl,chunk_size,num_chunks,rem_chunks Parallel computation parameters
 #'
-#' @return List of nc x nc = p x p matrices containing dG_k^{1/2}/dλ for each partition k
+#' @return List of \eqn{nc \times nc} matrices containing \eqn{d\textbf{G}_k^{1/2}/d\lambda} for each partition k
 #'
 #' @keywords internal
 #' @export
@@ -5580,7 +5586,7 @@ compute_dGhalf <- function(dG_dlambda,
 
     ## Process main chunks in parallel
     result <- c(
-      Reduce("c",parLapply(cl, 1:num_chunks, function(chunk) {
+      Reduce("c",parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         inds <- (chunk - 1)*chunk_size + 1:chunk_size
         lapply(inds, function(k) {
           mat_k <- dG_dlambda[[k]]
@@ -5621,18 +5627,18 @@ compute_dGhalf <- function(dG_dlambda,
 #' Get Centers for Partitioning
 #'
 #' @param data Matrix of predictor data
-#' @param K Number of partitions minus 1
+#' @param K Number of partitions minus 1 (\eqn{K})
 #' @param cluster_args List with custom centers and kmeans args
 #' @param cluster_on_indicators Include binary predictors in clustering
 #'
 #' @details
 #' Returns partition centers via:
 #'
-#' 1. Custom supplied centers if provided as a valid K x q matrix
+#' 1. Custom supplied centers if provided as a valid \eqn{K \times q} matrix
 #'
-#' 2. kmeans clustering on all non-spline variables if cluster_on_indicators=TRUE
+#' 2. kmeans clustering on all non-spline variables if \code{cluster_on_indicators=TRUE}
 #'
-#' 3. kmeans clustering excluding binary variables if cluster_on_indicators=FALSE
+#' 3. kmeans clustering excluding binary variables if \code{cluster_on_indicators=FALSE}
 #'
 #' @return Matrix of cluster centers
 #'
@@ -5644,16 +5650,16 @@ get_centers <- function(data, K, cluster_args, cluster_on_indicators) {
   if(any(!is.na(cluster_args[[1]]))){
     return(cluster_args[[1]])
 
-  ## Partition clusters including 0/1 predictors
+    ## Partition clusters including 0/1 predictors
   } else if(cluster_on_indicators){
-    km <- kmeans(data,
+    km <- stats::kmeans(data,
                  K+1,
                  cluster_args[-1])
 
   } else {
     bin <- which(apply(data, 2, is_binary))
     data[,bin] <- 0
-    km <- kmeans(data,
+    km <- stats::kmeans(data,
                  K+1,
                  cluster_args[-1])
 
@@ -5691,10 +5697,10 @@ find_neighbors <- function(centers, parallel, cl, neighbor_tolerance) {
     chunks <- split(1:nrow(pairs), ceiling(seq_along(1:nrow(pairs))/chunk_size))
 
     ## Export data to cluster
-    clusterExport(cl, "centers", envir = environment())
+    parallel::clusterExport(cl, "centers", envir = environment())
 
     ## Process chunks in parallel
-    results <- parLapply(cl, chunks, function(chunk_indices) {
+    results <- parallel::parLapply(cl, chunks, function(chunk_indices) {
       chunk_results <- vector("list", length(chunk_indices))
 
       for (idx in seq_along(chunk_indices)) {
@@ -5760,12 +5766,12 @@ find_neighbors <- function(centers, parallel, cl, neighbor_tolerance) {
 #' Create Data Partitions Using Clustering
 #'
 #' @description
-#' Partitions data support into clusters using Voronoi-like diagrams
+#' Partitions data support into clusters using Voronoi-like diagrams.
 #'
 #' @param data Numeric matrix of predictor variables
 #' @param cluster_args Parameters for clustering
 #' @param cluster_on_indicators Logical to include binary predictors
-#' @param K Number of partitions minus 1
+#' @param K Number of partitions minus 1 (\eqn{K})
 #' @param parallel Logical to enable parallel processing
 #' @param cl Cluster object for parallel computation
 #' @param do_not_cluster_on_these Columns to exclude from clustering
@@ -5922,11 +5928,13 @@ make_partitions <- function(data,
 #' @param select_cols Optional vector of column indices to penalize (default: all linear terms)
 #'
 #' @return
-#' A symmetric p x p penalty matrix representing integrated squared second derivatives
+#' A symmetric \eqn{p \times p} penalty matrix \eqn{\textbf{P}} representing integrated squared second derivatives
 #' for basis expansions in a single partition of the smoothing spline.
 #'
 #' @details
 #' This function computes the analytic form of the traditional integrated, squared, second-derivative evaluated over the bounds of the input data.
+#' If \eqn{f(x) = \textbf{X}\boldsymbol{\beta}}, then the penalty is based on \eqn{\int \{ f''(x) \}^2 dx = \boldsymbol{\beta}^{T}(\int \textbf{X}''^{T}\textbf{X}'' dx)\boldsymbol{\beta}}.
+#' This function computes the matrix \eqn{\textbf{P} = \int \textbf{X}''^{T}\textbf{X}'' dx}.
 #' When scaled by a non-negative scalar (wiggle penalty, predictor penalties and/or partition penalties), this becomes the smoothing spline penalty.
 #'
 #' @keywords internal
@@ -6111,7 +6119,7 @@ get_2ndDerivPenalty <- function(colnm_expansions,
                 if(length(interaction_single_cols) > 0){
                   interaction_singles <-
                     interaction_single_cols[grep(paste0("_",v,"_"),
-                                          colnm_expansions[interaction_single_cols])]
+                                                 colnm_expansions[interaction_single_cols])]
                   if(length(interaction_singles) > 0){
                     for(j in 1:length(interaction_singles)){
                       base_val1 <- 2*diffw*diff1
@@ -6228,7 +6236,7 @@ get_2ndDerivPenalty <- function(colnm_expansions,
               if(length(interaction_single_cols) > 0){
                 interaction_singles <-
                   interaction_single_cols[grep(paste0("_",v,"_"),
-                                           colnm_expansions[interaction_single_cols])]
+                                               colnm_expansions[interaction_single_cols])]
                 if(length(interaction_singles) > 0){
                   for(j in 1:length(interaction_singles)){
                     mat[interaction_singles[j], trip_inter] <-
@@ -6253,12 +6261,12 @@ get_2ndDerivPenalty <- function(colnm_expansions,
 #'
 #' @description
 #' Computes smoothing spline penalty matrix with optional parallel processing.
-#' Calls  \code{\link[get_2ndDerivPenalty]{get_2ndDerivPenalty}} after
-#' processing spline vs.nonspline terms and preparing for parallel if desired.
+#' Calls  \code{\link{get_2ndDerivPenalty}} after
+#' processing spline vs. nonspline terms and preparing for parallel if desired.
 #'
-#' @param K Number of partitions
+#' @param K Number of partitions (\eqn{K+1})
 #' @param colnm_expansions Column names of basis expansions
-#' @param C Basis expansion matrix of two rows, first of all maximums, second of all minimums, for all variables of interest = rbind(rbind(apply(C, 2, max)), rbind(apply(C, 2, min))) for cubic expansions "C"
+#' @param C Basis expansion matrix of two rows, first of all maximums, second of all minimums, for all variables of interest = \code{rbind(apply(C, 2, max)), rbind(apply(C, 2, min)))} for cubic expansions "C"
 #' @param power1_cols Linear term columns
 #' @param power2_cols Quadratic term columns
 #' @param power3_cols Cubic term columns
@@ -6272,7 +6280,7 @@ get_2ndDerivPenalty <- function(colnm_expansions,
 #' @param cl Cluster object for parallel computation
 #'
 #' @return
-#' A p x p penalty matrix for smoothing spline regularization containing the
+#' A \eqn{p \times p} penalty matrix for smoothing spline regularization containing the
 #' elementwise sum of the integrated squared second derivative of the fitted
 #' function with respect to predictors of interest.
 #'
@@ -6343,21 +6351,21 @@ get_2ndDerivPenalty_wrapper <- function(K,
 
       ## Process current chunk in parallel
       chunk_result <- Reduce("+",
-                        parLapply(cl,
-                                  start:end,
-                                   function(select_col) {
-                                    get_2ndDerivPenalty(colnm_expansions,
-                                                        C,
-                                                        power1_cols,
-                                                        power2_cols,
-                                                        power3_cols,
-                                                        power4_cols,
-                                                        interaction_single_cols,
-                                                        interaction_quad_cols,
-                                                        triplet_cols,
-                                                        nc,
-                                                        select_col)
-                                  }))
+                             parallel::parLapply(cl,
+                                                 start:end,
+                                                 function(select_col) {
+                                                   get_2ndDerivPenalty(colnm_expansions,
+                                                                       C,
+                                                                       power1_cols,
+                                                                       power2_cols,
+                                                                       power3_cols,
+                                                                       power4_cols,
+                                                                       interaction_single_cols,
+                                                                       interaction_quad_cols,
+                                                                       triplet_cols,
+                                                                       nc,
+                                                                       select_col)
+                                                 }))
       ## Add chunk result to overall result
       result <- result + chunk_result
     }
@@ -6449,7 +6457,7 @@ loglik_weibull <- function(log_y, log_mu, status, scale, weights = 1) {
   logL <- status * (-log(scale) +
                       z -
                       log_y) -
-          exp(z)
+    exp(z)
 
   ## Return sum of log likelihood
   return(sum(logL * weights))
@@ -6462,6 +6470,14 @@ loglik_weibull <- function(log_y, log_mu, status, scale, weights = 1) {
 #' Calculates the gradient of log-likelihood for a
 #' Weibull Accelerated Failure Time (AFT) survival model, supporting
 #' right-censored survival data.
+#' @param X Design matrix
+#' @param y Response vector
+#' @param mu Predicted mean vector
+#' @param order_list List of observation indices per partition
+#' @param dispersion Dispersion parameter (scale^2)
+#' @param VhalfInv Inverse square root of correlation matrix (if applicable)
+#' @param observation_weights Observation weights
+#' @param status Censoring indicator (1 = event, 0 = censored)
 #'
 #' @return
 #' A numeric vector representing the gradient with respect to coefficients.
@@ -6483,14 +6499,14 @@ weibull_qp_score_function = function(X,
   order_indices <- unlist(order_list)
   t(X) %**% cbind(exp((log(y) - log(mu))/scale) -
                     cbind(scale *
-                          status[order_indices]) *
+                            status[order_indices]) *
                     observation_weights)
 }
 
 #' Correction for the Variance-Covariance Matrix for Uncertainty in Scale
 #'
 #' @description
-#' Computes the shur complement "S" such that G* = (G^{-1} + S)^{-1} properly
+#' Computes the shur complement \eqn{\textbf{S}} such that \eqn{\textbf{G}^* = (\textbf{G}^{-1} + \textbf{S})^{-1}} properly
 #' accounts for uncertainty in estimating dispersion when estimating
 #' variance-covariance. Otherwise, the variance-covariance matrix is optimistic
 #' and assumes the scale is known, when it was in fact estimated. Note that the
@@ -6501,9 +6517,9 @@ weibull_qp_score_function = function(X,
 #' @param X Block-diagonal matrices of spline expansions
 #' @param y Block-vector of response
 #' @param B Block-vector of coefficient estimates
-#' @param dispersion Scalar, estimate of dispersion, = Weibull scale^2
+#' @param dispersion Scalar, estimate of dispersion, \eqn{ = \text{Weibull scale}^2}
 #' @param order_list List of partition orders
-#' @param K Number of partitions minus 1
+#' @param K Number of partitions minus 1 (\eqn{K})
 #' @param family Distribution family
 #' @param observation_weights Optional observation weights (default = 1)
 #' @param status Censoring indicator (1 = event, 0 = censored)
@@ -6513,16 +6529,16 @@ weibull_qp_score_function = function(X,
 #'   subject was lost to follow-up before the event of interest occurred.
 #'
 #' @return
-#' List of p x p matrices representing the shur-complement corrections to be
+#' List of \eqn{p \times p} matrices representing the shur-complement corrections \eqn{\textbf{S}_k} to be
 #' elementwise added to each block of the information matrix, before inversion.
 #'
 #' @details
 #' Adjusts the variance-covariance matrix unscaled for coefficients to account
 #' for uncertainty in estimating the Weibull scale parameter, that otherwise
-#' would be lost if simply using G=(X^{T}WX + L)^{-1}. This is accomplished
+#' would be lost if simply using \eqn{\textbf{G}=(\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}}. This is accomplished
 #' using a correction based on the Shur complement so we avoid having to
 #' construct the entire variance-covariance matrix, or modifying the procedure
-#' for  \code{\link[lgspline]{lgspline}} substantially.
+#' for \code{\link{lgspline}} substantially.
 #' For any model with nuisance parameters that must have uncertainty accounted
 #' for, this tool will be helpful.
 #'
@@ -6588,8 +6604,9 @@ weibull_shur_correction <- function(X,
       # conditional upon estimate of scale.
       # I = ( I_bb I_bs^{T} )
       #     ( I_bs I_ss     )
+      # \eqn{\textbf{I} = \begin{pmatrix} \textbf{I}_{bb} & \textbf{I}_{bs}^{T} \\ \textbf{I}_{bs} & I_{ss} \end{pmatrix}}
       # for b = beta, s = dispersion (scale)
-      # Note that: I_bb = invert(G[[k]])
+      # Note that: I_bb = invert(G[[k]]) is incorrect, I_bb is part of Fisher info
       I_bs <- t(X[[k]]) %**% cbind(weights * zexp_z * sqrt(dispersion))
       I_ss <- -sum(
         weights * (
@@ -6654,13 +6671,13 @@ weibull_shur_correction <- function(X,
 #' @export
 weibull_scale <- function(log_y, log_mu, status, weights = 1){
   optim(
-      1,
-      fn = function(par){
-        -loglik_weibull(log_y, log_mu, status, par, weights)
-      },
-      method = 'Brent',
-      lower = 1e-64,
-      upper = 100
+    1,
+    fn = function(par){
+      -loglik_weibull(log_y, log_mu, status, par, weights)
+    },
+    method = 'Brent',
+    lower = 1e-64,
+    upper = 100
   )$par
 }
 
@@ -6721,52 +6738,52 @@ weibull_scale <- function(log_y, log_mu, status, weights = 1){
 #'
 #' @export
 weibull_family <- function()list(family = "weibull",
-     link = "log",
-     linkfun = log,
-     linkinv = exp,
-     ## Custom loss used in place of MSE for computing GCV
-     custom_dev.resids =
-       function(y,
-                mu,
-                order_indices,
-                family,
-                observation_weights,
-                status){
-         log_mu <- log(mu)
-         log_y <- log(y)
-         status <- status[order_indices]
+                                 link = "log",
+                                 linkfun = log,
+                                 linkinv = exp,
+                                 ## Custom loss used in place of MSE for computing GCV
+                                 custom_dev.resids =
+                                   function(y,
+                                            mu,
+                                            order_indices,
+                                            family,
+                                            observation_weights,
+                                            status){
+                                     log_mu <- log(mu)
+                                     log_y <- log(y)
+                                     status <- status[order_indices]
 
-         ## Initialize scale
-         init_scale <-
-           weibull_scale(log_y,
-                         mean(log_y),
-                         status[order_indices],
-                         observation_weights)
-         ## Find scale
-         scale <- optim(
-           init_scale,
-           fn = function(par){
-             -loglik_weibull(log_y,
-                             log_mu,
-                             status,
-                             par,
-                             observation_weights)
-           },
-           lower = init_scale/5,
-           upper = init_scale*5,
-           method = 'Brent'
-         )$par
+                                     ## Initialize scale
+                                     init_scale <-
+                                       weibull_scale(log_y,
+                                                     mean(log_y),
+                                                     status[order_indices],
+                                                     observation_weights)
+                                     ## Find scale
+                                     scale <- optim(
+                                       init_scale,
+                                       fn = function(par){
+                                         -loglik_weibull(log_y,
+                                                         log_mu,
+                                                         status,
+                                                         par,
+                                                         observation_weights)
+                                       },
+                                       lower = init_scale/5,
+                                       upper = init_scale*5,
+                                       method = 'Brent'
+                                     )$par
 
-         ## -2 * log-likelihood
-         dev <- -2*(
-           ## Log-likelihood contributions
-           status * (-log(scale) +
-                       (1/scale - 1)*log_y -
-                       log_mu/scale) -
-             (exp((log_y - log_mu)/scale))
-         )
-         return(dev * observation_weights)
-       })
+                                     ## -2 * log-likelihood
+                                     dev <- -2*(
+                                       ## Log-likelihood contributions
+                                       status * (-log(scale) +
+                                                   (1/scale - 1)*log_y -
+                                                   log_mu/scale) -
+                                         (exp((log_y - log_mu)/scale))
+                                     )
+                                     return(dev * observation_weights)
+                                   })
 
 
 #' Estimate Weibull Dispersion for Accelerated Failure Time Model
@@ -6791,41 +6808,41 @@ weibull_family <- function()list(family = "weibull",
 #'   subject was lost to follow-up before the event of interest occurred.
 #'
 #' @return
-#' Squared scale estimate for the Weibull AFT model
+#' Squared scale estimate for the Weibull AFT model (dispersion)
 #'
-#' @seealso [weibull_scale()] for the underlying scale estimation function
+#' @seealso \code{\link{weibull_scale}} for the underlying scale estimation function
 #'
 #' @examples
 #' \donttest{
 #' ## Simulate survival data with covariates
-# set.seed(1234)
-# n <- 1000
-# x1 <- rnorm(n)
-# x2 <- rbinom(n, 1, 0.5)
-#
-# ## Generate survival times with Weibull-like structure
-# lambda <- exp(0.5 * x1 + 0.3 * x2)
-# yraw <- rexp(n, rate = 1/lambda)
-#
-# ## Introduce right-censoring
-# status <- rbinom(n, 1, 0.75)
-# y <- ifelse(status, yraw, runif(1, 0, yraw))
-#
-# ## Example of using dispersion function
-# mu <- mean(y)
-# order_indices <- seq_along(y)
-# weights <- rep(1, n)
-#
-# ## Estimate dispersion
-# dispersion_est <- weibull_dispersion_function(
-#   mu = mu,
-#   y = y,
-#   order_indices = order_indices,
-#   family = weibull_family(),
-#   observation_weights = weights,
-#   status = status
-# )
-# print(dispersion_est)
+#' set.seed(1234)
+#' n <- 1000
+#' x1 <- rnorm(n)
+#' x2 <- rbinom(n, 1, 0.5)
+#'
+#' ## Generate survival times with Weibull-like structure
+#' lambda <- exp(0.5 * x1 + 0.3 * x2)
+#' yraw <- rexp(n, rate = 1/lambda)
+#'
+#' ## Introduce right-censoring
+#' status <- rbinom(n, 1, 0.75)
+#' y <- ifelse(status, yraw, runif(1, 0, yraw))
+#'
+#' ## Example of using dispersion function
+#' mu <- mean(y)
+#' order_indices <- seq_along(y)
+#' weights <- rep(1, n)
+#'
+#' ## Estimate dispersion
+#' dispersion_est <- weibull_dispersion_function(
+#'   mu = mu,
+#'   y = y,
+#'   order_indices = order_indices,
+#'   family = weibull_family(),
+#'   observation_weights = weights,
+#'   status = status
+#' )
+#' print(dispersion_est)
 #' }
 #'
 #' @export
@@ -6869,14 +6886,14 @@ weibull_dispersion_function <- function(mu,
 #' Weibull GLM Weight Function for Constructing Information Matrix
 #'
 #' @description
-#' Computes diagonal weight matrix W for the information matrix
-#' G = (X^{T}WX + L)^{-1} in Weibull Accelerated Failure Time (AFT) models.
+#' Computes diagonal weight matrix \eqn{\textbf{W}} for the information matrix
+#' \eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}} in Weibull Accelerated Failure Time (AFT) models.
 #'
 #' @param mu Predicted survival times
 #' @param y Observed response/survival times
 #' @param order_indices Order of observations when partitioned to match "status" to "response"
 #' @param family Weibull AFT family
-#' @param dispersion Estimated dispersion parameter
+#' @param dispersion Estimated dispersion parameter (\eqn{s^2})
 #' @param observation_weights Weights of observations submitted to function
 #' @param status Censoring indicator (1 = event, 0 = censored)
 #'   Indicates whether an event of interest occurred (1) or the observation was
@@ -6885,19 +6902,19 @@ weibull_dispersion_function <- function(mu,
 #'   subject was lost to follow-up before the event of interest occurred.
 #'
 #' @return
-#' Vector of weights for constructing the diagonal weight matrix W
-#' in the information matrix G = (X^{T}WX + L)^{-1}
+#' Vector of weights for constructing the diagonal weight matrix \eqn{\textbf{W}}
+#' in the information matrix \eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}}.
 #'
 #' @details
 #' This function generates weights used in constructing the information matrix
 #' after unconstrained estimates have been found. Specifically, it is used in
-#' the construction of the U and G matrices following initial unconstrained
+#' the construction of the \eqn{\textbf{U}} and \eqn{\textbf{G}} matrices following initial unconstrained
 #' parameter estimation.
 #'
 #' These weights are analogous to the variance terms in generalized linear
-#' models (GLMs). Like logistic regression uses μ(1-μ), Poisson regression uses
-#' exp(μ), and Linear regression uses constant weights, Weibull AFT models use
-#' exp((log y - log μ)/s) where 's' is the scale (= dispersion) parameter.
+#' models (GLMs). Like logistic regression uses \eqn{\mu(1-\mu)}, Poisson regression uses
+#' \eqn{e^{\mu}}, and Linear regression uses constant weights, Weibull AFT models use
+#' \eqn{\exp((\log y - \log \mu)/s)} where \eqn{s} is the scale (= \eqn{\sqrt{\text{dispersion}}}) parameter.
 #'
 #' @examples
 #' \donttest{
@@ -6950,21 +6967,21 @@ weibull_glm_weight_function <- function(mu,
 #' @description
 #' Performs parameter update in iterative optimization.
 #'
-#' Called by \code{\link[damped_newton_r]{damped_newton_r}} in the update step
+#' Called by \code{\link{damped_newton_r}} in the update step
 #'
-#' @param gradient_val Numeric vector of gradient values
-#' @param neghessian_val Negative Hessian matrix for parameter estimation
+#' @param gradient_val Numeric vector of gradient values (\eqn{\textbf{u}})
+#' @param neghessian_val Negative Hessian matrix (\eqn{\textbf{G}^{-1}} approximately)
 #'
 #' @return
-#' Numeric vector of parameter updates
+#' Numeric vector of parameter updates (\eqn{\textbf{G}\textbf{u}})
 #'
 #' @details
 #' This helper function is a core component of Newton-Raphson optimization.
-#' It provides a computationally-stable approach to computing "Gu", for
-#' information matrix "G" and score vector "u", where the Newton-Raphson update
-#' can be expressed as  B^{(m+1)} = B^{(m)} + Gu.
+#' It provides a computationally-stable approach to computing \eqn{\textbf{G}\textbf{u}}, for
+#' information matrix \eqn{\textbf{G}} and score vector \eqn{\textbf{u}}, where the Newton-Raphson update
+#' can be expressed as \eqn{\boldsymbol{\beta}^{(m+1)} = \boldsymbol{\beta}^{(m)} + \textbf{G}\textbf{u}}.
 #'
-#' @seealso [damped_newton_r()] for the full optimization routine
+#' @seealso \code{\link{damped_newton_r}} for the full optimization routine
 #'
 #' @keywords internal
 #' @export
@@ -6996,7 +7013,7 @@ nr_iterate <- function(gradient_val, neghessian_val){
 #' Implements a robust damped Newton-Raphson optimization algorithm.
 #'
 #' @seealso
-#' - \code{\link[lgspline]{nr_iterate}} for parameter update computation
+#' - \code{\link{nr_iterate}} for parameter update computation
 #'
 #' @keywords internal
 #' @export
@@ -7031,10 +7048,10 @@ damped_newton_r <- function(parameters,
        !is.finite(prev_objective)){
       cat('\n \t Error Encountered, Number of N.R. steps so far: ', master_count, '\n')
       stop('\n \t NA/NaN/non-finite value detected when running unconstrained damped',
-      ' Newton-Raphson.',
-      ' \n \t Try re-fitting a simpler model, using greater/smaller penalties, ',
-      ' experimenting with different knot locations, or reducing the',
-      ' number of knots.')
+           ' Newton-Raphson.',
+           ' \n \t Try re-fitting a simpler model, using greater/smaller penalties, ',
+           ' experimenting with different knot locations, or reducing the',
+           ' number of knots.')
     }
 
     ## Damp iterations, only updates if performance improves
@@ -7074,12 +7091,12 @@ damped_newton_r <- function(parameters,
 #'
 #' @param X Design matrix of predictors
 #' @param y Survival/response times
-#' @param LambdaHalf Square root of penalty matrix
-#' @param Lambda Penalty matrix
+#' @param LambdaHalf Square root of penalty matrix (\eqn{\boldsymbol{\Lambda}^{1/2}})
+#' @param Lambda Penalty matrix (\eqn{\boldsymbol{\Lambda}})
 #' @param keep_weighted_Lambda Flag to retain weighted penalties
 #' @param family Distribution family specification
 #' @param tol Convergence tolerance (default 1e-8)
-#' @param K Number of partitions minus one
+#' @param K Number of partitions minus one (\eqn{K})
 #' @param parallel Flag for parallel processing
 #' @param cl Cluster object for parallel computation
 #' @param chunk_size Processing chunk size
@@ -7094,7 +7111,7 @@ damped_newton_r <- function(parameters,
 #'   subject was lost to follow-up before the event of interest occurred.
 #'
 #' @return
-#' Optimized beta parameter estimates for Weibull AFT model
+#' Optimized beta parameter estimates (\eqn{\boldsymbol{\beta}}) for Weibull AFT model
 #'
 #' @details
 #' Estimation Approach:
@@ -7158,7 +7175,7 @@ unconstrained_fit_weibull <- function(X,
                                       order_indices,
                                       weights,
                                       status # status goes in the ellipse arg
-  ) {
+) {
 
   ## Weight if non-null
   if(any(!is.null(weights))){
@@ -7273,14 +7290,14 @@ unconstrained_fit_weibull <- function(X,
 #'
 #' @param X Design matrix of predictors
 #' @param y Response variable vector
-#' @param LambdaHalf Square root of penalty matrix
-#' @param Lambda Penalty matrix
+#' @param LambdaHalf Square root of penalty matrix (\eqn{\boldsymbol{\Lambda}^{1/2}})
+#' @param Lambda Penalty matrix (\eqn{\boldsymbol{\Lambda}})
 #' @param keep_weighted_Lambda Logical flag to control penalty matrix handling:
 #'   - `TRUE`: Return coefficients directly from weighted penalty fitting
 #'   - `FALSE`: Apply damped Newton-Raphson optimization to refine estimates
 #' @param family Distribution family specification
 #' @param tol Convergence tolerance
-#' @param K Number of partitions minus one
+#' @param K Number of partitions minus one (\eqn{K})
 #' @param parallel Flag for parallel processing
 #' @param cl Cluster object for parallel computation
 #' @param chunk_size Processing chunk size
@@ -7288,17 +7305,18 @@ unconstrained_fit_weibull <- function(X,
 #' @param rem_chunks Remaining chunks
 #' @param order_indices Observation ordering indices
 #' @param weights Optional observation weights
+#' @param ... Additional arguments passed to \code{glm.fit}
 #'
 #' @return
 #' Optimized parameter estimates for canonical generalized linear models.
 #'
-#' For fitting non-canonical GLMs, use 'keep_weighted_Lambda = TRUE' since the
+#' For fitting non-canonical GLMs, use \code{keep_weighted_Lambda = TRUE} since the
 #' score and hessian equations below are no longer valid.
 #'
-#' For Gamma(link='log') using 'keep_weighted_Lambda = TRUE' is misleading.
+#' For Gamma(link='log') using \code{keep_weighted_Lambda = TRUE} is misleading.
 #' The information is weighted by a constant (shape parameter) rather than some
-#' mean-variance relationship. So 'keep_weighted_Lambda = TRUE' is highly
-#' recommended for log-link Gammma models. This constant flushes into the
+#' mean-variance relationship. So \code{keep_weighted_Lambda = TRUE} is highly
+#' recommended for log-link Gamma models. This constant flushes into the
 #' penalty terms, and so the formulation of the information matrix is valid.
 #'
 #' For other scenarios, like probit regression, there will be diagonal weights
@@ -7352,15 +7370,15 @@ unconstrained_fit_default <- function(X,
 
   ## Ordinary fit using Tikhinov parameterization
   mod <- try({glm.fit(x = rbind(X, LambdaHalf),
-                 y = cbind(c(y, rep(family$linkinv(0), nrow(LambdaHalf)))),
-                 family = family,
-                 weights = c(weights, rep(mean(weights), nrow(LambdaHalf))),
-                 ...)}, silent = TRUE)
-  if(keep_weighted_Lambda & any(class(mod) != 'try-error')){
+                      y = cbind(c(y, rep(family$linkinv(0), nrow(LambdaHalf)))),
+                      family = family,
+                      weights = c(weights, rep(mean(weights), nrow(LambdaHalf))),
+                      ...)}, silent = TRUE)
+  if(keep_weighted_Lambda & any(!(inherits(mod, 'try-error')))){
     return(cbind(mod$coefficients))
   }
 
-  if(any(class(mod) == 'try-error')){
+  if(any(inherits(mod, 'try-error'))){
     init <- c(family$linkfun(mean(y)), rep(0, ncol(X)-1))
   } else {
     init <- c(coef(mod))
@@ -7388,7 +7406,7 @@ unconstrained_fit_default <- function(X,
     ## score
     function(par){
       c(tX %**% (weights*cbind(y - family$linkinv(X %**% cbind(par)))) -
-        Lambda %**% cbind(par))
+          Lambda %**% cbind(par))
     },
     ## information
     function(par){
@@ -7410,7 +7428,7 @@ unconstrained_fit_default <- function(X,
 #'
 #' @return
 #' Block-diagonal matrix combining input matrices
-#"
+#'
 #' @keywords internal
 #' @export
 collapse_block_diagonal <- function(matlist){
@@ -7495,7 +7513,7 @@ get_interaction_patterns <- function(vars) {
 #' }
 #'
 #' @details
-#' Implements BFGS, used internally by lgspline() for optimizing correlation parameters via REML
+#' Implements BFGS, used internally by \code{lgspline()} for optimizing correlation parameters via REML
 #' when argument for computing gradient \code{VhalfInv_grad} is not NULL.
 #'
 #' This is more efficient than native BFGS, since gradient and loss can be computed simultaneously,
@@ -7648,7 +7666,7 @@ efficient_bfgs <- function(par, fn, control = list()) {
 #'
 #' @details
 #' Used within \code{efficient_bfgs} if needed externally, but internally, this function
-#' is actually ignored since when VhalfInv_grad is not supplied, \code{stats::optim()}
+#' is actually ignored since when \code{VhalfInv_grad} is not supplied, \code{stats::optim()}
 #' is used instead.
 #'
 #' @keywords internal
@@ -7683,25 +7701,25 @@ approx_grad <- function(x, fn, eps = sqrt(.Machine$double.eps)) {
 
 #' Calculate Matrix Square Root
 #'
-#' @param mat A symmetric, positive-definite matrix
+#' @param mat A symmetric, positive-definite matrix \eqn{\textbf{M}}
 #'
-#' @return A matrix B such that BB = mat
+#' @return A matrix \eqn{\textbf{B}} such that \eqn{\textbf{B}\textbf{B} = \textbf{M}}
 #'
 #' @details
-#' For matrix M, computes B where BB = M using eigenvalue decomposition:
+#' For matrix \eqn{\textbf{M}}, computes \eqn{\textbf{B}} where \eqn{\textbf{B}\textbf{B} = \textbf{M}} using eigenvalue decomposition:
 #'
-#' 1. Compute eigendecomposition M = VDV^T
+#' 1. Compute eigendecomposition \eqn{\textbf{M} = \textbf{V}\textbf{D}\textbf{V}^T}
 #'
-#' 2. Set eigenvalues below sqrt(.Machine$double.eps) to 0 for stability
+#' 2. Set eigenvalues below \code{sqrt(.Machine$double.eps)} to 0 for stability
 #'
-#' 3. Take elementwise square root of eigenvalues: D^(1/2)
+#' 3. Take elementwise square root of eigenvalues: \eqn{\textbf{D}^{1/2}}
 #'
-#' 4. Reconstruct as B = V D^(1/2) V^T
+#' 4. Reconstruct as \eqn{\textbf{B} = \textbf{V} \textbf{D}^{1/2} \textbf{V}^T}
 #'
 #' This provides the unique symmetric positive-definite square root.
 #'
-#' You can use this to help construct a custom Vhalf_fxn for fitting
-#' correlation structures, see \code{\link[lgspline]{lgspline}}.
+#' You can use this to help construct a custom \code{Vhalf_fxn} for fitting
+#' correlation structures, see \code{\link{lgspline}}.
 #'
 #' @examples
 #' ## Identity matrix
@@ -7721,7 +7739,7 @@ approx_grad <- function(x, fn, eps = sqrt(.Machine$double.eps)) {
 #' rho <- 0.7  # Within-subject correlation
 #' # Correlation matrix for one subject
 #' R <- matrix(rho, block_size, block_size) +
-#'     diag(1-rho, block_size)
+#'      diag(1-rho, block_size)
 #' # Full correlation matrix for all subjects
 #' V <- kronecker(diag(n_blocks), R)
 #' Vhalf <- matsqrt(V)
@@ -7735,30 +7753,30 @@ matsqrt <- function(mat) {
 
 #' Calculate Matrix Inverse Square Root
 #'
-#' @param mat A symmetric, positive-definite matrix
+#' @param mat A symmetric, positive-definite matrix \eqn{\textbf{M}}
 #'
-#' @return A matrix B such that BB = mat^(-1)
+#' @return A matrix \eqn{\textbf{B}} such that \eqn{\textbf{B}\textbf{B} = \textbf{M}^{-1}}
 #'
 #' @details
-#' For matrix M, computes B where BB = M^(-1) using eigenvalue decomposition:
+#' For matrix \eqn{\textbf{M}}, computes \eqn{\textbf{B}} where \eqn{\textbf{B}\textbf{B} = \textbf{M}^{-1}} using eigenvalue decomposition:
 #'
-#' 1. Compute eigendecomposition M = VDV^T
+#' 1. Compute eigendecomposition \eqn{\textbf{M} = \textbf{V}\textbf{D}\textbf{V}^T}
 #'
-#' 2. Set eigenvalues below sqrt(.Machine$double.eps) to 0
+#' 2. Set eigenvalues below \code{sqrt(.Machine$double.eps)} to 0
 #'
-#' 3. Take elementwise reciprocal square root: D^(-1/2)
+#' 3. Take elementwise reciprocal square root: \eqn{\textbf{D}^{-1/2}}
 #'
-#' 4. Reconstruct as B = V D^(-1/2) V^T
+#' 4. Reconstruct as \eqn{\textbf{B} = \textbf{V} \textbf{D}^{-1/2} \textbf{V}^T}
 #'
 #' For nearly singular matrices, eigenvalues below the numerical threshold
-#' are set to 0, and their reciprocals in D^(-1/2) are also set to 0.
+#' are set to 0, and their reciprocals in \eqn{\textbf{D}^{-1/2}} are also set to 0.
 #'
 #' This implementation is particularly useful for whitening procedures in GLMs
 #' with correlation structures and for computing variance-covariance matrices
 #' under constraints.
 #'
-#' You can use this to help construct a custom VhalfInv_fxn for fitting
-#' correlation structures, see \code{\link[lgspline]{lgspline}}.
+#' You can use this to help construct a custom \code{VhalfInv_fxn} for fitting
+#' correlation structures, see \code{\link{lgspline}}.
 #'
 #' @examples
 #' ## Identity matrix
@@ -7778,7 +7796,7 @@ matsqrt <- function(mat) {
 #' rho <- 0.7  # Within-subject correlation
 #' # Correlation matrix for one subject
 #' R <- matrix(rho, block_size, block_size) +
-#'     diag(1-rho, block_size)
+#'      diag(1-rho, block_size)
 #' ## Full correlation matrix for all subjects
 #' V <- kronecker(diag(n_blocks), R)
 #' ## Create whitening matrix
@@ -7788,7 +7806,7 @@ matsqrt <- function(mat) {
 #' VhalfInv_fxn <- function(par) {
 #'   rho <- tanh(par)  # Transform parameter to (-1, 1)
 #'   R <- matrix(rho, block_size, block_size) +
-#'       diag(1-rho, block_size)
+#'        diag(1-rho, block_size)
 #'   kronecker(diag(n_blocks), matinvsqrt(R))
 #' }
 #'
@@ -7798,3 +7816,4 @@ matinvsqrt <- function(mat) {
   sqrtv <- suppressWarnings(suppressMessages(sqrt(eig$values)))
   eig$vectors %**% (t(eig$vectors) / sqrtv)
 }
+

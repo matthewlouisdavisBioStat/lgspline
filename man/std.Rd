@@ -14,7 +14,7 @@ Standardized vector with sample mean 0 and standard deviation 1
 }
 \description{
 Centers a vector by its sample mean, then scales it by its sample standard deviation
-= (x-mean(x))/sd(x)
+\eqn{(\text{x}-\text{mean}(\text{x}))/\text{sd}(\text{x})}.
 }
 \examples{
 x <- c(1, 2, 3, 4, 5)

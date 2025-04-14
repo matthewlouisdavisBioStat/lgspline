@@ -109,7 +109,7 @@ tune_Lambda(
 
 \item{constraint_value_vectors}{List; constraint values}
 
-\item{parallel, parallel_*}{Logical; enable parallel computation}
+\item{parallel}{Logical; enable parallel computation}
 
 \item{cl, chunk_size, num_chunks, rem_chunks}{Parallel computation parameters}
 

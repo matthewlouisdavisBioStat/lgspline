@@ -8,6 +8,7 @@ make_derivative_matrix(
   nc,
   Cpredictors,
   power1_cols,
+  power2_cols,
   nonspline_cols,
   interaction_single_cols,
   interaction_quad_cols,
@@ -29,6 +30,8 @@ make_derivative_matrix(
 
 \item{power1_cols}{Indices of linear terms of spline effects}
 
+\item{power2_cols}{Indices of quadratic terms of spline effects}
+
 \item{nonspline_cols}{Indices of non-spline effects}
 
 \item{interaction_single_cols}{Indices of first-order interactions}
@@ -37,7 +40,7 @@ make_derivative_matrix(
 
 \item{triplet_cols}{Indices of three-way interactions}
 
-\item{K}{Number of partitions minus 1}
+\item{K}{Number of partitions minus 1 (\eqn{K})}
 
 \item{include_2way_interactions}{Include 2-way interactions}
 

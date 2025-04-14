@@ -22,7 +22,7 @@ make_partitions(
 
 \item{cluster_on_indicators}{Logical to include binary predictors}
 
-\item{K}{Number of partitions minus 1}
+\item{K}{Number of partitions minus 1 (\eqn{K})}
 
 \item{parallel}{Logical to enable parallel processing}
 
@@ -40,6 +40,6 @@ A list containing:
 - neighbors: List of neighboring partition indices
 }
 \description{
-Partitions data support into clusters using Voronoi-like diagrams
+Partitions data support into clusters using Voronoi-like diagrams.
 }
 \keyword{internal}

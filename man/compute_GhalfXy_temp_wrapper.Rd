@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{compute_GhalfXy_temp_wrapper}
 \alias{compute_GhalfXy_temp_wrapper}
-\title{Compute Component G^{1/2}A(A^{T}dGA)^{-1}A^{T}GX^{T}y}
+\title{Compute Component \eqn{\textbf{G}^{1/2}\textbf{A}(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}}
 \usage{
 compute_GhalfXy_temp_wrapper(
   G,
@@ -20,19 +20,19 @@ compute_GhalfXy_temp_wrapper(
 )
 }
 \arguments{
-\item{G}{List of G matrices}
+\item{G}{List of \eqn{\textbf{G}} matrices}
 
-\item{Ghalf}{List of G^{1/2} matrices}
+\item{Ghalf}{List of \eqn{\textbf{G}^{1/2}} matrices}
 
-\item{A}{Constraint matrix}
+\item{A}{Constraint matrix \eqn{\textbf{A}}}
 
-\item{AGAInv}{Inverse of A^{T}GA}
+\item{AGAInv}{Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}}
 
-\item{Xy}{List of X^{T}y products}
+\item{Xy}{List of \eqn{\textbf{X}^{T}\textbf{y}} products}
 
 \item{nc}{Number of columns}
 
-\item{K}{Number of partitions minus 1}
+\item{K}{Number of partitions minus 1 (\eqn{K})}
 
 \item{parallel}{Use parallel processing}
 
@@ -48,14 +48,15 @@ compute_GhalfXy_temp_wrapper(
 List containing:
 \itemize{
   \item Result vector
-  \item AGAInvAGXy intermediate product
+  \item AGAInvAGXy intermediate product \eqn{(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}
 }
 }
 \description{
-Compute Component G^{1/2}A(A^{T}dGA)^{-1}A^{T}GX^{T}y
+Compute Component \eqn{\textbf{G}^{1/2}\textbf{A}(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}
 }
 \details{
-Computes G^{1/2}A(A^{T}dGA)^{-1}A^{T}GX^{T}y efficiently in parallel chunks.
-Returns both the result and intermediate AGAInvAGXy product for reuse.
+Computes \eqn{\textbf{G}^{1/2}\textbf{A}(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}} efficiently in parallel chunks.
+Note: The description seems slightly off from the C++ helper functions called (e.g., `compute_AGXy`, `compute_result_blocks`). This computes a component needed for least-squares transformation involving \eqn{\textbf{G}^{1/2}}.
+Returns both the result and intermediate \eqn{\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}} product for reuse.
 }
 \keyword{internal}

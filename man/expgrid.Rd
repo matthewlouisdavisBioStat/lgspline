@@ -18,7 +18,7 @@ Data frame of selected combinations
 Generate Grid Indices Without expand.grid()
 }
 \details{
-Returns selected combinations from the cartesian product of vec_list
-without constructing full expand.grid() for memory efficiency
+Returns selected combinations from the cartesian product of \code{vec_list}
+without constructing full \code{expand.grid()} for memory efficiency.
 }
 \keyword{internal}

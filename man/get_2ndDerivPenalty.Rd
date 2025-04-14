@@ -42,7 +42,7 @@ get_2ndDerivPenalty(
 \item{select_cols}{Optional vector of column indices to penalize (default: all linear terms)}
 }
 \value{
-A symmetric p x p penalty matrix representing integrated squared second derivatives
+A symmetric \eqn{p \times p} penalty matrix \eqn{\textbf{P}} representing integrated squared second derivatives
 for basis expansions in a single partition of the smoothing spline.
 }
 \description{
@@ -51,6 +51,8 @@ for smoothing spline basis functions, which controls the smoothness of the fitte
 }
 \details{
 This function computes the analytic form of the traditional integrated, squared, second-derivative evaluated over the bounds of the input data.
+If \eqn{f(x) = \textbf{X}\boldsymbol{\beta}}, then the penalty is based on \eqn{\int \{ f''(x) \}^2 dx = \boldsymbol{\beta}^{T}(\int \textbf{X}''^{T}\textbf{X}'' dx)\boldsymbol{\beta}}.
+This function computes the matrix \eqn{\textbf{P} = \int \textbf{X}''^{T}\textbf{X}'' dx}.
 When scaled by a non-negative scalar (wiggle penalty, predictor penalties and/or partition penalties), this becomes the smoothing spline penalty.
 }
 \keyword{internal}

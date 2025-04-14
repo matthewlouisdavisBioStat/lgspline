@@ -23,7 +23,7 @@ weibull_glm_weight_function(
 
 \item{family}{Weibull AFT family}
 
-\item{dispersion}{Estimated dispersion parameter}
+\item{dispersion}{Estimated dispersion parameter (\eqn{s^2})}
 
 \item{observation_weights}{Weights of observations submitted to function}
 
@@ -34,23 +34,23 @@ full survival time is unknown, typically because the study ended or the
 subject was lost to follow-up before the event of interest occurred.}
 }
 \value{
-Vector of weights for constructing the diagonal weight matrix W
-in the information matrix G = (X^{T}WX + L)^{-1}
+Vector of weights for constructing the diagonal weight matrix \eqn{\textbf{W}}
+in the information matrix \eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}}.
 }
 \description{
-Computes diagonal weight matrix W for the information matrix
-G = (X^{T}WX + L)^{-1} in Weibull Accelerated Failure Time (AFT) models.
+Computes diagonal weight matrix \eqn{\textbf{W}} for the information matrix
+\eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}} in Weibull Accelerated Failure Time (AFT) models.
 }
 \details{
 This function generates weights used in constructing the information matrix
 after unconstrained estimates have been found. Specifically, it is used in
-the construction of the U and G matrices following initial unconstrained
+the construction of the \eqn{\textbf{U}} and \eqn{\textbf{G}} matrices following initial unconstrained
 parameter estimation.
 
 These weights are analogous to the variance terms in generalized linear
-models (GLMs). Like logistic regression uses μ(1-μ), Poisson regression uses
-exp(μ), and Linear regression uses constant weights, Weibull AFT models use
-exp((log y - log μ)/s) where 's' is the scale (= dispersion) parameter.
+models (GLMs). Like logistic regression uses \eqn{\mu(1-\mu)}, Poisson regression uses
+\eqn{e^{\mu}}, and Linear regression uses constant weights, Weibull AFT models use
+\eqn{\exp((\log y - \log \mu)/s)} where \eqn{s} is the scale (= \eqn{\sqrt{\text{dispersion}}}) parameter.
 }
 \examples{
 \donttest{

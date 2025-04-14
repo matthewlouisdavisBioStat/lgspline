@@ -23,11 +23,11 @@ weibull_shur_correction(
 
 \item{B}{Block-vector of coefficient estimates}
 
-\item{dispersion}{Scalar, estimate of dispersion, = Weibull scale^2}
+\item{dispersion}{Scalar, estimate of dispersion, \eqn{ = \text{Weibull scale}^2}}
 
 \item{order_list}{List of partition orders}
 
-\item{K}{Number of partitions minus 1}
+\item{K}{Number of partitions minus 1 (\eqn{K})}
 
 \item{family}{Distribution family}
 
@@ -40,11 +40,11 @@ full survival time is unknown, typically because the study ended or the
 subject was lost to follow-up before the event of interest occurred.}
 }
 \value{
-List of p x p matrices representing the shur-complement corrections to be
+List of \eqn{p \times p} matrices representing the shur-complement corrections \eqn{\textbf{S}_k} to be
 elementwise added to each block of the information matrix, before inversion.
 }
 \description{
-Computes the shur complement "S" such that G* = (G^{-1} + S)^{-1} properly
+Computes the shur complement \eqn{\textbf{S}} such that \eqn{\textbf{G}^* = (\textbf{G}^{-1} + \textbf{S})^{-1}} properly
 accounts for uncertainty in estimating dispersion when estimating
 variance-covariance. Otherwise, the variance-covariance matrix is optimistic
 and assumes the scale is known, when it was in fact estimated. Note that the
@@ -55,10 +55,10 @@ negative definite/semi-definite matrix.
 \details{
 Adjusts the variance-covariance matrix unscaled for coefficients to account
 for uncertainty in estimating the Weibull scale parameter, that otherwise
-would be lost if simply using G=(X^{T}WX + L)^{-1}. This is accomplished
+would be lost if simply using \eqn{\textbf{G}=(\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}}. This is accomplished
 using a correction based on the Shur complement so we avoid having to
 construct the entire variance-covariance matrix, or modifying the procedure
-for  \code{\link[lgspline]{lgspline}} substantially.
+for \code{\link{lgspline}} substantially.
 For any model with nuisance parameters that must have uncertainty accounted
 for, this tool will be helpful.
 

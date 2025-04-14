@@ -5,14 +5,12 @@
 \title{Print Method for lgspline Object Summaries}
 \usage{
 \method{print}{summary.lgspline}(x, ...)
-
-\method{print}{summary.lgspline}(x, ...)
 }
 \arguments{
-\item{x}{A summary.lgspline object}
+\item{x}{An lgspline model object # Changed from summary.lgspline object for consistency with function name provided previously}
+
+\item{...}{Not used.}
 }
 \description{
 Print Method for lgspline Object Summaries
-
-Print method for lgspline summary objects
 }

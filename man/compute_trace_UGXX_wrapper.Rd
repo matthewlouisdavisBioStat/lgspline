@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{compute_trace_UGXX_wrapper}
 \alias{compute_trace_UGXX_wrapper}
-\title{Calculate Trace of Matrix Product XUGX^{T}}
+\title{Calculate Trace of Matrix Product \eqn{\text{trace}(\textbf{X}\textbf{U}\textbf{G}\textbf{X}^{T})}}
 \usage{
 compute_trace_UGXX_wrapper(
   G,
@@ -20,17 +20,19 @@ compute_trace_UGXX_wrapper(
 )
 }
 \arguments{
-\item{G}{List of G matrices}
+\item{G}{List of G matrices (\eqn{\textbf{G}})}
 
-\item{A}{Constraint matrix}
+\item{A}{Constraint matrix (\eqn{\textbf{A}})}
 
-\item{GXX}{List of GX'X products}
+\item{GXX}{List of \eqn{\textbf{G}\textbf{X}^{T}\textbf{X}} products}
 
-\item{AGAInv}{Inverse of A^{T}GA}
+\item{AGAInv}{Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}}
 
 \item{nc}{Number of columns}
 
-\item{K}{Number of partitions minus 1}
+\item{nca}{Number of constraint columns}
+
+\item{K}{Number of partitions minus 1 (\eqn{K})}
 
 \item{parallel}{Use parallel processing}
 
@@ -41,18 +43,15 @@ compute_trace_UGXX_wrapper(
 \item{num_chunks}{Number of chunks}
 
 \item{rem_chunks}{Remaining chunks}
-
-\item{Ghalf}{List of G^(1/2) matrices}
 }
 \value{
 Trace value
 }
 \description{
-Calculate Trace of Matrix Product XUGX^{T}
+Calculate Trace of Matrix Product \eqn{\text{trace}(\textbf{X}\textbf{U}\textbf{G}\textbf{X}^{T})}
 }
 \details{
-Computes trace(XUGX^{T}) = trace(GX^{T}X - PGX^{T}X)
-where P = GA(A^{T}GA)^(-1)A^{T}
+Computes \eqn{\text{trace}(\textbf{X}\textbf{U}\textbf{G}\textbf{X}^{T})} where \eqn{\textbf{U} = \textbf{I} - \textbf{G}\textbf{A}(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}}.
 Handles parallel computation by splitting into chunks.
 }
 \keyword{internal}

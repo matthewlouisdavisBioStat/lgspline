@@ -22,7 +22,7 @@ x and function fn
 }
 \details{
 Used within \code{efficient_bfgs} if needed externally, but internally, this function
-is actually ignored since when VhalfInv_grad is not supplied, \code{stats::optim()}
+is actually ignored since when \code{VhalfInv_grad} is not supplied, \code{stats::optim()}
 is used instead.
 }
 \keyword{internal}

@@ -22,11 +22,11 @@ get_2ndDerivPenalty_wrapper(
 )
 }
 \arguments{
-\item{K}{Number of partitions}
+\item{K}{Number of partitions (\eqn{K+1})}
 
 \item{colnm_expansions}{Column names of basis expansions}
 
-\item{C}{Basis expansion matrix of two rows, first of all maximums, second of all minimums, for all variables of interest = rbind(rbind(apply(C, 2, max)), rbind(apply(C, 2, min))) for cubic expansions "C"}
+\item{C}{Basis expansion matrix of two rows, first of all maximums, second of all minimums, for all variables of interest = \code{rbind(apply(C, 2, max)), rbind(apply(C, 2, min)))} for cubic expansions "C"}
 
 \item{power1_cols}{Linear term columns}
 
@@ -51,7 +51,7 @@ get_2ndDerivPenalty_wrapper(
 \item{cl}{Cluster object for parallel computation}
 }
 \value{
-A p x p penalty matrix for smoothing spline regularization containing the
+A \eqn{p \times p} penalty matrix for smoothing spline regularization containing the
 elementwise sum of the integrated squared second derivative of the fitted
 function with respect to predictors of interest.
 
@@ -59,7 +59,7 @@ Function is exported for reference purposes - use at your own risk!
 }
 \description{
 Computes smoothing spline penalty matrix with optional parallel processing.
-Calls  \code{\link[get_2ndDerivPenalty]{get_2ndDerivPenalty}} after
-processing spline vs.nonspline terms and preparing for parallel if desired.
+Calls  \code{\link{get_2ndDerivPenalty}} after
+processing spline vs. nonspline terms and preparing for parallel if desired.
 }
 \keyword{internal}

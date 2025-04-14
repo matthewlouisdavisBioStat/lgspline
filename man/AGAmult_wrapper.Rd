@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{AGAmult_wrapper}
 \alias{AGAmult_wrapper}
-\title{Efficient Matrix Multiplication for A^{T}GA}
+\title{Efficient Matrix Multiplication for \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}}
 \usage{
 AGAmult_wrapper(
   G,
@@ -18,11 +18,11 @@ AGAmult_wrapper(
 )
 }
 \arguments{
-\item{G}{List of G matrices}
+\item{G}{List of G matrices (\eqn{\textbf{G}})}
 
-\item{A}{Constraint matrix}
+\item{A}{Constraint matrix (\eqn{\textbf{A}})}
 
-\item{K}{Number of partitions minus 1}
+\item{K}{Number of partitions minus 1 (\eqn{K})}
 
 \item{nc}{Number of columns per partition}
 
@@ -39,12 +39,12 @@ AGAmult_wrapper(
 \item{rem_chunks}{Remaining chunks}
 }
 \value{
-Matrix product A^{T}GA
+Matrix product \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}
 }
 \description{
-Efficient Matrix Multiplication for A^{T}GA
+Efficient Matrix Multiplication for \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}
 }
 \details{
-Computes A^{T}GA efficiently in parallel chunks using AGAmult_chunk().
+Computes \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}} efficiently in parallel chunks using \code{AGAmult_chunk()}.
 }
 \keyword{internal}

@@ -48,7 +48,7 @@ get_polynomial_expansions(
 
 \item{custom_basis_fxn}{Function; optional custom basis expansion function that accepts all arguments listed here except itself}
 
-\item{...}{Additional arguments passed to custom_basis_fxn}
+\item{...}{Additional arguments passed to \code{custom_basis_fxn}}
 }
 \value{
 Matrix with columns for intercept, polynomial terms, and specified interactions
@@ -63,8 +63,8 @@ Column names take on the form "_v_" for linear terms, "_v_^d" for polynomial
 powers up to d = 4, and "_v_x_w_" for interactions between variables v and w,
 where v and w are column indices of the input predictor matrix.
 
-The custom_basis_fxn argumnet, if supplied, requires the same arguments
+The \code{custom_basis_fxn} argument, if supplied, requires the same arguments
 as this function, in the same order, minus the eponymous argument,
-"custom_basis_fxn"
+"custom_basis_fxn".
 }
 \keyword{internal}

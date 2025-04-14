@@ -9,7 +9,7 @@ get_centers(data, K, cluster_args, cluster_on_indicators)
 \arguments{
 \item{data}{Matrix of predictor data}
 
-\item{K}{Number of partitions minus 1}
+\item{K}{Number of partitions minus 1 (\eqn{K})}
 
 \item{cluster_args}{List with custom centers and kmeans args}
 
@@ -24,10 +24,10 @@ Get Centers for Partitioning
 \details{
 Returns partition centers via:
 
-1. Custom supplied centers if provided as a valid K x q matrix
+1. Custom supplied centers if provided as a valid \eqn{K \times q} matrix
 
-2. kmeans clustering on all non-spline variables if cluster_on_indicators=TRUE
+2. kmeans clustering on all non-spline variables if \code{cluster_on_indicators=TRUE}
 
-3. kmeans clustering excluding binary variables if cluster_on_indicators=FALSE
+3. kmeans clustering excluding binary variables if \code{cluster_on_indicators=FALSE}
 }
 \keyword{internal}

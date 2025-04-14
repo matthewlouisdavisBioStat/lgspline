@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{compute_dG_u_dlambda_xy}
 \alias{compute_dG_u_dlambda_xy}
-\title{Compute Derivative of UGX^{T}y with Respect to Lambda}
+\title{Compute Derivative of \eqn{\textbf{U}\textbf{G}\textbf{X}^{T}\textbf{y}} with Respect to Lambda}
 \usage{
 compute_dG_u_dlambda_xy(
   AGAInv_AGXy,
@@ -25,29 +25,29 @@ compute_dG_u_dlambda_xy(
 )
 }
 \arguments{
-\item{AGAInv_AGXy}{Product of (A^{T}GA)^{-1} and (A^{T}GX^{T}y)}
+\item{AGAInv_AGXy}{Product of \eqn{(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}} and \eqn{\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}}
 
-\item{AGAInv}{Inverse of A^{T}GA}
+\item{AGAInv}{Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}}
 
-\item{G}{List of G matrices}
+\item{G}{List of \eqn{\textbf{G}} matrices}
 
-\item{A}{Constraint matrix}
+\item{A}{Constraint matrix \eqn{\textbf{A}}}
 
-\item{dG_dlambda}{List of dG/dλ matrices}
+\item{dG_dlambda}{List of \eqn{d\textbf{G}/d\lambda} matrices}
 
 \item{nc}{Number of columns}
 
 \item{nca}{Number of constraint columns}
 
-\item{K}{Number of partitions minus 1}
+\item{K}{Number of partitions minus 1 (\eqn{K})}
 
-\item{Xy}{List of X^{T}y products}
+\item{Xy}{List of \eqn{\textbf{X}^{T}\textbf{y}} products}
 
-\item{Ghalf}{List of G^{1/2} matrices}
+\item{Ghalf}{List of \eqn{\textbf{G}^{1/2}} matrices}
 
-\item{dGhalf}{List of dG^{1/2}/dλ matrices}
+\item{dGhalf}{List of \eqn{d\textbf{G}^{1/2}/d\lambda} matrices}
 
-\item{GhalfXy_temp}{Temporary storage for G^{1/2}X^{T}y}
+\item{GhalfXy_temp}{Temporary storage for \eqn{\textbf{G}^{1/2}\textbf{X}^{T}\textbf{y}}}
 
 \item{parallel}{Use parallel processing}
 
@@ -63,12 +63,12 @@ compute_dG_u_dlambda_xy(
 Vector of derivatives
 }
 \description{
-Compute Derivative of UGX^{T}y with Respect to Lambda
+Compute Derivative of \eqn{\textbf{U}\textbf{G}\textbf{X}^{T}\textbf{y}} with Respect to Lambda
 }
 \details{
-Computes d(UGX^{T}y)/dλ = d[(I-GA(A^{T}GA)^{-1}A^{T})GX^{T}y]/dλ
+Computes \eqn{d(\textbf{U}\textbf{G}\textbf{X}^{T}\textbf{y})/d\lambda}.
 Uses efficient implementation avoiding large matrix construction.
-For large problems (K >= 10, nc > 4), uses chunked parallel processing.
-For smaller problems, uses simpler least squares approach.
+For large problems (\eqn{K \ge 10}, \eqn{nc > 4}), uses chunked parallel processing.
+For smaller problems, uses simpler least squares approach based on \eqn{\textbf{G}^{1/2}}.
 }
 \keyword{internal}

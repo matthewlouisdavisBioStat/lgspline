@@ -28,9 +28,9 @@ unconstrained_fit_default(
 
 \item{y}{Response variable vector}
 
-\item{LambdaHalf}{Square root of penalty matrix}
+\item{LambdaHalf}{Square root of penalty matrix (\eqn{\boldsymbol{\Lambda}^{1/2}})}
 
-\item{Lambda}{Penalty matrix}
+\item{Lambda}{Penalty matrix (\eqn{\boldsymbol{\Lambda}})}
 
 \item{keep_weighted_Lambda}{Logical flag to control penalty matrix handling:
 - `TRUE`: Return coefficients directly from weighted penalty fitting
@@ -40,7 +40,7 @@ unconstrained_fit_default(
 
 \item{tol}{Convergence tolerance}
 
-\item{K}{Number of partitions minus one}
+\item{K}{Number of partitions minus one (\eqn{K})}
 
 \item{parallel}{Flag for parallel processing}
 
@@ -55,17 +55,19 @@ unconstrained_fit_default(
 \item{order_indices}{Observation ordering indices}
 
 \item{weights}{Optional observation weights}
+
+\item{...}{Additional arguments passed to \code{glm.fit}}
 }
 \value{
 Optimized parameter estimates for canonical generalized linear models.
 
-For fitting non-canonical GLMs, use 'keep_weighted_Lambda = TRUE' since the
+For fitting non-canonical GLMs, use \code{keep_weighted_Lambda = TRUE} since the
 score and hessian equations below are no longer valid.
 
-For Gamma(link='log') using 'keep_weighted_Lambda = TRUE' is misleading.
+For Gamma(link='log') using \code{keep_weighted_Lambda = TRUE} is misleading.
 The information is weighted by a constant (shape parameter) rather than some
-mean-variance relationship. So 'keep_weighted_Lambda = TRUE' is highly
-recommended for log-link Gammma models. This constant flushes into the
+mean-variance relationship. So \code{keep_weighted_Lambda = TRUE} is highly
+recommended for log-link Gamma models. This constant flushes into the
 penalty terms, and so the formulation of the information matrix is valid.
 
 For other scenarios, like probit regression, there will be diagonal weights

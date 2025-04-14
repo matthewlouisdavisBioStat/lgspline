@@ -8,6 +8,8 @@
 }
 \arguments{
 \item{object}{An lgspline model object}
+
+\item{...}{Not used.}
 }
 \description{
 Summary method for lgspline Objects

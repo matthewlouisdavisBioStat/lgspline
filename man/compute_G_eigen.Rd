@@ -21,11 +21,11 @@ compute_G_eigen(
 )
 }
 \arguments{
-\item{X_gram}{Gram matrix list}
+\item{X_gram}{Gram matrix list (\eqn{\textbf{X}^{T}\textbf{X}})}
 
-\item{Lambda}{Penalty matrix}
+\item{Lambda}{Penalty matrix (\eqn{\boldsymbol{\Lambda}})}
 
-\item{K}{Number of partitions minus 1}
+\item{K}{Number of partitions minus 1 (\eqn{K})}
 
 \item{parallel}{Use parallel processing}
 
@@ -41,24 +41,26 @@ compute_G_eigen(
 
 \item{unique_penalty_per_partition}{Use partition penalties}
 
-\item{L_partition_list}{Partition penalty list}
+\item{L_partition_list}{Partition penalty list (\eqn{\textbf{L}_\text{partition_list}})}
 
-\item{keep_G}{Return full G matrix}
+\item{keep_G}{Return full G matrix (\eqn{\textbf{G}})}
+
+\item{shur_corrections}{List of Shur complement corrections (\eqn{\textbf{S}})}
 }
 \value{
 List containing combinations of:
 \itemize{
-  \item G - Full G matrix (if keep_G=TRUE)
-  \item Ghalf - G^{1/2} matrix
-  \item GhalfInv - G^{-1/2} matrix (for non-identity links)
+  \item G - Full \eqn{\textbf{G}} matrix (if \code{keep_G=TRUE})
+  \item Ghalf - \eqn{\textbf{G}^{1/2}} matrix
+  \item GhalfInv - \eqn{\textbf{G}^{-1/2}} matrix (for non-identity links)
 }
 }
 \description{
 Compute Eigenvalues and Related Matrices for G
 }
 \details{
-Computes G, G^{1/2}, and G^{-1/2} matrices via eigendecomposition.
+Computes \eqn{\textbf{G}}, \eqn{\textbf{G}^{1/2}} and \eqn{\textbf{G}^{-1/2}} matrices via eigendecomposition of \eqn{\textbf{X}^{T}\textbf{X} + \boldsymbol{\Lambda}_\text{effective} + \textbf{S}}.
 Handles partition-specific penalties and parallel processing.
-For non-identity link functions, also returns G^{-1/2}.
+For non-identity link functions, also returns \eqn{\textbf{G}^{-1/2}}.
 }
 \keyword{internal}

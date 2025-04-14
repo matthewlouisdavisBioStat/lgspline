@@ -15,6 +15,23 @@ weibull_qp_score_function(
   status
 )
 }
+\arguments{
+\item{X}{Design matrix}
+
+\item{y}{Response vector}
+
+\item{mu}{Predicted mean vector}
+
+\item{order_list}{List of observation indices per partition}
+
+\item{dispersion}{Dispersion parameter (scale^2)}
+
+\item{VhalfInv}{Inverse square root of correlation matrix (if applicable)}
+
+\item{observation_weights}{Observation weights}
+
+\item{status}{Censoring indicator (1 = event, 0 = censored)}
+}
 \value{
 A numeric vector representing the gradient with respect to coefficients.
 }

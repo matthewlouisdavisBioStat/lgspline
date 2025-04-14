@@ -16,19 +16,19 @@ compute_dGhalf(
 )
 }
 \arguments{
-\item{dG_dlambda}{List of nc x nc dG/dλ matrices by partition}
+\item{dG_dlambda}{List of \eqn{nc \times nc} \eqn{d\textbf{G}/d\lambda} matrices by partition}
 
 \item{nc}{Integer; number of columns per partition}
 
-\item{K}{Integer; number of interior knots}
+\item{K}{Integer; number of interior knots (\eqn{K})}
 
 \item{parallel, cl, chunk_size, num_chunks, rem_chunks}{Parallel computation parameters}
 }
 \value{
-List of nc x nc = p x p matrices containing dG_k^{1/2}/dλ for each partition k
+List of \eqn{nc \times nc} matrices containing \eqn{d\textbf{G}_k^{1/2}/d\lambda} for each partition k
 }
 \description{
-Calculates dG^{1/2}/dλ matrices for each partition using eigendecomposition.
-Follows similar approach to compute_G_eigen() but for matrix derivatives.
+Calculates \eqn{d\textbf{G}^{1/2}/d\lambda} matrices for each partition using eigendecomposition.
+Follows similar approach to \code{compute_G_eigen()} but for matrix derivatives.
 }
 \keyword{internal}

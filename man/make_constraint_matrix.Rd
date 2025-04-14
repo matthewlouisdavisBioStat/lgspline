@@ -8,6 +8,7 @@ make_constraint_matrix(
   nc,
   CKnots,
   power1_cols,
+  power2_cols,
   nonspline_cols,
   interaction_single_cols,
   interaction_quad_cols,
@@ -31,6 +32,8 @@ make_constraint_matrix(
 
 \item{power1_cols}{Integer vector; indices of linear terms}
 
+\item{power2_cols}{Integer vector; indices of quadratic terms}
+
 \item{nonspline_cols}{Integer vector; indices of non-spline terms}
 
 \item{interaction_single_cols}{Integer vector; indices of linear interaction terms}
@@ -39,7 +42,7 @@ make_constraint_matrix(
 
 \item{triplet_cols}{Integer vector; indices of three-way interaction terms}
 
-\item{K}{Integer; number of interior knots (K+1 partitions)}
+\item{K}{Integer; number of interior knots (\eqn{K+1} partitions)}
 
 \item{include_constrain_fitted}{Logical; constrain function values at knots}
 
@@ -60,11 +63,11 @@ make_constraint_matrix(
 \item{expansion_scales}{Numeric vector; scaling factors for standardization}
 }
 \value{
-Matrix A of constraint coefficients. Columns correspond to
-constraints, rows to coefficients across all partitions.
+Matrix \eqn{\textbf{A}} of constraint coefficients. Columns correspond to
+constraints, rows to coefficients across all \eqn{K+1} partitions.
 }
 \description{
-Constructs constraint matrix A enforcing continuity and smoothness at knot boundaries
+Constructs constraint matrix \eqn{\textbf{A}} enforcing continuity and smoothness at knot boundaries
 by constraining function values, derivatives, and interactions between partitions.
 }
 \keyword{internal}

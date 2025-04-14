@@ -19,29 +19,24 @@ Depends:
 Imports:
     Rcpp (>= 1.0.7),
     RcppArmadillo,
-    stats,
-    graphics,
-    parallel,
-    FNN
+    FNN,
+    RColorBrewer,   
+    plotly,        
+    quadprog,
+    methods,
+    stats
 LinkingTo:
     Rcpp,
-    RcppArmadillo,
-    plotly,
-    quadprog,
-    FNN
+    RcppArmadillo
 Suggests:
     testthat (>= 3.0.0),
     knitr,
     rmarkdown,
-    quadprog,
-    plotly,
-    FNN,
-    RColorBrewer,
-    survival
+    parallel,
+    survival,
+    graphics
 URL: https://github.com/matthewlouisdavisBioStat/lgspline
 BugReports: https://github.com/matthewlouisdavisBioStat/lgspline/issues
-SystemRequirements: C++11
 Encoding: UTF-8
 RoxygenNote: 7.3.2
 Config/testthat/edition: 3
-VignetteBuilder: knitr

@@ -27,7 +27,7 @@ compute_gram_block_diagonal(
 \item{rem_chunks}{Remaining chunks}
 }
 \value{
-List of Gram matrices (X^{T}X) for each block
+List of Gram matrices (\eqn{\textbf{X}^{T}\textbf{X}}) for each block
 }
 \description{
 Compute Gram Matrix for Block Diagonal Structure

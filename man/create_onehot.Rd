@@ -18,8 +18,8 @@ becomes a binary column.
 }
 \details{
 The function creates dummy variables for each unique value in the input vector using
-model.matrix() with dummy-intercept coding. Column names are cleaned by removing the
-'x' prefix added by model.matrix().
+\code{model.matrix()} with dummy-intercept coding. Column names are cleaned by removing the
+'x' prefix added by \code{model.matrix()}.
 }
 \examples{
 
@@ -28,7 +28,7 @@ model.matrix() with dummy-intercept coding. Column names are cleaned by removing
 # all variables must be numeric
 df <- data.frame(numvar = rnorm(100),
                  catvar = rep(LETTERS[1:4],
-                                 25))
+                              25))
 print(head(df))
 
 ## Instead, replace with dummy-intercept coding by

@@ -28,9 +28,9 @@ unconstrained_fit_weibull(
 
 \item{y}{Survival/response times}
 
-\item{LambdaHalf}{Square root of penalty matrix}
+\item{LambdaHalf}{Square root of penalty matrix (\eqn{\boldsymbol{\Lambda}^{1/2}})}
 
-\item{Lambda}{Penalty matrix}
+\item{Lambda}{Penalty matrix (\eqn{\boldsymbol{\Lambda}})}
 
 \item{keep_weighted_Lambda}{Flag to retain weighted penalties}
 
@@ -38,7 +38,7 @@ unconstrained_fit_weibull(
 
 \item{tol}{Convergence tolerance (default 1e-8)}
 
-\item{K}{Number of partitions minus one}
+\item{K}{Number of partitions minus one (\eqn{K})}
 
 \item{parallel}{Flag for parallel processing}
 
@@ -61,7 +61,7 @@ full survival time is unknown, typically because the study ended or the
 subject was lost to follow-up before the event of interest occurred.}
 }
 \value{
-Optimized beta parameter estimates for Weibull AFT model
+Optimized beta parameter estimates (\eqn{\boldsymbol{\beta}}) for Weibull AFT model
 }
 \description{
 Estimates parameters for an unconstrained Weibull AFT model supporting

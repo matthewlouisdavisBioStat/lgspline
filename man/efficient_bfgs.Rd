@@ -39,7 +39,7 @@ function evaluation and gradient computation into single call to avoid redundant
 model refitting.
 }
 \details{
-Implements BFGS, used internally by lgspline() for optimizing correlation parameters via REML
+Implements BFGS, used internally by \code{lgspline()} for optimizing correlation parameters via REML
 when argument for computing gradient \code{VhalfInv_grad} is not NULL.
 
 This is more efficient than native BFGS, since gradient and loss can be computed simultaneously,
