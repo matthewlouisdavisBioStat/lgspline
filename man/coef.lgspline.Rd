@@ -49,11 +49,11 @@ model_fit <- lgspline(x, y)
 ## Extract coefficients
 coefficients <- coef(model_fit)
 
-## Print coefficients for first partition (if model fit)
-if(!is.null(coefficients)) print(coefficients[[1]])
+## Print coefficients for first partition
+print(coefficients[[1]])
 
-## Compare coefficients across all partitions (if model fit)
-if(!is.null(coefficients)) print(Reduce('cbind', coefficients))
+## Compare coefficients across all partitions
+print(Reduce('cbind', coefficients))
 }
 
 }

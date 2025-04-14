@@ -109,32 +109,26 @@ oldpar <- par(no.readonly = TRUE) # Save current par settings
 layout(matrix(c(1,1,2,2,3,3), byrow = TRUE, nrow = 2))
 
 ## Plot function
-if(length(preds) == NROW(newdata)) {
-  plot(newdata[,1], preds,
+plot(newdata[,1], preds,
        main = 'Fitted Function',
        xlab = 't',
        ylab = "f(t)", type = 'l')
-}
 
 ## Plot first derivative
-if(!is.null(deriv1_res$first_deriv) && length(deriv1_res$first_deriv) == NROW(newdata)) {
-  plot(newdata[,1],
+plot(newdata[,1],
        deriv1_res$first_deriv,
        main = 'First Derivative',
        xlab = 't',
        ylab = "f'(t)", type = 'l')
-}
 
 ## Plot second derivative
-if(!is.null(deriv2_res$second_deriv) && length(deriv2_res$second_deriv) == NROW(newdata)) {
-  plot(newdata[,1],
+plot(newdata[,1],
        deriv2_res$second_deriv,
        main = 'Second Derivative',
        xlab = 't',
        ylab = "f''(t)", type = 'l')
-}
-par(oldpar) # Restore original par settings
-}
+ }
+
 
 }
 \seealso{
