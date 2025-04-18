@@ -64,8 +64,8 @@ subject was lost to follow-up before the event of interest occurred.}
 Optimized beta parameter estimates (\eqn{\boldsymbol{\beta}}) for Weibull AFT model
 }
 \description{
-Estimates parameters for an unconstrained Weibull AFT model supporting
-right-censored survival data.
+Estimates parameters for an unconstrained Weibull accelerated failure time
+(AFT) model supporting right-censored survival data.
 
 This both provides a tool for actually fitting Weibull AFT Models, and
 boilerplate code for users who wish to incorporate Lagrangian multiplier
@@ -82,24 +82,24 @@ accelerated failure time models via maximum likelihood:
    damped Newton-Raphson.
 }
 \examples{
-\donttest{
-# Simulate survival data with covariates
+
+## Simulate survival data with covariates
 set.seed(1234)
 n <- 1000
-x1 <- rnorm(n)
-x2 <- rbinom(n, 1, 0.5)
+t1 <- rnorm(n)
+t2 <- rbinom(n, 1, 0.5)
 
-# Generate survival times with Weibull-like structure
-lambda <- exp(0.5 * x1 + 0.3 * x2)
+## Generate survival times with Weibull-like structure
+lambda <- exp(0.5 * t1 + 0.3 * t2)
 yraw <- rexp(n, rate = 1/lambda)
 
-# Introduce right-censoring
+## Introduce right-censoring
 status <- rbinom(n, 1, 0.75)
 y <- ifelse(status, yraw, runif(1, 0, yraw))
-df <- data.frame(y = y, x1 = x1, x2 = x2)
+df <- data.frame(y = y, t1 = t1, t2 = t2)
 
-# Fit model using lgspline with Weibull AFT specifics
-model_fit <- lgspline(y ~ spl(x1) + x2,
+## Fit model using lgspline with Weibull AFT unconstrained estimation
+model_fit <- lgspline(y ~ spl(t1) + t2,
                       df,
                       unconstrained_fit_fxn = unconstrained_fit_weibull,
                       family = weibull_family(),
@@ -111,9 +111,8 @@ model_fit <- lgspline(y ~ spl(x1) + x2,
                       opt = FALSE,
                       K = 1)
 
-# Print model summary
+## Print model summary
 summary(model_fit)
-}
 
 }
 \keyword{internal}

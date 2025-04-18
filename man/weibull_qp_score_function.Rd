@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{weibull_qp_score_function}
 \alias{weibull_qp_score_function}
-\title{Compute gradient of log-likelihood of Weibull AFT without penalization}
+\title{Compute gradient of log-likelihood of Weibull accelerated failure model without penalization}
 \usage{
 weibull_qp_score_function(
   X,
@@ -36,11 +36,44 @@ weibull_qp_score_function(
 A numeric vector representing the gradient with respect to coefficients.
 }
 \description{
-Calculates the gradient of log-likelihood for a
-Weibull Accelerated Failure Time (AFT) survival model, supporting
-right-censored survival data.
+Calculates the gradient of log-likelihood for a Weibull accelerated failure
+time (AFT) survival model, supporting right-censored survival data.
 }
 \details{
 Needed if using "blockfit", correlation structures, or quadratic programming
-with Weibull AFTs.
+with Weibull AFT models.
+}
+\examples{
+
+set.seed(1234)
+t1 <- rnorm(1000)
+t2 <- rbinom(1000, 1, 0.5)
+yraw <- rexp(exp(0.01*t1 + 0.01*t2))
+status <- rbinom(1000, 1, 0.25)
+yobs <- ifelse(status, runif(1, 0, yraw), yraw)
+df <- data.frame(
+  y = yobs,
+  t1 = t1,
+  t2 = t2
+)
+
+## Example using blockfit for t2 as a linear term - output does not look
+# different, but internal methods used for fitting change
+model_fit <- lgspline(y ~ spl(t1) + t2,
+                      df,
+                      unconstrained_fit_fxn = unconstrained_fit_weibull,
+                      family = weibull_family(),
+                      need_dispersion_for_estimation = TRUE,
+                      qp_score_function = weibull_qp_score_function,
+                      dispersion_function = weibull_dispersion_function,
+                      glm_weight_function = weibull_glm_weight_function,
+                      shur_correction_function = weibull_shur_correction,
+                      K = 1,
+                      blockfit = TRUE,
+                      opt = FALSE,
+                      status = status,
+                      verbose = TRUE)
+
+print(summary(model_fit))
+
 }

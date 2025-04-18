@@ -84,7 +84,7 @@ and 8 for 2D}
 \value{
 Returns
 \describe{
-  \item{1D}{Invisibly returns NULL (Base R plot is drawn to device).}
+  \item{1D}{Invisibly returns NULL (base R plot is drawn to device).}
   \item{2D}{Plotly object showing interactive surface plot.}
 }
 }
@@ -119,14 +119,14 @@ For this case, try constraining the effects of these terms to 0 instead using
 the expansions but their corresponding coefficients will be 0.
 }
 \examples{
-\donttest{
+
 ## Generate example data
 set.seed(1234)
-x_data <- runif(1000, -10, 10)
-y_data <- 2*sin(x_data) + -0.06*x_data^2 + rnorm(length(x_data))
+t_data <- runif(1000, -10, 10)
+y_data <- 2*sin(t_data) + -0.06*t_data^2 + rnorm(length(t_data))
 
 ## Fit model with 10 partitions
-model_fit <- lgspline(x_data, y_data, K = 9)
+model_fit <- lgspline(t_data, y_data, K = 9)
 
 ## Basic plot
 plot(model_fit)
@@ -142,7 +142,6 @@ plot(model_fit,
      text_size_formula = 0.375,     # Adjust formula text size
      pch = 16,                      # Point style
      cex.main = 1.25)               # Title size
-}
 
 }
 \seealso{

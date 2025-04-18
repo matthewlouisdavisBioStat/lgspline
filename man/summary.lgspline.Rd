@@ -11,6 +11,24 @@
 
 \item{...}{Not used.}
 }
+\value{
+An object of class \code{summary.lgspline}. This object is a list
+containing detailed information from \code{lgspline} fit, prepared for
+display. Its main components are:
+\describe{
+ \item{model_family}{The \code{\link[stats]{family}} object or custom list specifying the distribution and link.}
+ \item{observations}{The number of observations (N) used in the fit.}
+ \item{predictors}{The number of original predictor variables (q) supplied.}
+ \item{knots}{The number of partitions (K+1) minus 1.}
+ \item{basis_functions}{The number of basis functions (coefficients) estimated per partition (p).}
+ \item{estimate_dispersion}{A character string ("Yes" or "No") indicating if the dispersion parameter was estimated.}
+ \item{cv}{The critical value (\code{critical_value} from the fit) used by the \code{print.summary.lgspline} method for confidence intervals.}
+ \item{coefficients}{A matrix summarizing univariate inference results. Columns typically include 'Estimate', 'Std. Error', test statistic ('t value' or 'z value'), 'Pr(>|t|)' or 'Pr(>|z|)', and confidence interval bounds ('CI LB', 'CI UB'). This table is fully populated only if \code{return_varcovmat=TRUE} was set in the original \code{lgspline} call. Otherwise, it defaults to a single column of estimates.}
+ \item{sigmasq_tilde}{The estimated (or fixed) dispersion parameter, \eqn{\tilde{\sigma}^2}.}
+ \item{trace_XUGX}{The calculated trace term \eqn{\text{trace}(\mathbf{XUGX}^T)}, related to effective degrees of freedom.}
+ \item{N}{Number of observations (N), re-included for convenience and printing.}
+}
+}
 \description{
 Summary method for lgspline Objects
 }

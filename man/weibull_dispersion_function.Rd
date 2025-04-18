@@ -34,7 +34,7 @@ subject was lost to follow-up before the event of interest occurred.}
 Squared scale estimate for the Weibull AFT model (dispersion)
 }
 \description{
-Computes the scale parameter for a Weibull Accelerated Failure Time (AFT)
+Computes the scale parameter for a Weibull accelerated failure time (AFT)
 model, supporting right-censored survival data.
 
 This both provides a tool for actually fitting Weibull AFT Models, and
@@ -42,15 +42,15 @@ boilerplate code for users who wish to incorporate Lagrangian multiplier
 smoothing splines into their own custom models.
 }
 \examples{
-\donttest{
+
 ## Simulate survival data with covariates
 set.seed(1234)
 n <- 1000
-x1 <- rnorm(n)
-x2 <- rbinom(n, 1, 0.5)
+t1 <- rnorm(n)
+t2 <- rbinom(n, 1, 0.5)
 
 ## Generate survival times with Weibull-like structure
-lambda <- exp(0.5 * x1 + 0.3 * x2)
+lambda <- exp(0.5 * t1 + 0.3 * t2)
 yraw <- rexp(n, rate = 1/lambda)
 
 ## Introduce right-censoring
@@ -71,8 +71,8 @@ dispersion_est <- weibull_dispersion_function(
   observation_weights = weights,
   status = status
 )
+
 print(dispersion_est)
-}
 
 }
 \seealso{

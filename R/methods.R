@@ -21,6 +21,11 @@ NULL
 #' Provides a standard print method for lgspline model objects to display
 #' key model characteristics.
 #'
+#' @return Invisibly returns the original \code{lgspline} object \code{x}. This
+#' function is called for printing a concise summary of the fitted model's key
+#' characteristics (family, link, N, predictors, partitions, basis functions) to
+#' the console.
+#'
 #' @param x An lgspline model object
 #' @param ... Additional arguments (not used)
 #'
@@ -45,6 +50,22 @@ print.lgspline <- function(x, ...) {
 #' Summary method for lgspline Objects
 #' @param object An lgspline model object
 #' @param ... Not used.
+#' @return An object of class \code{summary.lgspline}. This object is a list
+#' containing detailed information from \code{lgspline} fit, prepared for
+#' display. Its main components are:
+#' \describe{
+#'  \item{model_family}{The \code{\link[stats]{family}} object or custom list specifying the distribution and link.}
+#'  \item{observations}{The number of observations (N) used in the fit.}
+#'  \item{predictors}{The number of original predictor variables (q) supplied.}
+#'  \item{knots}{The number of partitions (K+1) minus 1.}
+#'  \item{basis_functions}{The number of basis functions (coefficients) estimated per partition (p).}
+#'  \item{estimate_dispersion}{A character string ("Yes" or "No") indicating if the dispersion parameter was estimated.}
+#'  \item{cv}{The critical value (\code{critical_value} from the fit) used by the \code{print.summary.lgspline} method for confidence intervals.}
+#'  \item{coefficients}{A matrix summarizing univariate inference results. Columns typically include 'Estimate', 'Std. Error', test statistic ('t value' or 'z value'), 'Pr(>|t|)' or 'Pr(>|z|)', and confidence interval bounds ('CI LB', 'CI UB'). This table is fully populated only if \code{return_varcovmat=TRUE} was set in the original \code{lgspline} call. Otherwise, it defaults to a single column of estimates.}
+#'  \item{sigmasq_tilde}{The estimated (or fixed) dispersion parameter, \eqn{\tilde{\sigma}^2}.}
+#'  \item{trace_XUGX}{The calculated trace term \eqn{\text{trace}(\mathbf{XUGX}^T)}, related to effective degrees of freedom.}
+#'  \item{N}{Number of observations (N), re-included for convenience and printing.}
+#' }
 #' @export
 summary.lgspline <- function(object, ...) {
   ## Create a brief summary
@@ -104,8 +125,14 @@ summary.lgspline <- function(object, ...) {
 
 #' Print Method for lgspline Object Summaries
 #'
-#' @param x An lgspline model object # Changed from summary.lgspline object for consistency with function name provided previously
+#' @param x A summary.lgspline object, the result of calling \code{summary()} on an \code{lgspline} object.
 #' @param ... Not used.
+#' @return Invisibly returns the original \code{summary.lgspline} object \code{x}.
+#' Like other print methods, this function is called to display a formatted
+#' summary of the fitted \code{lgspline} model to the console.
+#' This includes model dimensions, family information, dispersion estimate,
+#' effective degrees of freedom, and a coefficient table for univariate inference
+#' (if available) analogous to output from \code{\link[stats]{summary.glm}}.
 #' @export
 print.summary.lgspline <- function(x, ...) {
   cat("Lagrangian Multiplier Smoothing Spline Model Summary\n")
@@ -206,12 +233,12 @@ print.summary.lgspline <- function(x, ...) {
 #' }
 #'
 #' @examples
-#' \donttest{
+#'
 #' ## Basic usage with simulated data
 #' set.seed(1234)
-#' x <- runif(1000, -10, 10)
-#' y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
-#' model_fit <- lgspline(x, y)
+#' t <- runif(1000, -10, 10)
+#' y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
+#' model_fit <- lgspline(t, y)
 #' plot(model_fit)
 #'
 #' ## Find global maximum and minimum
@@ -243,7 +270,7 @@ print.summary.lgspline <- function(x, ...) {
 #'                      custom_objective_function = ei_custom_objective_function,
 #'                      custom_objective_derivative = ei_custom_objective_derivative)
 #' abline(v = acq$t, col = 'green')  # Add acquisition point
-#' }
+#'
 #'
 #' @seealso
 #' \code{\link{lgspline}} for fitting the model,
@@ -327,10 +354,12 @@ find_extremum <- function(object,
 #'         Gaussian for standard normal responses
 #' }
 #'
-#' For the dispersion parameter, the sampling process follows:
+#' For the dispersion parameter, the sampling process follows for a fitted
+#' lgspline object "model_fit" (where unbias_dispersion is coerced to 1 if TRUE, 0 if FALSE)
+#'
 #' \preformatted{
-#' shape <- theta_1 + 0.5 * model_fit$N
-#' rate <- theta_2 + 0.5 * sum((model_fit$y - model_fit$ytilde)^2)
+#' shape <-  theta_1 + 0.5 * (model_fit$N - model_fit$unbias_dispersion * model_fit$trace_XUGX)
+#' rate <- theta_2 + 0.5 * (model_fit$N - model_fit$unbias_dispersion * model_fit$trace_XUGX) * new_sigmasq_tilde
 #' post_draw_sigmasq <- 1/rgamma(1, shape, rate)
 #' }
 #'
@@ -347,14 +376,14 @@ find_extremum <- function(object,
 #' }
 #'
 #' @examples
-#' \donttest{
+#'
 #' ## Generate example data
-#' x <- runif(1000, -10, 10)
-#' true_y <- 2*sin(x) + -0.06*x^2
+#' t <- runif(1000, -10, 10)
+#' true_y <- 2*sin(t) + -0.06*t^2
 #' y <- rnorm(length(true_y), true_y, 1)
 #'
 #' ## Fit model (using unstandardized expansions for consistent inference)
-#' model_fit <- lgspline(x, y,
+#' model_fit <- lgspline(t, y,
 #'                       K = 7,
 #'                       standardize_expansions_for_fitting = FALSE)
 #'
@@ -378,7 +407,7 @@ find_extremum <- function(object,
 #'
 #' ## Compare intervals
 #' print(round(cbind(wald_bounds, post_bounds), 4))
-#' }
+#'
 #'
 #' @seealso
 #' \code{\link{lgspline}} for model fitting,
@@ -487,19 +516,19 @@ generate_posterior <- function(object,
 #'
 #' @return Returns
 #' \describe{
-#'   \item{1D}{Invisibly returns NULL (Base R plot is drawn to device).}
+#'   \item{1D}{Invisibly returns NULL (base R plot is drawn to device).}
 #'   \item{2D}{Plotly object showing interactive surface plot.}
 #' }
 #'
 #' @examples
-#' \donttest{
+#'
 #' ## Generate example data
 #' set.seed(1234)
-#' x_data <- runif(1000, -10, 10)
-#' y_data <- 2*sin(x_data) + -0.06*x_data^2 + rnorm(length(x_data))
+#' t_data <- runif(1000, -10, 10)
+#' y_data <- 2*sin(t_data) + -0.06*t_data^2 + rnorm(length(t_data))
 #'
 #' ## Fit model with 10 partitions
-#' model_fit <- lgspline(x_data, y_data, K = 9)
+#' model_fit <- lgspline(t_data, y_data, K = 9)
 #'
 #' ## Basic plot
 #' plot(model_fit)
@@ -515,7 +544,6 @@ generate_posterior <- function(object,
 #'      text_size_formula = 0.375,     # Adjust formula text size
 #'      pch = 16,                      # Point style
 #'      cex.main = 1.25)               # Title size
-#' }
 #'
 #' @seealso
 #' \code{\link{lgspline}} for model fitting,
@@ -614,33 +642,44 @@ plot.lgspline <- function(x,
 #'         variance-covariance matrices
 #' }
 #'
+#' If newdata and new_predictor are left NULL, default input used for model fitting
+#' will be used. Priority will be awarded to new_predictor over newdata when
+#' both are not NULL.
+#'
+#' To obtain fitted values, users may also call model_fit$predict() or
+#' model_fit$ytilde for an lgspline object "model_fit".
+#'
 #' The parallel processing feature is experimental and should be used with caution.
 #' When enabled, computations are split across chunks and processed in parallel,
 #' which may improve performance for large datasets.
 #'
-#' @return Depending on the options selected, returns one of:
+#' @return Depending on the options selected, returns the following:
 #' \describe{
 #'   \item{predictions}{Numeric vector of predicted values (default case, or if derivatives requested).}
-#'   \item{first_deriv}{Numeric vector of first derivatives (if requested).}
-#'   \item{second_deriv}{Numeric vector of second derivatives (if requested).}
+#'   \item{first_deriv}{Numeric vector of first derivatives (if take_first_derivatives = TRUE).}
+#'   \item{second_deriv}{Numeric vector of second derivatives (if take_second_derivatives = TRUE).}
 #'   \item{expansions}{List of basis expansions (if expansions_only = TRUE).}
 #' }
 #'
+#' With derivatives included, output is in the form of a list with elements
+#' "preds", "first_deriv", and "second_deriv" for the vector of predictions,
+#' first derivatives, and second derivatives respectively.
+#'
 #' @examples
-#' \donttest{
+#'
 #' ## Generate example data
 #' set.seed(1234)
-#' x <- runif(1000, -10, 10)
-#' y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
+#' t <- runif(1000, -10, 10)
+#' y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
 #'
 #' ## Fit model
-#' model_fit <- lgspline(x, y)
+#' model_fit <- lgspline(t, y)
 #'
 #' ## Generate predictions for new data
 #' newdata <- matrix(sort(rnorm(10000)), ncol = 1) # Ensure matrix format
 #' preds <- predict(model_fit, newdata)
 #'
-#' ## Compute derivatives
+#' ## Compute derivative
 #' deriv1_res <- predict(model_fit, newdata,
 #'                       take_first_derivatives = TRUE)
 #' deriv2_res <- predict(model_fit, newdata,
@@ -648,7 +687,7 @@ plot.lgspline <- function(x,
 #'
 #' ## Visualize results
 #' oldpar <- par(no.readonly = TRUE) # Save current par settings
-#' layout(matrix(c(1,1,2,2,3,3), byrow = TRUE, nrow = 2))
+#' layout(matrix(c(1,1,2,2,3,3), byrow = TRUE, ncol = 2))
 #'
 #' ## Plot function
 #' plot(newdata[,1], preds,
@@ -669,7 +708,8 @@ plot.lgspline <- function(x,
 #'        main = 'Second Derivative',
 #'        xlab = 't',
 #'        ylab = "f''(t)", type = 'l')
-#'  }
+#'
+#' par(oldpar) # Reset to original par settings
 #'
 #'
 #' @seealso
@@ -690,15 +730,31 @@ predict.lgspline <- function(object,
                              expansions_only = FALSE,
                              new_predictors = NULL,
                              ...) {
-  if(!is.null(new_predictors)){
-    newdata <- new_predictors
-  } else {
-    new_predictors <- newdata
-  }
-  # Delegate to the model's internal prediction method
+  ## Delegate to the model's internal prediction method
   internal_predict_func <- object$predict
+
+  ## If new_predictors NULL, use newdata
+  if(is.null(new_predictors) & !is.null(newdata)){
+    new_predictors <- newdata
+  } else if(is.null(new_predictors) & is.null(newdata)){
+    ## Otherwise, make prediction using default data source (input)
+    B_predict_val <- if (!missing(B_predict)) B_predict else object$B
+    return(internal_predict_func(
+      parallel = parallel,
+      cl = cl,
+      chunk_size = chunk_size,
+      num_chunks = num_chunks,
+      rem_chunks = rem_chunks,
+      B_predict = B_predict_val,
+      take_first_derivatives = take_first_derivatives,
+      take_second_derivatives = take_second_derivatives,
+      expansions_only = expansions_only,
+      ...
+    ))
+  }
   if (!is.null(internal_predict_func) && is.function(internal_predict_func)) {
     B_predict_val <- if (!missing(B_predict)) B_predict else object$B
+    ## Prediction from external data source (not)
     return(internal_predict_func(
       new_predictors = new_predictors,
       parallel = parallel,
@@ -729,10 +785,10 @@ predict.lgspline <- function(object,
 #' For each partition, coefficients represent a polynomial expansion of the predictor(s) by column index, for example:
 #' \itemize{
 #'   \item intercept: Constant term
-#'   \item _1_: Linear term
-#'   \item _1_^2: Quadratic term
-#'   \item _1_^3: Cubic term
-#'   \item Additional interaction terms for multivariate models
+#'   \item v: Linear term
+#'   \item v_^2: Quadratic term
+#'   \item v^3: Cubic term
+#'   \item _v_x_w_: Interaction between v and w
 #' }
 #'
 #' If column/variable names are present, indices will be replaced with column/variable names.
@@ -749,13 +805,12 @@ predict.lgspline <- function(object,
 #' }
 #'
 #' @examples
-#' \donttest{
 #'
 #' ## Simulate some data and fit using default settings
 #' set.seed(1234)
-#' x <- runif(1000, -10, 10)
-#' y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
-#' model_fit <- lgspline(x, y)
+#' t <- runif(1000, -10, 10)
+#' y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
+#' model_fit <- lgspline(t, y)
 #'
 #' ## Extract coefficients
 #' coefficients <- coef(model_fit)
@@ -765,7 +820,6 @@ predict.lgspline <- function(object,
 #'
 #' ## Compare coefficients across all partitions
 #' print(Reduce('cbind', coefficients))
-#' }
 #'
 #' @seealso \code{\link{lgspline}}
 #' @export
@@ -781,7 +835,9 @@ coef.lgspline <- function(object, ...) {
 #' Univariate Wald Tests and Confidence Intervals for Lagrangian Multiplier Smoothing Splines
 #'
 #' Performs coefficient-specific Wald tests and constructs confidence intervals for fitted
-#' lgspline models. (Wrapper for internal wald_univariate method)
+#' lgspline models. (Wrapper for internal wald_univariate method). For Gaussian family
+#' with identity-link, a t-distribution replaces a normal distribution (and t-intervals, t-tests etc.)
+#' over Wald when mentioned.
 #'
 #' @param object A fitted lgspline model object containing coefficient estimates and
 #'        variance-covariance matrix (requires return_varcovmat = TRUE in fitting).
@@ -801,7 +857,7 @@ coef.lgspline <- function(object, ...) {
 #' \itemize{
 #'   \item Point estimates
 #'   \item Standard errors from the model's variance-covariance matrix
-#'   \item Two-sided Wald test statistics and p-values
+#'   \item Two-sided test statistics and p-values
 #'   \item Confidence intervals using specified critical values
 #' }
 #'
@@ -809,21 +865,20 @@ coef.lgspline <- function(object, ...) {
 #' \describe{
 #'   \item{estimate}{Numeric; Coefficient estimate.}
 #'   \item{std_error}{Numeric; Standard error.}
-#'   \item{statistic}{Numeric; Wald test statistic (estimate/std_error).}
-#'   \item{p_value}{Numeric; Two-sided p-value based on normal distribution.}
+#'   \item{statistic}{Numeric; Wald or t-statistic (estimate/std_error).}
+#'   \item{p_value}{Numeric; Two-sided p-value based on normal or t-distribution.}
 #'   \item{lower_ci}{Numeric; Lower confidence bound (estimate - cv*std_error).}
 #'   \item{upper_ci}{Numeric; Upper confidence bound (estimate + cv*std_error).}
 #' }
 #'
 #' @examples
-#' \donttest{
 #'
 #' ## Simulate some data and fit using default settings
 #' set.seed(1234)
-#' x <- runif(1000, -10, 10)
-#' y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
+#' t <- runif(1000, -10, 10)
+#' y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
 #' # Ensure varcovmat is returned for Wald tests
-#' model_fit <- lgspline(x, y, return_varcovmat = TRUE)
+#' model_fit <- lgspline(t, y, return_varcovmat = TRUE)
 #'
 #' ## Use default critical value (likely qnorm(0.975) if not set in fit)
 #' wald_default <- wald_univariate(model_fit)
@@ -843,7 +898,7 @@ coef.lgspline <- function(object, ...) {
 #' } else {
 #'   warning("Effective degrees of freedom invalid.")
 #' }
-#' }
+#'
 #'
 #' @seealso \code{\link{lgspline}}
 #' @export

@@ -26,10 +26,10 @@ Extracts polynomial coefficients for each partition from a fitted lgspline model
 For each partition, coefficients represent a polynomial expansion of the predictor(s) by column index, for example:
 \itemize{
   \item intercept: Constant term
-  \item _1_: Linear term
-  \item _1_^2: Quadratic term
-  \item _1_^3: Cubic term
-  \item Additional interaction terms for multivariate models
+  \item v: Linear term
+  \item v_^2: Quadratic term
+  \item v^3: Cubic term
+  \item _v_x_w_: Interaction between v and w
 }
 
 If column/variable names are present, indices will be replaced with column/variable names.
@@ -38,13 +38,12 @@ Coefficients can be accessed either as separate vectors per partition or combine
 a single matrix using \code{Reduce('cbind', coef(model_fit))}.
 }
 \examples{
-\donttest{
 
 ## Simulate some data and fit using default settings
 set.seed(1234)
-x <- runif(1000, -10, 10)
-y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
-model_fit <- lgspline(x, y)
+t <- runif(1000, -10, 10)
+y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
+model_fit <- lgspline(t, y)
 
 ## Extract coefficients
 coefficients <- coef(model_fit)
@@ -54,7 +53,6 @@ print(coefficients[[1]])
 
 ## Compare coefficients across all partitions
 print(Reduce('cbind', coefficients))
-}
 
 }
 \seealso{

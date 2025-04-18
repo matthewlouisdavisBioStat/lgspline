@@ -28,34 +28,35 @@ A data frame with rows for each coefficient (across all partitions) and columns:
 \describe{
   \item{estimate}{Numeric; Coefficient estimate.}
   \item{std_error}{Numeric; Standard error.}
-  \item{statistic}{Numeric; Wald test statistic (estimate/std_error).}
-  \item{p_value}{Numeric; Two-sided p-value based on normal distribution.}
+  \item{statistic}{Numeric; Wald or t-statistic (estimate/std_error).}
+  \item{p_value}{Numeric; Two-sided p-value based on normal or t-distribution.}
   \item{lower_ci}{Numeric; Lower confidence bound (estimate - cv*std_error).}
   \item{upper_ci}{Numeric; Upper confidence bound (estimate + cv*std_error).}
 }
 }
 \description{
 Performs coefficient-specific Wald tests and constructs confidence intervals for fitted
-lgspline models. (Wrapper for internal wald_univariate method)
+lgspline models. (Wrapper for internal wald_univariate method). For Gaussian family
+with identity-link, a t-distribution replaces a normal distribution (and t-intervals, t-tests etc.)
+over Wald when mentioned.
 }
 \details{
 For each coefficient, provides:
 \itemize{
   \item Point estimates
   \item Standard errors from the model's variance-covariance matrix
-  \item Two-sided Wald test statistics and p-values
+  \item Two-sided test statistics and p-values
   \item Confidence intervals using specified critical values
 }
 }
 \examples{
-\donttest{
 
 ## Simulate some data and fit using default settings
 set.seed(1234)
-x <- runif(1000, -10, 10)
-y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
+t <- runif(1000, -10, 10)
+y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
 # Ensure varcovmat is returned for Wald tests
-model_fit <- lgspline(x, y, return_varcovmat = TRUE)
+model_fit <- lgspline(t, y, return_varcovmat = TRUE)
 
 ## Use default critical value (likely qnorm(0.975) if not set in fit)
 wald_default <- wald_univariate(model_fit)
@@ -75,7 +76,7 @@ if (!is.na(eff_df) && eff_df > 0) {
 } else {
   warning("Effective degrees of freedom invalid.")
 }
-}
+
 
 }
 \seealso{

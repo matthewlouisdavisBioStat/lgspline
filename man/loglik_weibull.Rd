@@ -26,7 +26,7 @@ subject was lost to follow-up before the event of interest occurred.}
 A numeric scalar representing the total log-likelihood of the model
 }
 \description{
-Calculates the log-likelihood for a Weibull Accelerated Failure Time (AFT)
+Calculates the log-likelihood for a Weibull accelerated failure time (AFT)
 survival model, supporting right-censored survival data.
 }
 \details{
@@ -34,12 +34,12 @@ The function computes log-likelihood contributions for a Weibull AFT model,
 explicitly accounting for right-censored observations. It supports optional
 observation weighting to accommodate complex sampling designs.
 
-This both provides a tool for actually fitting Weibull AFT Models, and
+This both provides a tool for actually fitting Weibull AFT models, and
 boilerplate code for users who wish to incorporate Lagrangian multiplier
 smoothing splines into their own custom models.
 }
 \examples{
-\donttest{
+
 ## Minimal example of fitting a Weibull Accelerated Failure Time model
 # Simulating survival data with right-censoring
 set.seed(1234)
@@ -67,6 +67,8 @@ model_fit <- lgspline(y ~ spl(x1) + x2,
                       status = status,
                       opt = FALSE,
                       K = 1)
-}
+
+loglik_weibull(log(model_fit$y), log(model_fit$ytilde), status,
+  sqrt(model_fit$sigmasq_tilde))
 
 }

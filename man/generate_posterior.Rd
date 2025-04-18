@@ -78,10 +78,12 @@ Implements posterior sampling using the following approach:
         Gaussian for standard normal responses
 }
 
-For the dispersion parameter, the sampling process follows:
+For the dispersion parameter, the sampling process follows for a fitted
+lgspline object "model_fit" (where unbias_dispersion is coerced to 1 if TRUE, 0 if FALSE)
+
 \preformatted{
-shape <- theta_1 + 0.5 * model_fit$N
-rate <- theta_2 + 0.5 * sum((model_fit$y - model_fit$ytilde)^2)
+shape <-  theta_1 + 0.5 * (model_fit$N - model_fit$unbias_dispersion * model_fit$trace_XUGX)
+rate <- theta_2 + 0.5 * (model_fit$N - model_fit$unbias_dispersion * model_fit$trace_XUGX) * new_sigmasq_tilde
 post_draw_sigmasq <- 1/rgamma(1, shape, rate)
 }
 
@@ -89,14 +91,14 @@ Users can modify sufficient statistics by adjusting theta_1 and theta_2 relative
 the default model-based values.
 }
 \examples{
-\donttest{
+
 ## Generate example data
-x <- runif(1000, -10, 10)
-true_y <- 2*sin(x) + -0.06*x^2
+t <- runif(1000, -10, 10)
+true_y <- 2*sin(t) + -0.06*t^2
 y <- rnorm(length(true_y), true_y, 1)
 
 ## Fit model (using unstandardized expansions for consistent inference)
-model_fit <- lgspline(x, y,
+model_fit <- lgspline(t, y,
                       K = 7,
                       standardize_expansions_for_fitting = FALSE)
 
@@ -120,7 +122,7 @@ post_bounds <- t(apply(post_mat, 1, quantile, c(0.025, 0.975)))
 
 ## Compare intervals
 print(round(cbind(wald_bounds, post_bounds), 4))
-}
+
 
 }
 \seealso{

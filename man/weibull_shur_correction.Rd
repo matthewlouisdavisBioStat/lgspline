@@ -62,29 +62,29 @@ for \code{\link{lgspline}} substantially.
 For any model with nuisance parameters that must have uncertainty accounted
 for, this tool will be helpful.
 
-This both provides a tool for actually fitting Weibull AFT Models, and
-boilerplate code for users who wish to incorporate Lagrangian multiplier
-smoothing splines into their own custom models.
+This both provides a tool for actually fitting Weibull accelerated failure
+time (AFT) models, and boilerplate code for users who wish to incorporate
+Lagrangian multiplier smoothing splines into their own custom models.
 }
 \examples{
-\donttest{
-# Minimal example of fitting a Weibull Accelerated Failure Time model
+
+## Minimal example of fitting a Weibull Accelerated Failure Time model
 # Simulating survival data with right-censoring
 set.seed(1234)
-x1 <- rnorm(1000)
-x2 <- rbinom(1000, 1, 0.5)
-yraw <- rexp(exp(0.01*x1 + 0.01*x2))
+t1 <- rnorm(1000)
+t2 <- rbinom(1000, 1, 0.5)
+yraw <- rexp(exp(0.01*t1 + 0.01*t2))
 # status: 1 = event occurred, 0 = right-censored
 status <- rbinom(1000, 1, 0.25)
 yobs <- ifelse(status, runif(1, 0, yraw), yraw)
 df <- data.frame(
   y = yobs,
-  x1 = x1,
-  x2 = x2
+  t1 = t1,
+  t2 = t2
 )
 
-## Fit model using lgspline with Weibull AFT specifics
-model_fit <- lgspline(y ~ spl(x1) + x2,
+## Fit model using lgspline with Weibull shur correction
+model_fit <- lgspline(y ~ spl(t1) + t2,
                       df,
                       unconstrained_fit_fxn = unconstrained_fit_weibull,
                       family = weibull_family(),
@@ -95,6 +95,21 @@ model_fit <- lgspline(y ~ spl(x1) + x2,
                       status = status,
                       opt = FALSE,
                       K = 1)
-}
+
+print(summary(model_fit))
+
+## Fit model using lgspline without Weibull shur correction
+naive_fit <- lgspline(y ~ spl(t1) + t2,
+                      df,
+                      unconstrained_fit_fxn = unconstrained_fit_weibull,
+                      family = weibull_family(),
+                      need_dispersion_for_estimation = TRUE,
+                      dispersion_function = weibull_dispersion_function,
+                      glm_weight_function = weibull_glm_weight_function,
+                      status = status,
+                      opt = FALSE,
+                      K = 1)
+
+print(summary(naive_fit))
 
 }

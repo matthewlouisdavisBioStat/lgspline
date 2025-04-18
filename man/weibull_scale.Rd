@@ -23,7 +23,8 @@ subject was lost to follow-up before the event of interest occurred.}
 Scalar representing the estimated scale
 }
 \description{
-Computes maximum log-likelihood scale estimate of Weibull AFT survival model
+Computes maximum log-likelihood scale estimate of Weibull accelerated failure
+time (AFT) survival model.
 
 This both provides a tool for actually fitting Weibull AFT Models, and
 boilerplate code for users who wish to incorporate Lagrangian multiplier
@@ -35,7 +36,7 @@ accounting for right-censored observations using Brent's method for
 optimization.
 }
 \examples{
-\donttest{
+
 ## Simulate exponential data with censoring
 set.seed(1234)
 mu <- 2  # mean of exponential distribution
@@ -52,7 +53,8 @@ scale_est <- weibull_scale(
   log_mu = log(mu),
   status = status[!is.na(y_obs)]
 )
+
 print(scale_est)
-}
+
 
 }

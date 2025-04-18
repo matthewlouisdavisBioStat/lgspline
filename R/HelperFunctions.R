@@ -6392,7 +6392,7 @@ get_2ndDerivPenalty_wrapper <- function(K,
 #' Compute Log-Likelihood for Weibull Accelerated Failure Time Model
 #'
 #' @description
-#' Calculates the log-likelihood for a Weibull Accelerated Failure Time (AFT)
+#' Calculates the log-likelihood for a Weibull accelerated failure time (AFT)
 #' survival model, supporting right-censored survival data.
 #'
 #' @param log_y Numeric vector of logarithmic response/survival times
@@ -6414,12 +6414,12 @@ get_2ndDerivPenalty_wrapper <- function(K,
 #' explicitly accounting for right-censored observations. It supports optional
 #' observation weighting to accommodate complex sampling designs.
 #'
-#' This both provides a tool for actually fitting Weibull AFT Models, and
+#' This both provides a tool for actually fitting Weibull AFT models, and
 #' boilerplate code for users who wish to incorporate Lagrangian multiplier
 #' smoothing splines into their own custom models.
 #'
 #' @examples
-#' \donttest{
+#'
 #' ## Minimal example of fitting a Weibull Accelerated Failure Time model
 #' # Simulating survival data with right-censoring
 #' set.seed(1234)
@@ -6447,7 +6447,9 @@ get_2ndDerivPenalty_wrapper <- function(K,
 #'                       status = status,
 #'                       opt = FALSE,
 #'                       K = 1)
-#' }
+#'
+#' loglik_weibull(log(model_fit$y), log(model_fit$ytilde), status,
+#'   sqrt(model_fit$sigmasq_tilde))
 #'
 #' @export
 loglik_weibull <- function(log_y, log_mu, status, scale, weights = 1) {
@@ -6464,12 +6466,12 @@ loglik_weibull <- function(log_y, log_mu, status, scale, weights = 1) {
 }
 
 
-#' Compute gradient of log-likelihood of Weibull AFT without penalization
+#' Compute gradient of log-likelihood of Weibull accelerated failure model without penalization
 #'
 #' @description
-#' Calculates the gradient of log-likelihood for a
-#' Weibull Accelerated Failure Time (AFT) survival model, supporting
-#' right-censored survival data.
+#' Calculates the gradient of log-likelihood for a Weibull accelerated failure
+#' time (AFT) survival model, supporting right-censored survival data.
+#'
 #' @param X Design matrix
 #' @param y Response vector
 #' @param mu Predicted mean vector
@@ -6484,7 +6486,40 @@ loglik_weibull <- function(log_y, log_mu, status, scale, weights = 1) {
 #'
 #' @details
 #' Needed if using "blockfit", correlation structures, or quadratic programming
-#' with Weibull AFTs.
+#' with Weibull AFT models.
+#'
+#' @examples
+#'
+#' set.seed(1234)
+#' t1 <- rnorm(1000)
+#' t2 <- rbinom(1000, 1, 0.5)
+#' yraw <- rexp(exp(0.01*t1 + 0.01*t2))
+#' status <- rbinom(1000, 1, 0.25)
+#' yobs <- ifelse(status, runif(1, 0, yraw), yraw)
+#' df <- data.frame(
+#'   y = yobs,
+#'   t1 = t1,
+#'   t2 = t2
+#' )
+#'
+#' ## Example using blockfit for t2 as a linear term - output does not look
+#' # different, but internal methods used for fitting change
+#' model_fit <- lgspline(y ~ spl(t1) + t2,
+#'                       df,
+#'                       unconstrained_fit_fxn = unconstrained_fit_weibull,
+#'                       family = weibull_family(),
+#'                       need_dispersion_for_estimation = TRUE,
+#'                       qp_score_function = weibull_qp_score_function,
+#'                       dispersion_function = weibull_dispersion_function,
+#'                       glm_weight_function = weibull_glm_weight_function,
+#'                       shur_correction_function = weibull_shur_correction,
+#'                       K = 1,
+#'                       blockfit = TRUE,
+#'                       opt = FALSE,
+#'                       status = status,
+#'                       verbose = TRUE)
+#'
+#' print(summary(model_fit))
 #'
 #' @export
 weibull_qp_score_function = function(X,
@@ -6542,29 +6577,29 @@ weibull_qp_score_function = function(X,
 #' For any model with nuisance parameters that must have uncertainty accounted
 #' for, this tool will be helpful.
 #'
-#' This both provides a tool for actually fitting Weibull AFT Models, and
-#' boilerplate code for users who wish to incorporate Lagrangian multiplier
-#' smoothing splines into their own custom models.
+#' This both provides a tool for actually fitting Weibull accelerated failure
+#' time (AFT) models, and boilerplate code for users who wish to incorporate
+#' Lagrangian multiplier smoothing splines into their own custom models.
 #'
 #' @examples
-#' \donttest{
-#' # Minimal example of fitting a Weibull Accelerated Failure Time model
+#'
+#' ## Minimal example of fitting a Weibull Accelerated Failure Time model
 #' # Simulating survival data with right-censoring
 #' set.seed(1234)
-#' x1 <- rnorm(1000)
-#' x2 <- rbinom(1000, 1, 0.5)
-#' yraw <- rexp(exp(0.01*x1 + 0.01*x2))
+#' t1 <- rnorm(1000)
+#' t2 <- rbinom(1000, 1, 0.5)
+#' yraw <- rexp(exp(0.01*t1 + 0.01*t2))
 #' # status: 1 = event occurred, 0 = right-censored
 #' status <- rbinom(1000, 1, 0.25)
 #' yobs <- ifelse(status, runif(1, 0, yraw), yraw)
 #' df <- data.frame(
 #'   y = yobs,
-#'   x1 = x1,
-#'   x2 = x2
+#'   t1 = t1,
+#'   t2 = t2
 #' )
 #'
-#' ## Fit model using lgspline with Weibull AFT specifics
-#' model_fit <- lgspline(y ~ spl(x1) + x2,
+#' ## Fit model using lgspline with Weibull shur correction
+#' model_fit <- lgspline(y ~ spl(t1) + t2,
 #'                       df,
 #'                       unconstrained_fit_fxn = unconstrained_fit_weibull,
 #'                       family = weibull_family(),
@@ -6575,7 +6610,22 @@ weibull_qp_score_function = function(X,
 #'                       status = status,
 #'                       opt = FALSE,
 #'                       K = 1)
-#' }
+#'
+#' print(summary(model_fit))
+#'
+#' ## Fit model using lgspline without Weibull shur correction
+#' naive_fit <- lgspline(y ~ spl(t1) + t2,
+#'                       df,
+#'                       unconstrained_fit_fxn = unconstrained_fit_weibull,
+#'                       family = weibull_family(),
+#'                       need_dispersion_for_estimation = TRUE,
+#'                       dispersion_function = weibull_dispersion_function,
+#'                       glm_weight_function = weibull_glm_weight_function,
+#'                       status = status,
+#'                       opt = FALSE,
+#'                       K = 1)
+#'
+#' print(summary(naive_fit))
 #'
 #' @export
 weibull_shur_correction <- function(X,
@@ -6624,7 +6674,8 @@ weibull_shur_correction <- function(X,
 #' Estimate Scale for Weibull Accelerated Failure Time Model
 #'
 #' @description
-#' Computes maximum log-likelihood scale estimate of Weibull AFT survival model
+#' Computes maximum log-likelihood scale estimate of Weibull accelerated failure
+#' time (AFT) survival model.
 #'
 #' This both provides a tool for actually fitting Weibull AFT Models, and
 #' boilerplate code for users who wish to incorporate Lagrangian multiplier
@@ -6648,7 +6699,7 @@ weibull_shur_correction <- function(X,
 #' optimization.
 #'
 #' @examples
-#' \donttest{
+#'
 #' ## Simulate exponential data with censoring
 #' set.seed(1234)
 #' mu <- 2  # mean of exponential distribution
@@ -6665,8 +6716,9 @@ weibull_shur_correction <- function(X,
 #'   log_mu = log(mu),
 #'   status = status[!is.na(y_obs)]
 #' )
+#'
 #' print(scale_est)
-#' }
+#'
 #'
 #' @export
 weibull_scale <- function(log_y, log_mu, status, weights = 1){
@@ -6684,7 +6736,7 @@ weibull_scale <- function(log_y, log_mu, status, weights = 1){
 #' Weibull Family for Survival Model Specification
 #'
 #' @description
-#' Creates a compatible family object for Weibull Accelerated Failure Time (AFT)
+#' Creates a compatible family object for Weibull accelerated failure time (AFT)
 #' models with customizable tuning options.
 #'
 #' This both provides a tool for actually fitting Weibull AFT Models, and
@@ -6701,26 +6753,26 @@ weibull_scale <- function(log_y, log_mu, status, weights = 1){
 #' Supports right-censored survival data with flexible parameter estimation.
 #'
 #' @examples
-#' \donttest{
-#' # Simulate survival data with covariates
+#'
+#' ## Simulate survival data with covariates
 #' set.seed(1234)
 #' n <- 1000
-#' x1 <- rnorm(n)
-#' x2 <- rbinom(n, 1, 0.5)
+#' t1 <- rnorm(n)
+#' t2 <- rbinom(n, 1, 0.5)
 #'
-#' # Generate survival times with Weibull-like structure
-#' lambda <- exp(0.5 * x1 + 0.3 * x2)
+#' ## Generate survival times with Weibull-like structure
+#' lambda <- exp(0.5 * t1 + 0.3 * t2)
 #' yraw <- rexp(n, rate = 1/lambda)
 #'
-#' # Introduce right-censoring
+#' ## Introduce right-censoring
 #' status <- rbinom(n, 1, 0.75)
 #' y <- ifelse(status, yraw, runif(1, 0, yraw))
 #'
-#' # Prepare data
-#' df <- data.frame(y = y, x1 = x1, x2 = x2, status = status)
+#' ## Prepare data
+#' df <- data.frame(y = y, t1 = t1, t2 = t2, status = status)
 #'
-#' # Fit model using custom Weibull family
-#' model_fit <- lgspline(y ~ spl(x1) + x2,
+#' ## Fit model using custom Weibull family
+#' model_fit <- lgspline(y ~ spl(t1) + t2,
 #'                       df,
 #'                       unconstrained_fit_fxn = unconstrained_fit_weibull,
 #'                       family = weibull_family(),
@@ -6732,9 +6784,7 @@ weibull_scale <- function(log_y, log_mu, status, weights = 1){
 #'                       opt = FALSE,
 #'                       K = 1)
 #'
-#' # Print summary of the model
 #' summary(model_fit)
-#' }
 #'
 #' @export
 weibull_family <- function()list(family = "weibull",
@@ -6789,7 +6839,7 @@ weibull_family <- function()list(family = "weibull",
 #' Estimate Weibull Dispersion for Accelerated Failure Time Model
 #'
 #' @description
-#' Computes the scale parameter for a Weibull Accelerated Failure Time (AFT)
+#' Computes the scale parameter for a Weibull accelerated failure time (AFT)
 #' model, supporting right-censored survival data.
 #'
 #' This both provides a tool for actually fitting Weibull AFT Models, and
@@ -6813,15 +6863,15 @@ weibull_family <- function()list(family = "weibull",
 #' @seealso \code{\link{weibull_scale}} for the underlying scale estimation function
 #'
 #' @examples
-#' \donttest{
+#'
 #' ## Simulate survival data with covariates
 #' set.seed(1234)
 #' n <- 1000
-#' x1 <- rnorm(n)
-#' x2 <- rbinom(n, 1, 0.5)
+#' t1 <- rnorm(n)
+#' t2 <- rbinom(n, 1, 0.5)
 #'
 #' ## Generate survival times with Weibull-like structure
-#' lambda <- exp(0.5 * x1 + 0.3 * x2)
+#' lambda <- exp(0.5 * t1 + 0.3 * t2)
 #' yraw <- rexp(n, rate = 1/lambda)
 #'
 #' ## Introduce right-censoring
@@ -6842,8 +6892,8 @@ weibull_family <- function()list(family = "weibull",
 #'   observation_weights = weights,
 #'   status = status
 #' )
+#'
 #' print(dispersion_est)
-#' }
 #'
 #' @export
 weibull_dispersion_function <- function(mu,
@@ -6887,7 +6937,7 @@ weibull_dispersion_function <- function(mu,
 #'
 #' @description
 #' Computes diagonal weight matrix \eqn{\textbf{W}} for the information matrix
-#' \eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}} in Weibull Accelerated Failure Time (AFT) models.
+#' \eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}} in Weibull accelerated failure time (AFT) models.
 #'
 #' @param mu Predicted survival times
 #' @param y Observed response/survival times
@@ -6917,24 +6967,24 @@ weibull_dispersion_function <- function(mu,
 #' \eqn{\exp((\log y - \log \mu)/s)} where \eqn{s} is the scale (= \eqn{\sqrt{\text{dispersion}}}) parameter.
 #'
 #' @examples
-#' \donttest{
-#' ## Demonstration of weight function in constrained model estimation
+#'
+#' ## Demonstration of glm weight function in constrained model estimation
 #' set.seed(1234)
 #' n <- 1000
-#' x1 <- rnorm(n)
-#' x2 <- rbinom(n, 1, 0.5)
+#' t1 <- rnorm(n)
+#' t2 <- rbinom(n, 1, 0.5)
 #'
 #' ## Generate survival times
-#' lambda <- exp(0.5 * x1 + 0.3 * x2)
+#' lambda <- exp(0.5 * t1 + 0.3 * t2)
 #' yraw <- rexp(n, rate = 1/lambda)
 #'
 #' ## Introduce right-censoring
 #' status <- rbinom(n, 1, 0.75)
 #' y <- ifelse(status, yraw, runif(1, 0, yraw))
 #'
-#' ## Fit model demonstrating use of custom weight function
-#' model_fit <- lgspline(y ~ spl(x1) + x2,
-#'                       data.frame(y = y, x1 = x1, x2 = x2),
+#' ## Fit model demonstrating use of custom glm weight function
+#' model_fit <- lgspline(y ~ spl(t1) + t2,
+#'                       data.frame(y = y, t1 = t1, t2 = t2),
 #'                       unconstrained_fit_fxn = unconstrained_fit_weibull,
 #'                       family = weibull_family(),
 #'                       need_dispersion_for_estimation = TRUE,
@@ -6944,7 +6994,9 @@ weibull_dispersion_function <- function(mu,
 #'                       status = status,
 #'                       opt = FALSE,
 #'                       K = 1)
-#' }
+#'
+#' print(summary(model_fit))
+#'
 #'
 #' @export
 weibull_glm_weight_function <- function(mu,
@@ -7082,8 +7134,8 @@ damped_newton_r <- function(parameters,
 #' Unconstrained Weibull Accelerated Failure Time Model Estimation
 #'
 #' @description
-#' Estimates parameters for an unconstrained Weibull AFT model supporting
-#' right-censored survival data.
+#' Estimates parameters for an unconstrained Weibull accelerated failure time
+#' (AFT) model supporting right-censored survival data.
 #'
 #' This both provides a tool for actually fitting Weibull AFT Models, and
 #' boilerplate code for users who wish to incorporate Lagrangian multiplier
@@ -7124,24 +7176,24 @@ damped_newton_r <- function(parameters,
 #'    damped Newton-Raphson.
 #'
 #' @examples
-#' \donttest{
-#' # Simulate survival data with covariates
+#'
+#' ## Simulate survival data with covariates
 #' set.seed(1234)
 #' n <- 1000
-#' x1 <- rnorm(n)
-#' x2 <- rbinom(n, 1, 0.5)
+#' t1 <- rnorm(n)
+#' t2 <- rbinom(n, 1, 0.5)
 #'
-#' # Generate survival times with Weibull-like structure
-#' lambda <- exp(0.5 * x1 + 0.3 * x2)
+#' ## Generate survival times with Weibull-like structure
+#' lambda <- exp(0.5 * t1 + 0.3 * t2)
 #' yraw <- rexp(n, rate = 1/lambda)
 #'
-#' # Introduce right-censoring
+#' ## Introduce right-censoring
 #' status <- rbinom(n, 1, 0.75)
 #' y <- ifelse(status, yraw, runif(1, 0, yraw))
-#' df <- data.frame(y = y, x1 = x1, x2 = x2)
+#' df <- data.frame(y = y, t1 = t1, t2 = t2)
 #'
-#' # Fit model using lgspline with Weibull AFT specifics
-#' model_fit <- lgspline(y ~ spl(x1) + x2,
+#' ## Fit model using lgspline with Weibull AFT unconstrained estimation
+#' model_fit <- lgspline(y ~ spl(t1) + t2,
 #'                       df,
 #'                       unconstrained_fit_fxn = unconstrained_fit_weibull,
 #'                       family = weibull_family(),
@@ -7153,9 +7205,8 @@ damped_newton_r <- function(parameters,
 #'                       opt = FALSE,
 #'                       K = 1)
 #'
-#' # Print model summary
+#' ## Print model summary
 #' summary(model_fit)
-#' }
 #'
 #' @keywords internal
 #' @export

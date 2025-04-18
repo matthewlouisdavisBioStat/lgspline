@@ -7,9 +7,17 @@
 \method{print}{summary.lgspline}(x, ...)
 }
 \arguments{
-\item{x}{An lgspline model object # Changed from summary.lgspline object for consistency with function name provided previously}
+\item{x}{A summary.lgspline object, the result of calling \code{summary()} on an \code{lgspline} object.}
 
 \item{...}{Not used.}
+}
+\value{
+Invisibly returns the original \code{summary.lgspline} object \code{x}.
+Like other print methods, this function is called to display a formatted
+summary of the fitted \code{lgspline} model to the console.
+This includes model dimensions, family information, dispersion estimate,
+effective degrees of freedom, and a coefficient table for univariate inference
+(if available) analogous to output from \code{\link[stats]{summary.glm}}.
 }
 \description{
 Print Method for lgspline Object Summaries

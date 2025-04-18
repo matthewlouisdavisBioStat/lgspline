@@ -22,8 +22,8 @@
 #'
 #' A comprehensive software package for fitting a variant of smoothing splines
 #' as a constrained optimization problem, avoiding the need to algebraically
-#' disentangle a spline basis after fitting, and allowing for interactions
-#' and non-spline effecs to be included.
+#' disentangle a spline basis after fitting, and allowing for interpretable
+#' interactions and non-spline effects to be included.
 #'
 #' \code{lgspline} fits piecewise polynomial regression splines constrained to be smooth where
 #' they meet, penalized by the squared, integrated, second-derivative of the
@@ -41,7 +41,7 @@
 #' for unique penalization of multiple predictors and partitions.
 #'
 #' This package supports model fitting for multiple spline and non-spline effects, GLM families,
-#' Weibull AFT models, correlation structures, quadratic
+#' Weibull accelerated failure time (AFT) models, correlation structures, quadratic
 #' programming constraints, and extensive customization for user-defined models.
 #'
 #' In addition, parallel processing capabilities and comprehensive
@@ -332,7 +332,6 @@
 #' See \code{\link{Details}} for descriptions of the model fitting process.
 #'
 #' @examples
-#' \donttest{
 #'
 #' ## ## ## ## Simple Examples ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 #' ## Simulate some data, fit using default settings, and plot
@@ -382,10 +381,6 @@
 #'                  Response = sin(y)+0.1*z)
 #' model_fit <- lgspline(Response ~ spl(Predictor1) + Predictor1*Predictor2,
 #'                       df)
-#' my_plot <- plot(model_fit,
-#'                 show_formulas = TRUE,
-#'                 custom_response_lab = 'Response')
-#' my_plot
 #'
 #' ## Notice, while spline effects change over partitions,
 #' # interactions and non-spline effects are constrained to remain the same
@@ -403,6 +398,12 @@
 #'       legend_pos = 'bottomright',
 #'       digits = 4,
 #'       text_size_formula = 0.5)
+#' \donttest{
+#' ## 3D plots are implemented as well, retaining analytical formulas
+#' my_plot <- plot(model_fit,
+#'                 show_formulas = TRUE,
+#'                 custom_response_lab = 'Response')
+#' my_plot
 #'
 #'
 #' ## ## ## ## More Detailed 1D Example ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
@@ -792,9 +793,7 @@
 #'
 #' ## sigmasq_tilde = scale^2 of survreg
 #' print(c(sqrt(model_fit$sigmasq_tilde), survreg_fit$scale))
-#' }
 #'
-#' \dontrun{
 #' ## ## ## ## Modelling Correlation Structures ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 #' ## Setup
 #' n_blocks <- 150 # Number of correlation_ids (subjects)
@@ -863,9 +862,9 @@
 #' true_slope <- 0.5       # True slope for covariate
 #'
 #' ## Create design matrix with meaningful predictors
-#' X <- matrix(0, N, 2)
-#' X[,1] <- 1  # Intercept
-#' X[,2] <- cos(rnorm(N))  # Continuous predictor
+#' Tmat <- matrix(0, N, 2)
+#' Tmat[,1] <- 1  # Intercept
+#' Tmat[,2] <- cos(rnorm(N))  # Continuous predictor
 #'
 #' ## True coefficients
 #' beta <- c(true_intercept, true_slope)
@@ -884,7 +883,7 @@
 #'                  }))
 #'
 #' ## Generate response with correlated errors and covariate effect
-#' y <- X %*% beta + errors * 2
+#' y <- Tmat %*% beta + errors * 2
 #'
 #' ## Toeplitz correlation function
 #' VhalfInv_fxn <- function(par) {
@@ -1057,7 +1056,7 @@
 #' # although strictly only VhalfInv_fxn and VhalfInv_par_init are needed
 #' model_fit <- lgspline(
 #'   response = y,
-#'   predictors = X[,2],
+#'   predictors = Tmat[,2],
 #'   K = 4,
 #'   VhalfInv_fxn = VhalfInv_fxn,
 #'   VhalfInv_logdet = VhalfInv_logdet,
@@ -1094,7 +1093,7 @@
 #'   rnorm(500000, 0, 5)
 #'
 #' ## Set up cores
-#' cl <- parallel::makeCluster(4)
+#' cl <- parallel::makeCluster(1)
 #' on.exit(parallel::stopCluster(cl))
 #'
 #' ## This example shows some options for what operations can be parallelized
@@ -1103,10 +1102,6 @@
 #' # K+1 partitions.
 #' # However, parallel_unconstrained only affects GLMs without corr. components
 #' # - it does not affect fitting here
-#'
-#' ## Takes some time to run (~ 2 minutes on my laptop)
-#' # user  system elapsed
-#' # 9.90    3.89   60.75
 #' system.time({
 #'   parfit <- lgspline(y ~ spl(a, b) + a*b*c + d,
 #'                      data = data.frame(y = y,
@@ -1115,7 +1110,7 @@
 #'                                        c = c,
 #'                                        d = d),
 #'                      cl = cl,
-#'                      K = 15,
+#'                      K = 1,
 #'                      parallel_eigen = TRUE,
 #'                      parallel_unconstrained = TRUE,
 #'                      parallel_aga = FALSE,
@@ -5350,6 +5345,53 @@ lgspline <- function(
 #' The core function for fitting Lagrangian smoothing splines with
 #' less user-friendliness.
 #'
+#' @return A list containing the fitted model components, forming the core
+#' structure used internally by \code{\link{lgspline}} and its associated methods.
+#' This function is primarily intended for internal use or advanced users needing
+#' direct access to fitting components. The returned list contains numerous elements,
+#' typically including:
+#' \describe{
+#'   \item{y}{The original response vector provided.}
+#'   \item{ytilde}{The fitted values on the original response scale.}
+#'   \item{X}{A list, with each element the design matrix (\eqn{\textbf{X}_k}) for partition k.}
+#'   \item{A}{The constraint matrix (\eqn{\textbf{A}}) encoding smoothness and any other linear equality constraints.}
+#'   \item{B}{A list of the final fitted coefficient vectors (\eqn{\boldsymbol{\beta}_k}) for each partition k, on the original predictor/response scale.}
+#'   \item{B_raw}{A list of fitted coefficient vectors on the internally standardized scale used during fitting.}
+#'   \item{K, p, q, P, N}{Key dimensions: number of internal knots (K), basis functions per partition (p), original predictors (q), total coefficients (P), and sample size (N).}
+#'   \item{penalties}{A list containing the final penalty components used (e.g., \code{Lambda}, \code{L1}, \code{L2}, \code{L_predictor_list}, \code{L_partition_list}). See \code{\link{compute_Lambda}}.}
+#'   \item{knot_scale_transf, knot_scale_inv_transf}{Functions to transform predictors to/from the scale used for knot placement.}
+#'   \item{knots}{Matrix or vector of knot locations on the original predictor scale (NULL if K=0 or q > 1).}
+#'   \item{partition_codes}{Vector assigning each original observation to a partition.}
+#'   \item{partition_bounds}{Internal representation of partition boundaries.}
+#'   \item{make_partition_list}{List containing centers, knot midpoints, neighbor info, and assignment function from partitioning (NULL if K=0 or 1D). See \code{\link{make_partitions}}.}
+#'   \item{knot_expand_function, assign_partition}{Internal functions for partitioning data. See \code{\link{knot_expand_list}}.}
+#'   \item{predict}{The primary function embedded in the object for generating predictions on new data. See \code{\link{predict.lgspline}}.}
+#'   \item{family}{The \code{\link[stats]{family}} object or custom list used.}
+#'   \item{estimate_dispersion, unbias_dispersion}{Logical flags related to dispersion estimation settings.}
+#'   \item{sigmasq_tilde}{The estimated (or fixed, if \code{estimate_dispersion=FALSE}) dispersion parameter \eqn{\tilde{\sigma}^2}.}
+#'   \item{backtransform_coefficients, forwtransform_coefficients}{Functions to convert coefficients between standardized and original scales.}
+#'   \item{mean_y, sd_y}{Mean and standard deviation used for standardizing the response.}
+#'   \item{og_order, order_list}{Information mapping original data order to partitioned order.}
+#'   \item{constraint_values, constraint_vectors}{User-supplied additional linear equality constraints.}
+#'   \item{expansion_scales}{Scaling factors applied to basis expansions during fitting (if \code{standardize_expansions_for_fitting=TRUE}).}
+#'   \item{take_derivative, take_interaction_2ndderivative, get_all_derivatives_insample}{Functions related to computing derivatives of the fitted spline. See \code{\link{take_derivative}}, \code{\link{take_interaction_2ndderivative}}, \code{\link{make_derivative_matrix}}.}
+#'   \item{numerics, power1_cols, ..., nonspline_cols}{Integer vectors storing column indices identifying different types of terms in the basis expansion.}
+#'   \item{return_varcovmat}{Logical indicating if variance matrix calculation was requested.}
+#'   \item{raw_expansion_names}{Original generated names for basis expansion columns (before potential renaming if input predictors had names).}
+#'   \item{std_X, unstd_X}{Functions to standardize/unstandardize design matrices according to \code{expansion_scales}.}
+#'   \item{parallel_cluster_supplied}{Logical indicating if a parallel cluster was used.}
+#'   \item{weights}{The original observation weights provided (potentially reformatted).}
+#'   \item{VhalfInv}{The fixed \eqn{\mathbf{V}^{-1/2}} matrix if supplied for GEEs.}
+#'   \item{quadprog_list}{List containing components related to quadratic programming constraints, if used.}
+#'   \item{G, Ghalf, U}{Matrices related to the variance-covariance structure (\eqn{\mathbf{G}}, \eqn{\mathbf{G}^{1/2}}, \eqn{\mathbf{U}}), returned if requested via corresponding arguments. See \code{\link{compute_G_eigen}} and \code{\link{get_U}}.}
+#'   \item{trace_XUGX}{The trace term \eqn{\text{trace}(\mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^{T})}, used for effective degrees of freedom. See \code{\link{compute_trace_UGXX_wrapper}}.}
+#'   \item{varcovmat}{The final variance-covariance matrix of the estimated coefficients, \eqn{\sigma^2 \mathbf{U}\mathbf{G}}, returned if \code{return_varcovmat = TRUE}.}
+#' }
+#' Note that the exact components returned depend heavily on the function
+#' arguments (e.g., values of \code{return_G}, \code{return_varcovmat}, etc.).
+#' If \code{expansions_only = TRUE}, a much smaller list is returned containing
+#' only pre-fitting components needed for inspection or setup (see \code{\link{lgspline}}).
+#'
 #' @usage
 #' lgspline.fit(predictors, y = NULL, standardize_response = TRUE,
 #'              standardize_predictors_for_knots = TRUE,
@@ -6204,7 +6246,7 @@ lgspline.fit <- function(predictors,
   if(!(!(any(is.null(smoothing_spline_penalty))))){
     ## Compute the gram matrix for the squared integrated second derivative
     # Standard standardization
-    max_min_C <- std(max_min_C)
+    max_min_C <- std_X(max_min_C)
     smoothing_spline_penalty <-
       get_2ndDerivPenalty_wrapper(K,
                                   colnm_expansions,

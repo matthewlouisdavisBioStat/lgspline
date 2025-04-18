@@ -18,20 +18,18 @@ Computes the leave-one-out cross-validated predictions from a model fit,
 assuming Gaussian-distributed response with identity link.
 }
 \examples{
-\donttest{
+
 ## Basic usage with Gaussian response, computing PRESS
 set.seed(1234)
-x <- rnorm(50)
-y <- sin(x) + rnorm(50, 0, .25)
-fit <- lgspline(x, y)
+t <- rnorm(50)
+y <- sin(t) + rnorm(50, 0, .25)
+fit <- lgspline(t, y)
 loo <- leave_one_out(fit)
-press <- mean(loo^2)
+press <- mean((y-loo)^2)
 
 plot(loo, y,
    main = "Leave-One-Out Cross-Validation Prediction vs. Observed Response",
    xlab = 'Prediction', ylab = 'Response')
 abline(0, 1)
-
-}
 
 }

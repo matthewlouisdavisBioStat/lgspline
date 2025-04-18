@@ -36,21 +36,20 @@ This is useful for computing joint log-likelihoods and performing valid
 likelihood ratio tests between nested lgspline models.
 }
 \examples{
-\donttest{
 ## Data
-x <- sort(runif(100, -5, 5))
-y <- sin(x) - 0.1*x^2 + rnorm(100)
+t <- sort(runif(100, -5, 5))
+y <- sin(t) - 0.1*t^2 + rnorm(100)
 
 ## Model keeping penalties fixed
-model_fit <- lgspline(x, y, opt = FALSE)
+model_fit <- lgspline(t, y, opt = FALSE)
 
 ## Full joint log-likelihood, conditional upon known sigma^2 = 1
-jntlik <- sum(dnorm(model_fit$y,
+jntloglik <- sum(dnorm(model_fit$y,
                     model_fit$ytilde,
-                    1)) +
+                    1,
+                    log = TRUE)) +
           prior_loglik(model_fit, sigmasq = 1)
-print(jntlik)
-}
+print(jntloglik)
 
 }
 \seealso{

@@ -11,6 +11,12 @@
 
 \item{...}{Additional arguments (not used)}
 }
+\value{
+Invisibly returns the original \code{lgspline} object \code{x}. This
+function is called for printing a concise summary of the fitted model's key
+characteristics (family, link, N, predictors, partitions, basis functions) to
+the console.
+}
 \description{
 Provides a standard print method for lgspline model objects to display
 key model characteristics.

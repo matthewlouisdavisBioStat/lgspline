@@ -1,4 +1,4 @@
-test_that("Weibull AFT models can be fit under custom constraints", {
+test_that("Weibull accelerated failure time (AFT) models can be fit under custom constraints", {
   set.seed(1234)
   x1 <- rnorm(1000)
   x2 <- rbinom(1000, 1, 0.5)

@@ -101,12 +101,12 @@ of the fit. The optimization process can be customized through several approache
 }
 }
 \examples{
-\donttest{
+
 ## Basic usage with simulated data
 set.seed(1234)
-x <- runif(1000, -10, 10)
-y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
-model_fit <- lgspline(x, y)
+t <- runif(1000, -10, 10)
+y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
+model_fit <- lgspline(t, y)
 plot(model_fit)
 
 ## Find global maximum and minimum
@@ -138,7 +138,7 @@ acq <- find_extremum(model_fit,
                      custom_objective_function = ei_custom_objective_function,
                      custom_objective_derivative = ei_custom_objective_derivative)
 abline(v = acq$t, col = 'green')  # Add acquisition point
-}
+
 
 }
 \seealso{

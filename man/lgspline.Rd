@@ -390,8 +390,8 @@ See \code{\link{Details}} for descriptions of the model fitting process.
 \description{
 A comprehensive software package for fitting a variant of smoothing splines
 as a constrained optimization problem, avoiding the need to algebraically
-disentangle a spline basis after fitting, and allowing for interactions
-and non-spline effecs to be included.
+disentangle a spline basis after fitting, and allowing for interpretable
+interactions and non-spline effects to be included.
 
 \code{lgspline} fits piecewise polynomial regression splines constrained to be smooth where
 they meet, penalized by the squared, integrated, second-derivative of the
@@ -409,7 +409,7 @@ cubic smoothing spline penalty, as well as tunable modifications that allow
 for unique penalization of multiple predictors and partitions.
 
 This package supports model fitting for multiple spline and non-spline effects, GLM families,
-Weibull AFT models, correlation structures, quadratic
+Weibull accelerated failure time (AFT) models, correlation structures, quadratic
 programming constraints, and extensive customization for user-defined models.
 
 In addition, parallel processing capabilities and comprehensive
@@ -427,7 +427,6 @@ A flexible and interpretable implementation of smoothing splines including:
 }
 }
 \examples{
-\donttest{
 
 ## ## ## ## Simple Examples ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Simulate some data, fit using default settings, and plot
@@ -477,10 +476,6 @@ df <- data.frame(Predictor1 = t,
                  Response = sin(y)+0.1*z)
 model_fit <- lgspline(Response ~ spl(Predictor1) + Predictor1*Predictor2,
                       df)
-my_plot <- plot(model_fit,
-                show_formulas = TRUE,
-                custom_response_lab = 'Response')
-my_plot
 
 ## Notice, while spline effects change over partitions,
 # interactions and non-spline effects are constrained to remain the same
@@ -498,6 +493,12 @@ plot(model_fit,
       legend_pos = 'bottomright',
       digits = 4,
       text_size_formula = 0.5)
+\donttest{
+## 3D plots are implemented as well, retaining analytical formulas
+my_plot <- plot(model_fit,
+                show_formulas = TRUE,
+                custom_response_lab = 'Response')
+my_plot
 
 
 ## ## ## ## More Detailed 1D Example ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
@@ -887,9 +888,7 @@ print(summary(survreg_fit))
 
 ## sigmasq_tilde = scale^2 of survreg
 print(c(sqrt(model_fit$sigmasq_tilde), survreg_fit$scale))
-}
 
-\dontrun{
 ## ## ## ## Modelling Correlation Structures ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Setup
 n_blocks <- 150 # Number of correlation_ids (subjects)
@@ -958,9 +957,9 @@ true_intercept <- 2     # True intercept
 true_slope <- 0.5       # True slope for covariate
 
 ## Create design matrix with meaningful predictors
-X <- matrix(0, N, 2)
-X[,1] <- 1  # Intercept
-X[,2] <- cos(rnorm(N))  # Continuous predictor
+Tmat <- matrix(0, N, 2)
+Tmat[,1] <- 1  # Intercept
+Tmat[,2] <- cos(rnorm(N))  # Continuous predictor
 
 ## True coefficients
 beta <- c(true_intercept, true_slope)
@@ -979,7 +978,7 @@ errors <- Reduce('rbind',
                  }))
 
 ## Generate response with correlated errors and covariate effect
-y <- X \%*\% beta + errors * 2
+y <- Tmat \%*\% beta + errors * 2
 
 ## Toeplitz correlation function
 VhalfInv_fxn <- function(par) {
@@ -1152,7 +1151,7 @@ plot(time_var, y, col = correlation_id_var,
 # although strictly only VhalfInv_fxn and VhalfInv_par_init are needed
 model_fit <- lgspline(
   response = y,
-  predictors = X[,2],
+  predictors = Tmat[,2],
   K = 4,
   VhalfInv_fxn = VhalfInv_fxn,
   VhalfInv_logdet = VhalfInv_logdet,
@@ -1189,7 +1188,7 @@ y <- sin(a) + cos(b) - 0.2*sqrt(a^2 + b^2) +
   rnorm(500000, 0, 5)
 
 ## Set up cores
-cl <- parallel::makeCluster(4)
+cl <- parallel::makeCluster(1)
 on.exit(parallel::stopCluster(cl))
 
 ## This example shows some options for what operations can be parallelized
@@ -1198,10 +1197,6 @@ on.exit(parallel::stopCluster(cl))
 # K+1 partitions.
 # However, parallel_unconstrained only affects GLMs without corr. components
 # - it does not affect fitting here
-
-## Takes some time to run (~ 2 minutes on my laptop)
-# user  system elapsed
-# 9.90    3.89   60.75
 system.time({
   parfit <- lgspline(y ~ spl(a, b) + a*b*c + d,
                      data = data.frame(y = y,
@@ -1210,7 +1205,7 @@ system.time({
                                        c = c,
                                        d = d),
                      cl = cl,
-                     K = 15,
+                     K = 1,
                      parallel_eigen = TRUE,
                      parallel_unconstrained = TRUE,
                      parallel_aga = FALSE,

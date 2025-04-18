@@ -57,13 +57,17 @@ computing predictions. Default FALSE}
 \item{...}{Additional arguments passed to internal prediction methods.}
 }
 \value{
-Depending on the options selected, returns one of:
+Depending on the options selected, returns the following:
 \describe{
   \item{predictions}{Numeric vector of predicted values (default case, or if derivatives requested).}
-  \item{first_deriv}{Numeric vector of first derivatives (if requested).}
-  \item{second_deriv}{Numeric vector of second derivatives (if requested).}
+  \item{first_deriv}{Numeric vector of first derivatives (if take_first_derivatives = TRUE).}
+  \item{second_deriv}{Numeric vector of second derivatives (if take_second_derivatives = TRUE).}
   \item{expansions}{List of basis expansions (if expansions_only = TRUE).}
 }
+
+With derivatives included, output is in the form of a list with elements
+"preds", "first_deriv", and "second_deriv" for the vector of predictions,
+first derivatives, and second derivatives respectively.
 }
 \description{
 Generates predictions, derivatives, and basis expansions from a fitted lgspline model.
@@ -80,25 +84,32 @@ Implements multiple prediction capabilities:
         variance-covariance matrices
 }
 
+If newdata and new_predictor are left NULL, default input used for model fitting
+will be used. Priority will be awarded to new_predictor over newdata when
+both are not NULL.
+
+To obtain fitted values, users may also call model_fit$predict() or
+model_fit$ytilde for an lgspline object "model_fit".
+
 The parallel processing feature is experimental and should be used with caution.
 When enabled, computations are split across chunks and processed in parallel,
 which may improve performance for large datasets.
 }
 \examples{
-\donttest{
+
 ## Generate example data
 set.seed(1234)
-x <- runif(1000, -10, 10)
-y <- 2*sin(x) + -0.06*x^2 + rnorm(length(x))
+t <- runif(1000, -10, 10)
+y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
 
 ## Fit model
-model_fit <- lgspline(x, y)
+model_fit <- lgspline(t, y)
 
 ## Generate predictions for new data
 newdata <- matrix(sort(rnorm(10000)), ncol = 1) # Ensure matrix format
 preds <- predict(model_fit, newdata)
 
-## Compute derivatives
+## Compute derivative
 deriv1_res <- predict(model_fit, newdata,
                       take_first_derivatives = TRUE)
 deriv2_res <- predict(model_fit, newdata,
@@ -106,7 +117,7 @@ deriv2_res <- predict(model_fit, newdata,
 
 ## Visualize results
 oldpar <- par(no.readonly = TRUE) # Save current par settings
-layout(matrix(c(1,1,2,2,3,3), byrow = TRUE, nrow = 2))
+layout(matrix(c(1,1,2,2,3,3), byrow = TRUE, ncol = 2))
 
 ## Plot function
 plot(newdata[,1], preds,
@@ -127,7 +138,8 @@ plot(newdata[,1],
        main = 'Second Derivative',
        xlab = 't',
        ylab = "f''(t)", type = 'l')
- }
+
+par(oldpar) # Reset to original par settings
 
 
 }

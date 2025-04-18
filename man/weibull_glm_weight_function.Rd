@@ -39,7 +39,7 @@ in the information matrix \eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} 
 }
 \description{
 Computes diagonal weight matrix \eqn{\textbf{W}} for the information matrix
-\eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}} in Weibull Accelerated Failure Time (AFT) models.
+\eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}} in Weibull accelerated failure time (AFT) models.
 }
 \details{
 This function generates weights used in constructing the information matrix
@@ -53,24 +53,24 @@ models (GLMs). Like logistic regression uses \eqn{\mu(1-\mu)}, Poisson regressio
 \eqn{\exp((\log y - \log \mu)/s)} where \eqn{s} is the scale (= \eqn{\sqrt{\text{dispersion}}}) parameter.
 }
 \examples{
-\donttest{
-## Demonstration of weight function in constrained model estimation
+
+## Demonstration of glm weight function in constrained model estimation
 set.seed(1234)
 n <- 1000
-x1 <- rnorm(n)
-x2 <- rbinom(n, 1, 0.5)
+t1 <- rnorm(n)
+t2 <- rbinom(n, 1, 0.5)
 
 ## Generate survival times
-lambda <- exp(0.5 * x1 + 0.3 * x2)
+lambda <- exp(0.5 * t1 + 0.3 * t2)
 yraw <- rexp(n, rate = 1/lambda)
 
 ## Introduce right-censoring
 status <- rbinom(n, 1, 0.75)
 y <- ifelse(status, yraw, runif(1, 0, yraw))
 
-## Fit model demonstrating use of custom weight function
-model_fit <- lgspline(y ~ spl(x1) + x2,
-                      data.frame(y = y, x1 = x1, x2 = x2),
+## Fit model demonstrating use of custom glm weight function
+model_fit <- lgspline(y ~ spl(t1) + t2,
+                      data.frame(y = y, t1 = t1, t2 = t2),
                       unconstrained_fit_fxn = unconstrained_fit_weibull,
                       family = weibull_family(),
                       need_dispersion_for_estimation = TRUE,
@@ -80,6 +80,8 @@ model_fit <- lgspline(y ~ spl(x1) + x2,
                       status = status,
                       opt = FALSE,
                       K = 1)
-}
+
+print(summary(model_fit))
+
 
 }
