@@ -1,4 +1,1 @@
-PKG_CPPFLAGS = 
-PKG_FFLAGS = -fpic -g -O2 -pedantic
-PKG_FCFLAGS = -fpic -g -O2 -pedantic
 PKG_LIBS = $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)
