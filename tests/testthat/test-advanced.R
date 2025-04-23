@@ -1,6 +1,6 @@
 test_that("Weibull accelerated failure time (AFT) models can be fit under custom constraints", {
 
-  ## Skip on specific problematic platform
+ ## Skip on specific problematic platform
  #  skip_if(Sys.info()["sysname"] == "Darwin" &&
  #          Sys.info()["machine"] == "arm64",
  # "Test skipped on Mac ARM64 due to known Rcpp matrix operation incompatibility")

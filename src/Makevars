@@ -1,11 +1,4 @@
-# Detect flang compiler
-ifneq ($(findstring flang,$(F77)),)
-    # Flang-specific flags (removing problematic flags)
-    PKG_FFLAGS = -fpic -g -O2 -pedantic
-    PKG_FCFLAGS = -fpic -g -O2 -pedantic
-else
-    # Default flags for other Fortran compilers like gfortran
-endif
-
-# Keep the existing library links
+PKG_CPPFLAGS = 
+PKG_FFLAGS = -fpic -g -O2 -pedantic
+PKG_FCFLAGS = -fpic -g -O2 -pedantic
 PKG_LIBS = $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)
