@@ -1,7 +1,7 @@
 Package: lgspline
 Type: Package
 Title: Lagrangian Multiplier Smoothing Splines for Smooth Function Estimation
-Version: 0.2.0
+Version: 0.3.0
 Authors@R: 
     person("Matthew", "Davis", email = "matthewlouisdavis@gmail.com", 
            role = c("aut", "cre"),

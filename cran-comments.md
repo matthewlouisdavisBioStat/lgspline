@@ -14,7 +14,7 @@ No functional changes were made, just modifying documentation and improving the 
 1. **Documentation Issues**:
    * Included detailed documentation on default correlation structures and how to analyze + interpret model output, affects lgspline-details.R
    * Changed “list” to “vector” of penalties in documentation describing the return of optimized penalties Ie. “Optional list of custom penalties specified.” changed to “Optional vector of custom penalties specified”, for documentation of both "predictor_penalties" and "partition_penalties" arguments to "lgspline", affects lgspline.R
-   * Dropped the "wiggle_penalty" and "flat_ridge_penalty" values for the example fitting to volcano dataset to 2e-7 and 1e-2 respectively for user friendliness
+   * Decreased the "wiggle_penalty" and "flat_ridge_penalty" values for the example fitting to volcano dataset to 2e-7 and 1e-2 respectively for user friendliness
 
 
 

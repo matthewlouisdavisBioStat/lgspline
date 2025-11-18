@@ -426,52 +426,12 @@
 #' omega_ci <- model_fit$VhalfInv_params_estimates[2] + c(-1.96, 1.96) * se[2]
 #' }
 #'
-#' \strong{Structure Selection Guidelines:}
-#'
-#' \itemize{
-#'   \item \strong{Exchangeable}: Use when all observations within a cluster are equally correlated.
-#'         Simple but often unrealistic for spatial or temporal data.
-#'
-#'   \item \strong{AR(1)}: Appropriate for regularly-spaced time series or ordered data.
-#'         Uses intracluster ranks rather than actual distances. Useful for simple
-#'         spatial analyses or repeated measures analyses with equally-spaced timepoints.
-#'
-#'   \item \strong{Spatial Exponential}: Similar to AR(1) but uses actual distances rather than ranks.
-#'         Appropriate when measurements are irregularly spaced in time or space.
-#'         The softplus parameterization ensures stable optimization behavior and positive rate parameters.
-#'
-#'   \item \strong{Gaussian/Squared Exponential}: Tends to produce smooth random fields.
-#'         Suitable for modeling processes that are believed to be infinitely differentiable.
-#'         The softplus parameterization ensures positive length scales.
-#'
-#'   \item \strong{Spherical}: Has a finite range beyond which correlation is exactly zero.
-#'         Useful when there's a clear boundary to spatial influence.
-#'         The softplus parameterization ensures positive range parameters.
-#'
-#'   \item \strong{Matérn}: Most flexible correlation structure with adjustable smoothness.
-#'         Computationally more intensive as it uses numerical gradient approximation.
-#'         The softplus parameterization ensures positive length scale and smoothness parameters.
-#'
-#'   \item \strong{Gamma-Cosine}: Highly flexible structure that can model both monotonic decay and
-#'         oscillating correlation patterns. Shape parameter allows control of behavior near origin,
-#'         while the frequency parameter enables modeling negative correlations at specific distances.
-#'         Useful for complex spatial patterns where correlations may become negative at certain distances.
-#'         The softplus parameterization ensures positive shape and rate parameters.
-#'
-#'         Uniquely, this can fit delays, such that immediate timepoints/nearest-distances to a point are uncorrelated.
-#'
-#'   \item \strong{Gaussian-Cosine}: Combines smooth Gaussian decay with oscillating behavior.
-#'         Appropriate for processes with wave-like spatial or temporal patterns.
-#'         More computationally efficient than Gamma-Cosine but less flexible in shape control.
-#'         The softplus parameterization ensures positive length scale parameter.
-#' }
-#'
 #' The variance-covariance matrix \code{model_fit$VhalfInv_params_vcov} contains parameter
 #' uncertainty on the transformed scale. When reporting results, both point estimates and
 #' confidence intervals should be transformed to the appropriate scale.
 #' }
 #'
-#' \subsection{Available Correlation Structures}{
+#' \subsection{Correlation Objective}{
 #' The default correlation structures include the following, as covered above:
 #' \itemize{
 #'   \item \strong{Exchangeable}: Constant correlation within clusters
