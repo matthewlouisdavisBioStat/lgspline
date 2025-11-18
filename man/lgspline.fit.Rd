@@ -132,9 +132,9 @@ lgspline.fit(predictors, y = NULL, standardize_response = TRUE,
 
 \item{meta_penalty}{Default: 1e-8. Numeric "meta-penalty" applied to predictor and partition penalties during tuning. The minimization of GCV is modified to be a penalized minimization problem, with penalty \eqn{0.5 \times \text{meta\_penalty} \times (\sum \log(\text{penalty}))^2}, such that penalties are pulled towards 1 on the absolute scale and thus, their multiplicative effect towards 0.}
 
-\item{predictor_penalties}{Default: NULL. Optional list of custom penalties specified per predictor.}
+\item{predictor_penalties}{Default: NULL. Optional vector of custom penalties specified per predictor.}
 
-\item{partition_penalties}{Default: NULL. Optional list of custom penalties specified per partition.}
+\item{partition_penalties}{Default: NULL. Optional vector of custom penalties specified per partition.}
 
 \item{include_quadratic_terms}{Default: TRUE. Logical switch to include squared predictor terms in basis expansions.}
 

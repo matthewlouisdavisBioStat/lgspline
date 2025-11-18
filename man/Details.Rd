@@ -282,8 +282,213 @@ Custom inequality constraints can be defined through:
 Correlation patterns in clustered data are modeled using a matrix whitening approach based on
 restricted maximum likelihood (REML). The correlation structure is parameterized through the
 square root inverse matrix \eqn{\mathbf{V}^{-1/2}}.
+\subsection{Default Correlation Structures}{
+
+The package provides several built-in correlation structures for modeling spatial and temporal dependence.
+These structures can be specified using the "correlation_structure" parameter.
+
+The "cluster" parameter identifies groups of observations that share a correlation structure.
+
+With exception of exchangeable correlation, all structures use the "spacetime" parameter (an N-row matrix)
+to determine distances or dissimilarities between observations.
+
+\describe{
+  \item{Exchangeable}{
+    'exchangeable', 'cs', 'CS', 'compoundsymmetric', 'compound-symmetric', 'compound symmetric'
+
+    A single constant correlation between any observations \eqn{\nu} within the same cluster. Uses tanh parameterization \eqn{\nu = tanh^{-1}(\rho)}.
+  }
+  \item{Spatial Exponential}{
+   'spatial-exponential', 'spatialexponential', 'exp', 'exponential'
+
+   Correlation decays exponentially with distance: \eqn{e^{-\omega d}} where \eqn{d} is the Euclidean distance
+   and \eqn{\omega > 0} is the rate parameter (parameterized using softplus: \eqn{\omega = \log(1+e^{\rho})}).
+   This is mathematically equivalent to the spatial-power correlation \eqn{\theta^d} where \eqn{\theta = e^{-\omega}}
+   but provides better numerical properties during optimization.
+  }
+  \item{AR(1)}{
+    'ar1', 'ar(1)', 'AR(1)', 'AR1'
+
+    Correlation depends on the rank difference between observations: \eqn{\nu^r} where \eqn{r} is the rank difference.
+    Uses intra-cluster rankings of spacetime distances, with parameterization of \eqn{\nu = tanh^{-1}(\rho)}.
+  }
+  \item{Gaussian/Squared Exponential}{
+    'gaussian', 'rbf', 'squared-exponential'
+
+    Smooth decay with squared distance: \eqn{exp(-d^2/(2l^2))} where \eqn{l} is the length scale
+    (parameterized using softplus: \eqn{l = \log(1+e^{\rho})}).
+  }
+  \item{Spherical}{
+    'spherical', 'Spherical', 'cubic', 'sphere'
+
+    Polynomial decay with exact cutoff at range \eqn{r}: \eqn{1 - 1.5(d/r) + 0.5(d/r)^3} for \eqn{d \le r}, 0 otherwise.
+    Range parameter \eqn{r} is parameterized using softplus: \eqn{r = \log(1+e^{\rho})}.
+  }
+  \item{Matérn}{
+    'matern', 'Matern'
+
+    Flexible correlation with adjustable smoothness: \eqn{(2^{1-\nu}/\Gamma(\nu))(\sqrt{2\nu}d/l)^\nu K_\nu(\sqrt{2\nu}d/l)}.
+    Has two parameters: length scale \eqn{l} and smoothness \eqn{\nu}, both parameterized using softplus.
+
+    While theoretically advantageous, there does not exist an analytical gradient for this correlation structure,
+    so it will be slower and potentially more error-prone to fit than the others.
+  }
+  \item{Gamma-Cosine}{
+    'gamma-cosine', 'gammacosine', 'GammaCosine'
+
+    Flexible correlation that can model both positive and negative correlations:
+    \eqn{(d^{\alpha-1}e^{-\beta d})/(\Gamma(\alpha)/\beta^{\alpha}) \cdot \cos(\omega d)}.
+    Has three parameters: shape \eqn{\alpha}, rate \eqn{\beta} (both parameterized using softplus), and frequency \eqn{\omega}.
+    When \eqn{\alpha=1} and \eqn{\omega=0}, reduces to exponential correlation.
+    When \eqn{\beta} is small and \eqn{\omega=0}, approximates power-law.
+    When \eqn{\omega > 0}, allows for oscillation between positive and negative correlations.
+  }
+  \item{Gaussian-Cosine}{
+    'gaussian-cosine', 'gaussiancosine', 'GaussianCosine'
+
+    Smooth correlation that allows for oscillations: \eqn{exp(-d^2/(2l^2)) \cdot \cos(\omega d)}.
+    Has two parameters: length scale \eqn{l} (parameterized using softplus) and frequency \eqn{\omega}.
+    When \eqn{\omega=0}, reduces to standard Gaussian correlation.
+    When \eqn{\omega > 0}, allows for oscillation between positive and negative correlations.
+  }
+}
+
+\strong{Parameter Interpretation:}
+
+Correlation parameters are estimated on transformed scales to ensure valid ranges.
+For proper interpretation, these estimates must be converted back to their natural scales.
+
+For correlation structures using the \code{tanh} transformation (Exchangeable, AR(1)),
+the correlation parameter \eqn{\rho} is bounded between -1 and 1:
+
+\preformatted{
+# Correlation estimate
+cor_est <- tanh(model_fit$VhalfInv_params_estimates)
+
+# 95% CI
+se <- sqrt(diag(model_fit$VhalfInv_params_vcov)) / sqrt(model_fit$N)
+ci <- tanh(model_fit$VhalfInv_params_estimates + c(-1.96, 1.96) * se)
+}
+
+For correlation structures using the softplus transformation (Gaussian/Squared Exponential, Spherical, Matérn):
+
+\preformatted{
+# Length scale estimate
+length_scale <- log(1 + exp(model_fit$VhalfInv_params_estimates))
+
+# 95% CI
+se <- sqrt(diag(model_fit$VhalfInv_params_vcov)) / sqrt(model_fit$N)
+ci <- log(1 + exp(model_fit$VhalfInv_params_estimates + c(-1.96, 1.96) * se))
+}
+
+For Spatial-Exponential correlation with softplus parameterization:
+
+\preformatted{
+# Rate parameter omega estimate
+omega_est <- log(1 + exp(model_fit$VhalfInv_params_estimates))
+
+# Equivalent power-law parameter theta estimate
+theta_est <- exp(-omega_est)
+
+# 95% CI for the working parameter
+se <- sqrt(diag(model_fit$VhalfInv_params_vcov)) / sqrt(model_fit$N)
+rho_ci <- model_fit$VhalfInv_params_estimates + c(-1.96, 1.96) * se
+
+# Transform CI to omega scale
+omega_ci <- log(1 + exp(rho_ci))
+
+# Transform CI to theta scale (note the reversed order due to negative exponent)
+theta_ci <- exp(-omega_ci[c(2,1)])
+}
+
+For Matérn correlation (two parameters):
+
+\preformatted{
+# Length scale and smoothness estimates
+length_scale <- log(1 + exp(model_fit$VhalfInv_params_estimates[1]))
+nu <- log(1 + exp(model_fit$VhalfInv_params_estimates[2]))
+
+# 95% CIs
+se <- sqrt(diag(model_fit$VhalfInv_params_vcov)) / sqrt(model_fit$N)
+length_scale_ci <- log(1 + exp(model_fit$VhalfInv_params_estimates[1] + c(-1.96, 1.96) * se[1]))
+nu_ci <- log(1 + exp(model_fit$VhalfInv_params_estimates[2] + c(-1.96, 1.96) * se[2]))
+}
+
+For Gamma-Cosine correlation (three parameters):
+
+\preformatted{
+# Shape (phi_1), rate (phi_2), and omega (frequency) estimates
+shape <- log(1 + exp(model_fit$VhalfInv_params_estimates[1]))  # shape = softplus(phi_1)
+rate <- log(1 + exp(model_fit$VhalfInv_params_estimates[2]))   # rate = softplus(phi_2)
+omega <- model_fit$VhalfInv_params_estimates[3]                # No transformation
+
+# 95% CIs
+se <- sqrt(diag(model_fit$VhalfInv_params_vcov)) / sqrt(model_fit$N)
+shape_ci <- log(1 + exp(model_fit$VhalfInv_params_estimates[1] + c(-1.96, 1.96) * se[1]))
+rate_ci <- log(1 + exp(model_fit$VhalfInv_params_estimates[2] + c(-1.96, 1.96) * se[2]))
+omega_ci <- model_fit$VhalfInv_params_estimates[3] + c(-1.96, 1.96) * se[3]
+}
+
+For Gaussian-Cosine correlation (two parameters):
+
+\preformatted{
+# Length scale and omega (frequency) estimates
+length_scale <- log(1 + exp(model_fit$VhalfInv_params_estimates[1]))
+omega <- model_fit$VhalfInv_params_estimates[2]  # No transformation
+
+# 95% CIs
+se <- sqrt(diag(model_fit$VhalfInv_params_vcov)) / sqrt(model_fit$N)
+length_scale_ci <- log(1 + exp(model_fit$VhalfInv_params_estimates[1] + c(-1.96, 1.96) * se[1]))
+omega_ci <- model_fit$VhalfInv_params_estimates[2] + c(-1.96, 1.96) * se[2]
+}
+
+\strong{Structure Selection Guidelines:}
+
+\itemize{
+  \item \strong{Exchangeable}: Use when all observations within a cluster are equally correlated.
+        Simple but often unrealistic for spatial or temporal data.
+
+  \item \strong{AR(1)}: Appropriate for regularly-spaced time series or ordered data.
+        Uses intracluster ranks rather than actual distances. Useful for simple
+        spatial analyses or repeated measures analyses with equally-spaced timepoints.
+
+  \item \strong{Spatial Exponential}: Similar to AR(1) but uses actual distances rather than ranks.
+        Appropriate when measurements are irregularly spaced in time or space.
+        The softplus parameterization ensures stable optimization behavior and positive rate parameters.
+
+  \item \strong{Gaussian/Squared Exponential}: Tends to produce smooth random fields.
+        Suitable for modeling processes that are believed to be infinitely differentiable.
+        The softplus parameterization ensures positive length scales.
+
+  \item \strong{Spherical}: Has a finite range beyond which correlation is exactly zero.
+        Useful when there's a clear boundary to spatial influence.
+        The softplus parameterization ensures positive range parameters.
+
+  \item \strong{Matérn}: Most flexible correlation structure with adjustable smoothness.
+        Computationally more intensive as it uses numerical gradient approximation.
+        The softplus parameterization ensures positive length scale and smoothness parameters.
+
+  \item \strong{Gamma-Cosine}: Highly flexible structure that can model both monotonic decay and
+        oscillating correlation patterns. Shape parameter allows control of behavior near origin,
+        while the frequency parameter enables modeling negative correlations at specific distances.
+        Useful for complex spatial patterns where correlations may become negative at certain distances.
+        The softplus parameterization ensures positive shape and rate parameters.
+
+        Uniquely, this can fit delays, such that immediate timepoints/nearest-distances to a point are uncorrelated.
+
+  \item \strong{Gaussian-Cosine}: Combines smooth Gaussian decay with oscillating behavior.
+        Appropriate for processes with wave-like spatial or temporal patterns.
+        More computationally efficient than Gamma-Cosine but less flexible in shape control.
+        The softplus parameterization ensures positive length scale parameter.
+}
+
+The variance-covariance matrix \code{model_fit$VhalfInv_params_vcov} contains parameter
+uncertainty on the transformed scale. When reporting results, both point estimates and
+confidence intervals should be transformed to the appropriate scale.
+}
 
 \subsection{Available Correlation Structures}{
+The default correlation structures include the following, as covered above:
 \itemize{
   \item \strong{Exchangeable}: Constant correlation within clusters
   \item \strong{Spatial Exponential}: Exponential decay with distance

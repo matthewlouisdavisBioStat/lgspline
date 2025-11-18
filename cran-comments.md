@@ -1,28 +1,21 @@
 # CRAN Comments
 
 ## Resubmission
-This is a resubmission that addresses platform-specific test failures noted in CRAN check results. These failures occurred only on two platforms: macOS ARM64 with R-release (4.5.0) and Linux Fedora with clang compiler.
+This is a resubmission that addresses some previous documentation and example shortcomings in preparation for journal of statistical software submission.
 
-These are related to computational stability when fitting the Weibull AFT model under constraint. 
+Most importantly, detailed documentation on fitting default correlation structures and interpreting model output was provided. 
 
-While it is encouraging the test ran on most platforms, a more relaxed test was made that avoids computational instabilities.
+As well, the wiggle_penalty and flat_ridge_penalty were decreased in lgspline.R example when running on the volcano dataset.
 
-macOS ARM64 was tested, as were several other platforms, but not Linux Fedora directly.
-
-No functional changes were made otherwise, and only `test-advanced.R` was edited.
-
+No functional changes were made, just modifying documentation and improving the user-friendliness of an example. 
 
 
 ### Changes
-1. **Fixed platform-specific test failures**:
-   * Modified test arguments in `test-advanced.R` for Weibull AFT model testing to improve numerical stability on other platforms:
-     - Added fixed values for `flat_ridge_penalty = 1e-2` and `wiggle_penalty = 1e-2` (defaults are `0.5` and `2e-07` respectively)
-     - Set `unique_penalty_per_predictor = FALSE` and `unique_penalty_per_partition = FALSE` (instead of defaults of TRUE and TRUE)
-     - Adjusted weights to be `0.5 + 0.5*abs(rnorm(1000))` instead of just `abs(rnorm(1000))`
-     - Adjusted numerical precision on checking inequality constraint to 8 decimals rather than 10 (via rounding)
-     - Removed the constraint that fitted values be equivalent, which leads to the constraint matrix `A` being full rank (it wasn't before)
-     - Added condition not to check constraint equivalence if try-error message is returned by the model fitting process, avoiding the Linux Fedora with clang issue
-     - These changes reduce randomness and computational instability that was causing inconsistent behavior across platforms, while avoiding changing functionality 
+1. **Documentation Issues**:
+   * Included detailed documentation on default correlation structures and how to analyze + interpret model output, affects lgspline-details.R
+   * Changed “list” to “vector” of penalties in documentation describing the return of optimized penalties Ie. “Optional list of custom penalties specified.” changed to “Optional vector of custom penalties specified”, for documentation of both "predictor_penalties" and "partition_penalties" arguments to "lgspline", affects lgspline.R
+   * Dropped the "wiggle_penalty" and "flat_ridge_penalty" values for the example fitting to volcano dataset to 2e-7 and 1e-2 respectively for user friendliness
+
 
 
 ## R CMD check results

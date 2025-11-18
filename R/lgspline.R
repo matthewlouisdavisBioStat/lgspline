@@ -156,8 +156,8 @@
 #' @param unique_penalty_per_partition Default: TRUE. Logical flag allowing the magnitude of the smoothing spline penalty to differ across partition.
 #' @param unique_penalty_per_predictor Default: TRUE. Logical flag allowing the magnitude of the smoothing spline penalty to differ between predictors.
 #' @param meta_penalty Default: 1e-8. Numeric "meta-penalty" applied to predictor and partition penalties during tuning. The minimization of GCV is modified to be a penalized minimization problem, with penalty \eqn{0.5 \times \text{meta\_penalty} \times (\sum \log(\text{penalty}))^2}, such that penalties are pulled towards 1 on the absolute scale and thus, their multiplicative effect towards 0.
-#' @param predictor_penalties Default: NULL. Optional list of custom penalties specified per predictor.
-#' @param partition_penalties Default: NULL. Optional list of custom penalties specified per partition.
+#' @param predictor_penalties Default: NULL. Optional vector of custom penalties specified per predictor.
+#' @param partition_penalties Default: NULL. Optional vector of custom penalties specified per partition.
 #' @param include_quadratic_terms Default: TRUE. Logical switch to include squared predictor terms in basis expansions.
 #' @param include_cubic_terms Default: TRUE. Logical switch to include cubic predictor terms in basis expansions.
 #' @param include_quartic_terms Default: NULL. Logical switch to include quartic predictor terms in basis expansions. This is highly recommended for fitting models with multiple predictors to avoid over-specified constraints. When NULL (by default), will internally set to FALSE if only one predictor present, and TRUE otherwise.
@@ -530,8 +530,8 @@
 #'                       include_constrain_second_deriv = FALSE,
 #'                       unique_penalty_per_predictor = FALSE,
 #'                       unique_penalty_per_partition = FALSE,
-#'                       wiggle_penalty = 1e-5, # the fixed wiggle penalty
-#'                       flat_ridge_penalty = 1e-4) # the ridge penalty
+#'                       wiggle_penalty = 2e-7, # the fixed wiggle penalty
+#'                       flat_ridge_penalty = 1e-2) # the ridge penalty / wiggle penalty
 #'
 #' ## Plotting on new data with interactive visual + formulas
 #' new_input <- expand.grid(seq(min(volcano_long[,1]),
