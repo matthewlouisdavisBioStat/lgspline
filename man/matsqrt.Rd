@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{matsqrt}
 \alias{matsqrt}
-\title{Calculate Matrix Square Root}
+\title{Calculate Matrix Square Root for Symmetric Matrices}
 \usage{
 matsqrt(mat)
 }
@@ -13,7 +13,7 @@ matsqrt(mat)
 A matrix \eqn{\textbf{B}} such that \eqn{\textbf{B}\textbf{B} = \textbf{M}}
 }
 \description{
-Calculate Matrix Square Root
+Calculate Matrix Square Root for Symmetric Matrices
 }
 \details{
 For matrix \eqn{\textbf{M}}, computes \eqn{\textbf{B}} where \eqn{\textbf{B}\textbf{B} = \textbf{M}} using eigenvalue decomposition:

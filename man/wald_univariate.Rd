@@ -17,22 +17,29 @@ Adjusts standard errors and test statistics. Default 1.}
 defaults to value specified in lgspline() fit (`object$critical_value`) or
 `qnorm(0.975)` as a fallback. Common choices:
 \itemize{
-  \item qnorm(0.975) for normal-based 95% intervals
-  \item qt(0.975, df) for t-based 95% intervals, where df = N - trace(XUGX)
+  \item qnorm(0.975) for normal-based 95\% intervals
+  \item qt(0.975, df) for t-based 95\% intervals, where df = N - trace(XUGX)
 }}
 
 \item{...}{Additional arguments passed to the internal `wald_univariate` method.}
 }
 \value{
-A data frame with rows for each coefficient (across all partitions) and columns:
+An object of class \code{"wald_lgspline"}, which is a list with components:
 \describe{
-  \item{estimate}{Numeric; Coefficient estimate.}
-  \item{std_error}{Numeric; Standard error.}
-  \item{statistic}{Numeric; Wald or t-statistic (estimate/std_error).}
-  \item{p_value}{Numeric; Two-sided p-value based on normal or t-distribution.}
-  \item{lower_ci}{Numeric; Lower confidence bound (estimate - cv*std_error).}
-  \item{upper_ci}{Numeric; Upper confidence bound (estimate + cv*std_error).}
+  \item{coefficients}{Matrix with one row per coefficient and columns: \code{Estimate},
+    \code{Std. Error}, test statistic (\code{t value} or \code{z value}),
+    p-value (\code{Pr(>|t|)} or \code{Pr(>|z|)}), \code{CI LB}, \code{CI UB}.}
+  \item{critical_value}{The critical value used for confidence intervals.}
+  \item{family}{The GLM family from the fitted model.}
+  \item{N}{Number of observations.}
+  \item{trace_XUGX}{Effective degrees of freedom trace term.}
+  \item{statistic_name}{Character: \code{"t value"} or \code{"z value"}.}
+  \item{p_value_name}{Character: \code{"Pr(>|t|)"} or \code{"Pr(>|z|)"}.}
 }
+
+Print, summary, and plot methods are provided for this class; see
+\code{\link{print.wald_lgspline}}, \code{\link{summary.wald_lgspline}},
+\code{\link{plot.wald_lgspline}}.
 }
 \description{
 Performs coefficient-specific Wald tests and constructs confidence intervals for fitted
@@ -77,8 +84,17 @@ if (!is.na(eff_df) && eff_df > 0) {
   warning("Effective degrees of freedom invalid.")
 }
 
+## Extract the coefficient matrix directly
+coef_table <- wald_default$coefficients
+print(coef_table)
+
+## Plot coefficient estimates with confidence intervals
+plot(wald_default)
+
 
 }
 \seealso{
-\code{\link{lgspline}}
+\code{\link{lgspline}}, \code{\link{confint.lgspline}},
+\code{\link{print.wald_lgspline}}, \code{\link{summary.wald_lgspline}},
+\code{\link{plot.wald_lgspline}}
 }

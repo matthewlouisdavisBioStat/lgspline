@@ -10,6 +10,7 @@ weibull_dispersion_function(
   order_indices,
   family,
   observation_weights,
+  VhalfInv,
   status
 )
 }
@@ -31,11 +32,15 @@ full survival time is unknown, typically because the study ended or the
 subject was lost to follow-up before the event of interest occurred.}
 }
 \value{
-Squared scale estimate for the Weibull AFT model (dispersion)
+Dispersion estimate (sigma^2) for the Weibull AFT model, i.e., the squared
+scale parameter. The Weibull scale (sigma) matching \code{survreg$scale} is
+\code{sqrt()} of this value.
 }
 \description{
-Computes the scale parameter for a Weibull accelerated failure time (AFT)
-model, supporting right-censored survival data.
+Computes the dispersion parameter (sigma^2 = scale^2) for a Weibull
+accelerated failure time (AFT) model, supporting right-censored survival
+data. The returned value is sigma^2, where sigma is the Weibull scale
+parameter matching \code{survreg$scale}.
 
 This both provides a tool for actually fitting Weibull AFT Models, and
 boilerplate code for users who wish to incorporate Lagrangian multiplier
@@ -62,19 +67,22 @@ mu <- mean(y)
 order_indices <- seq_along(y)
 weights <- rep(1, n)
 
-## Estimate dispersion
+## Estimate dispersion (= scale^2 = sigma^2)
 dispersion_est <- weibull_dispersion_function(
   mu = mu,
   y = y,
   order_indices = order_indices,
   family = weibull_family(),
   observation_weights = weights,
+  VhalfInv = NULL,
   status = status
 )
 
-print(dispersion_est)
+print(dispersion_est)          # sigma^2
+print(sqrt(dispersion_est))    # sigma (comparable to survreg$scale)
 
 }
 \seealso{
-\code{\link{weibull_scale}} for the underlying scale estimation function
+\code{\link{weibull_scale}} for the underlying scale estimation
+  function
 }

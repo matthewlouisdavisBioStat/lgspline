@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{compute_dG_u_dlambda_xy}
 \alias{compute_dG_u_dlambda_xy}
-\title{Compute Derivative of \eqn{\textbf{U}\textbf{G}\textbf{X}^{T}\textbf{y}} with Respect to Lambda}
+\title{Derivative of Constrained Penalized Coefficients with Respect to Lambda}
 \usage{
 compute_dG_u_dlambda_xy(
   AGAInv_AGXy,
@@ -25,15 +25,15 @@ compute_dG_u_dlambda_xy(
 )
 }
 \arguments{
-\item{AGAInv_AGXy}{Product of \eqn{(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}} and \eqn{\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}}
+\item{AGAInv_AGXy}{Product of \eqn{(\mathbf{A}^{T}\mathbf{G}\mathbf{A})^{-1}} and \eqn{\mathbf{A}^{T}\mathbf{G}\mathbf{X}^{T}\mathbf{y}}}
 
-\item{AGAInv}{Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}}
+\item{AGAInv}{Inverse of \eqn{\mathbf{A}^{T}\mathbf{G}\mathbf{A}}}
 
-\item{G}{List of \eqn{\textbf{G}} matrices}
+\item{G}{List of \eqn{\mathbf{G}} matrices}
 
-\item{A}{Constraint matrix \eqn{\textbf{A}}}
+\item{A}{Constraint matrix \eqn{\mathbf{A}}}
 
-\item{dG_dlambda}{List of \eqn{d\textbf{G}/d\lambda} matrices}
+\item{dG_dlambda}{List of \eqn{d\mathbf{G}/d\lambda} matrices}
 
 \item{nc}{Number of columns}
 
@@ -41,13 +41,13 @@ compute_dG_u_dlambda_xy(
 
 \item{K}{Number of partitions minus 1 (\eqn{K})}
 
-\item{Xy}{List of \eqn{\textbf{X}^{T}\textbf{y}} products}
+\item{Xy}{List of \eqn{\mathbf{X}^{T}\mathbf{y}} products}
 
-\item{Ghalf}{List of \eqn{\textbf{G}^{1/2}} matrices}
+\item{Ghalf}{List of \eqn{\mathbf{G}^{1/2}} matrices}
 
-\item{dGhalf}{List of \eqn{d\textbf{G}^{1/2}/d\lambda} matrices}
+\item{dGhalf}{List of \eqn{d\mathbf{G}^{1/2}/d\lambda} matrices}
 
-\item{GhalfXy_temp}{Temporary storage for \eqn{\textbf{G}^{1/2}\textbf{X}^{T}\textbf{y}}}
+\item{GhalfXy_temp}{Temporary storage for \eqn{\mathbf{G}^{1/2}\mathbf{X}^{T}\mathbf{y}}}
 
 \item{parallel}{Use parallel processing}
 
@@ -60,15 +60,82 @@ compute_dG_u_dlambda_xy(
 \item{rem_chunks}{Remaining chunks}
 }
 \value{
-Vector of derivatives
+\eqn{P \times 1} vector of derivatives
+  \eqn{d\tilde{\boldsymbol{\beta}}/d\lambda}
 }
 \description{
-Compute Derivative of \eqn{\textbf{U}\textbf{G}\textbf{X}^{T}\textbf{y}} with Respect to Lambda
+Computes \eqn{d(\mathbf{U}\mathbf{G}\mathbf{X}^{T}\mathbf{y})/d\lambda},
+the sensitivity of the constrained coefficient estimates
+\eqn{\tilde{\boldsymbol{\beta}} = \mathbf{U}\mathbf{G}\mathbf{X}^T\mathbf{y}}
+to changes in the smoothing parameter \eqn{\lambda}.
 }
 \details{
-Computes \eqn{d(\textbf{U}\textbf{G}\textbf{X}^{T}\textbf{y})/d\lambda}.
-Uses efficient implementation avoiding large matrix construction.
-For large problems (\eqn{K \ge 10}, \eqn{nc > 4}), uses chunked parallel processing.
-For smaller problems, uses simpler least squares approach based on \eqn{\textbf{G}^{1/2}}.
+This function is called during GCV/penalty optimization and computes
+how the constrained coefficient vector changes as the penalty weight
+varies. Two implementations are provided depending on problem size.
+
+\subsection{Derivation}{
+The constrained estimate is
+\eqn{\tilde{\boldsymbol{\beta}} = \mathbf{U}\hat{\boldsymbol{\beta}}}
+where
+\eqn{\hat{\boldsymbol{\beta}} = \mathbf{G}\mathbf{X}^T\mathbf{y}}
+and
+\eqn{\mathbf{U} = \mathbf{I} - \mathbf{G}\mathbf{A}(\mathbf{A}^T\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^T}.
+Both \eqn{\mathbf{G}} and \eqn{\mathbf{U}} depend on \eqn{\lambda}
+through \eqn{\mathbf{G} = (\mathbf{X}^T\mathbf{X} + \lambda\boldsymbol{\Lambda})^{-1}}.
+
+Differentiating the product \eqn{\mathbf{U}\mathbf{G}\mathbf{X}^T\mathbf{y}}
+requires the chain rule applied to three \eqn{\lambda}-dependent
+components:
+\deqn{\frac{d}{d\lambda}(\mathbf{U}\mathbf{G}\mathbf{X}^T\mathbf{y})}
+\deqn{= \frac{d\mathbf{U}}{d\lambda}\hat{\boldsymbol{\beta}} + \mathbf{U}\frac{d\hat{\boldsymbol{\beta}}}{d\lambda}}
+
+The unconstrained part is straightforward:
+\eqn{d\hat{\boldsymbol{\beta}}/d\lambda = (d\mathbf{G}/d\lambda)\mathbf{X}^T\mathbf{y}},
+computed partition-wise since \eqn{\mathbf{G}} is block-diagonal.
+
+The constraint projection derivative is more involved. Writing
+\eqn{\mathbf{C} = (\mathbf{A}^T\mathbf{G}\mathbf{A})^{-1}} and
+expanding \eqn{d\mathbf{U}/d\lambda} gives three terms (after
+applying the product rule and the identity
+\eqn{d\mathbf{C}/d\lambda = -\mathbf{C}(d(\mathbf{A}^T\mathbf{G}\mathbf{A})/d\lambda)\mathbf{C}}):
+\describe{
+  \item{term2a}{\eqn{(d\mathbf{G}/d\lambda)\mathbf{A}\mathbf{C}\mathbf{A}^T\hat{\boldsymbol{\beta}}}
+    direct effect of \eqn{d\mathbf{G}/d\lambda} on the projection}
+  \item{term2b}{\eqn{\mathbf{G}\mathbf{A}\mathbf{C}(d(\mathbf{A}^T\mathbf{G}\mathbf{A})/d\lambda)\mathbf{C}\mathbf{A}^T\hat{\boldsymbol{\beta}}}
+    effect through the change in \eqn{(\mathbf{A}^T\mathbf{G}\mathbf{A})^{-1}}}
+  \item{term2c}{\eqn{\mathbf{G}\mathbf{A}\mathbf{C}\mathbf{A}^T(d\hat{\boldsymbol{\beta}}/d\lambda)}
+    projection of the unconstrained derivative back through the constraint}
+}
+
+The full derivative is
+\eqn{d\hat{\boldsymbol{\beta}}/d\lambda} minus the sum of these
+three correction terms.
+}
+
+\subsection{Large problem path (K >= 10, nc > 4)}{
+Computes the three correction terms explicitly using the block
+structure of \eqn{\mathbf{G}} and \eqn{d\mathbf{G}/d\lambda}.
+The intermediate quantity
+\eqn{d(\mathbf{A}^T\mathbf{G}\mathbf{A})/d\lambda = \mathbf{A}^T(d\mathbf{G}/d\lambda)\mathbf{A}}
+is accumulated partition-wise. Shared vectors
+\eqn{\mathbf{A}\mathbf{C}\mathbf{A}^T\hat{\boldsymbol{\beta}}}
+and related products are precomputed once and reused across
+partitions. Parallelism is over chunks of partitions.
+}
+
+\subsection{Small problem path}{
+Reformulates the derivative using the matrix square root
+\eqn{\mathbf{G}^{1/2}} and its derivative
+\eqn{d\mathbf{G}^{1/2}/d\lambda}. The constraint
+\eqn{\mathbf{A}^T\boldsymbol{\beta} = 0} is imposed via least
+squares projection: the residuals from regressing
+\eqn{\mathbf{G}^{1/2}\mathbf{X}^T\mathbf{y}} onto
+\eqn{\mathbf{G}^{1/2}\mathbf{A}} give the constrained component,
+and differentiating this projection with respect to \eqn{\lambda}
+yields the derivative. Uses \code{.lm.fit} for speed with a
+stabilizing rescaling factor to prevent numerical issues when the
+constraint matrix is poorly scaled.
+}
 }
 \keyword{internal}

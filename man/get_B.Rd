@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{get_B}
 \alias{get_B}
-\title{Get Constrained GLM Coefficient Estimates}
+\title{Compute Constrained GLM Coefficient Estimates via Lagrangian Multipliers}
 \usage{
 get_B(
   X,
@@ -43,7 +43,7 @@ get_B(
   constraint_value_vectors,
   order_list,
   glm_weight_function,
-  shur_correction_function,
+  schur_correction_function,
   need_dispersion_for_estimation,
   dispersion_function,
   observation_weights,
@@ -57,133 +57,177 @@ get_B(
 )
 }
 \arguments{
-\item{X}{List of design matrices by partition}
+\item{X}{List of length \eqn{K+1}; partition-specific design matrices.}
 
-\item{X_gram}{List of Gram matrices by partition}
+\item{X_gram}{List of Gram matrices \eqn{X_k^T W_k X_k} by partition.}
 
-\item{Lambda}{Combined penalty matrix (smoothing spline + ridge)}
+\item{Lambda}{Combined penalty matrix (smoothing spline + ridge).}
 
-\item{keep_weighted_Lambda}{Logical; retain GLM weights in smoothing spline penalty}
+\item{keep_weighted_Lambda}{Logical; if \code{TRUE}, retain GLM weights
+in the smoothing spline penalty during IRWLS updates.}
 
-\item{unique_penalty_per_partition}{Logical; whether to use partition-specific penalties}
+\item{unique_penalty_per_partition}{Logical; if \code{TRUE}, add
+partition-specific penalties from \code{L_partition_list} to
+\code{Lambda}.}
 
-\item{L_partition_list}{List of partition-specific penalty matrices}
+\item{L_partition_list}{List of partition-specific penalty matrices.}
 
-\item{A}{Matrix of smoothness constraints (continuity, differentiability)}
+\item{A}{Constraint matrix. Columns encode smoothness constraints
+(continuity and derivative matching at knots) and any user-supplied
+equality constraints. The system \eqn{A^T \beta = c} is enforced,
+where \eqn{c} comes from \code{constraint_value_vectors}.}
 
-\item{Xy}{List of X^T y products by partition}
+\item{Xy}{List of cross-products \eqn{X_k^T y_k} by partition.}
 
-\item{y}{List of responses by partition}
+\item{y}{List of response vectors by partition (UNWHITENED even when GEE).}
 
-\item{K}{Integer; number of knots (partitions = K+1)}
+\item{K}{Integer; number of interior knots. The predictor domain is
+partitioned into \eqn{K+1} segments.}
 
-\item{nc}{Integer; number of coefficients per partition}
+\item{nc}{Integer; number of coefficients per partition.}
 
-\item{nca}{Integer; number of columns in constraint matrix}
+\item{nca}{Integer; number of columns in \code{A}.}
 
-\item{Ghalf}{List of G^(1/2) matrices by partition}
+\item{Ghalf}{List of \eqn{G^{1/2}} matrices by partition, where
+\eqn{G = (X^T W X + \Lambda)^{-1}}.}
 
-\item{GhalfInv}{List of G^(-1/2) matrices by partition}
+\item{GhalfInv}{List of \eqn{G^{-1/2}} matrices by partition.}
 
-\item{parallel_eigen, parallel_aga, parallel_matmult, parallel_unconstrained}{Logical flags for parallel computation components}
+\item{parallel_eigen, parallel_aga, parallel_matmult, parallel_unconstrained}{Logical flags for parallelizing eigendecompositions, \eqn{A^T G A}
+computation, matrix multiplications, and unconstrained partition fits.}
 
-\item{cl}{Cluster object for parallel processing}
+\item{cl}{Cluster object from \code{parallel::makeCluster}.}
 
-\item{chunk_size, num_chunks, rem_chunks}{Parameters for chunking in parallel processing}
+\item{chunk_size, num_chunks, rem_chunks}{Partition distribution
+parameters for parallel workers.}
 
-\item{family}{GLM family object (includes link function and variance functions)}
+\item{family}{GLM family object (link, variance, and optionally
+\code{custom_dev.resids}).}
 
-\item{unconstrained_fit_fxn}{Function for obtaining unconstrained estimates}
+\item{unconstrained_fit_fxn}{Function for partition-wise unconstrained
+coefficient estimation (non-Gaussian GLMs only).}
 
-\item{iterate}{Logical; whether to use iterative optimization for non-linear links}
+\item{iterate}{Logical; if \code{TRUE}, iterate (IRWLS) for
+non-canonical links.}
 
-\item{qp_score_function}{Function; see description in \code{\link[lgspline]{lgspline}}. Accepts arguments in order "X, y, mu, order_list, dispersion, VhalfInv, ...".}
+\item{qp_score_function}{Score function for quadratic programming.
+Signature: \code{function(X, y, mu, order_list, dispersion,
+VhalfInv, ...)}.}
 
-\item{quadprog}{Logical; whether to use quadratic programming for inequality constraints}
+\item{quadprog}{Logical; if \code{TRUE}, use \code{quadprog::solve.QP}
+to handle inequality constraints.}
 
-\item{qp_Amat, qp_bvec, qp_meq}{Quadratic programming constraint parameters}
+\item{qp_Amat, qp_bvec, qp_meq}{Inequality constraint specification
+for \code{quadprog::solve.QP}.}
 
-\item{prevB}{List of previous coefficient estimates for warm starts}
+\item{prevB}{Retired; kept for call-site compatibility. Previously
+held the constrained estimate from the prior IRWLS iteration.
+Ignored internally; IRWLS state is now managed by a local for-loop.}
 
-\item{prevUnconB}{List of previous unconstrained coefficient estimates}
+\item{prevUnconB}{Retired; kept for call-site compatibility. Previously
+held the unconstrained estimates, reused across IRWLS iterations.
+Ignored internally.}
 
-\item{iter_count, prev_diff}{Iteration tracking for convergence}
+\item{iter_count}{Retired; kept for call-site compatibility. Previously
+the IRWLS iteration counter. Ignored internally.}
 
-\item{tol}{Numeric; convergence tolerance}
+\item{prev_diff}{Retired; kept for call-site compatibility. Previously
+the mean absolute coefficient change from the prior IRWLS step.
+Ignored internally.}
 
-\item{constraint_value_vectors}{List of additional constraint values}
+\item{tol}{Convergence tolerance for coefficient change and deviance.}
 
-\item{order_list}{List of observation orderings by partition}
+\item{constraint_value_vectors}{List encoding the right-hand side
+\eqn{c} in \eqn{A^T \beta = c}. When empty or all zero, the
+homogeneous system is solved.}
 
-\item{glm_weight_function}{Function for computing GLM weights}
+\item{order_list}{List of index vectors mapping partition rows to
+original data ordering.}
 
-\item{shur_correction_function}{Function for uncertainty corrections in information matrix}
+\item{glm_weight_function}{Function computing GLM working weights.}
 
-\item{need_dispersion_for_estimation}{Logical; whether dispersion needs estimation}
+\item{schur_correction_function}{Function computing Schur complement
+corrections to the information matrix for nuisance parameter
+uncertainty.}
 
-\item{dispersion_function}{Function for estimating dispersion parameter}
+\item{need_dispersion_for_estimation}{Logical; if \code{TRUE},
+dispersion enters weight and score functions.}
 
-\item{observation_weights}{Optional observation weights by partition}
+\item{dispersion_function}{Dispersion estimation function.}
 
-\item{homogenous_weights}{Logical; whether weights are constant}
+\item{observation_weights}{List of observation weights by partition.}
 
-\item{return_G_getB}{Logical; whether to return G matrices with coefficient estimates}
+\item{homogenous_weights}{Logical; constant weights across observations.}
 
-\item{blockfit}{Logical; whether to use block-fitting approach for special structure}
+\item{return_G_getB}{Logical; if \code{TRUE}, return covariance
+components alongside coefficients.}
 
-\item{just_linear_without_interactions}{Vector of columns for non-spline effects}
+\item{blockfit}{Retired; kept for call-site compatibility. Blockfit
+estimation is now handled by a separate \code{blockfit_solve}
+function before dispatching to \code{get_B}. Ignored internally.}
 
-\item{Vhalf, VhalfInv}{Square root and inverse square root correlation matrices for GEE fitting}
+\item{just_linear_without_interactions}{Retired; kept for call-site
+compatibility. Was used to identify covariates pooled across
+partitions in blockfit mode. Ignored internally.}
 
-\item{...}{Additional arguments passed to fitting functions}
+\item{Vhalf, VhalfInv}{Square root and inverse square root of the
+working correlation matrix for GEE estimation. X and y are
+UNWHITENED; whitening is applied internally.}
+
+\item{...}{Passed to fitting, weight, correction, and dispersion
+functions.}
 }
 \value{
-For `return_G_getB = FALSE`: A list of coefficient vectors by partition.
+If \code{return_G_getB = FALSE}: a list of coefficient column vectors,
+one per partition.
 
-For `return_G_getB = TRUE`: A list with elements:
+If \code{return_G_getB = TRUE}: a list with elements:
 \describe{
-  \item{B}{List of coefficient vectors by partition}
-  \item{G_list}{List containing G matrices (covariance matrices), Ghalf (square root),
-                and GhalfInv (inverse square root)}
+  \item{B}{List of coefficient column vectors by partition.}
+  \item{G_list}{List with components \code{G}, \code{Ghalf}, and
+    \code{GhalfInv} (partition-wise covariance matrices and their
+    matrix square roots). For GEE paths, G contains the diagonal
+    blocks of the full information matrix inverse; the full-system
+    G^{1/2} is used for the solve but per-partition diagonal blocks
+    are returned for downstream inference compatibility.}
 }
 }
 \description{
-Core estimation function for Lagrangian multiplier smoothing splines. Computes
-coefficient estimates under smoothness constraints and penalties for GLMs, handling
-four distinct computational paths depending on model structure.
+Core estimation function for Lagrangian multiplier smoothing splines.
+Computes penalized coefficient estimates subject to smoothness constraints
+(continuity, differentiability at knots) and optional user-supplied linear
+equality or inequality constraints. Dispatches to one of three computational
+paths depending on the model structure:
+
+\bold{Path 1. GEE without blockfitting:}
+When \code{Vhalf} and \code{VhalfInv} are provided, the function uses
+generalized estimating equations. X and y arrive UNWHITENED; whitening
+is applied internally to the full N x P block-diagonal design matrix
+to preserve cross-partition correlation contributions.
+Two sub-paths:
+\itemize{
+  \item \bold{Path 1a: Gaussian identity + GEE}: closed-form full-system
+    solve in whitened space.
+  \item \bold{Path 1b: Non-Gaussian GEE}: damped SQP with full whitened
+    design X_tilde = V^{-1/2} X_block.
 }
-\details{
-This function implements the method of Lagrangian multipliers for fitting constrained
-generalized linear models with smoothing splines. The function follows one of four main
-computational paths depending on the model structure:
 
-\bold{1. Pure GEE (No Blockfitting):}
-When Vhalf and VhalfInv are provided without blockfitting, the function uses generalized
-estimating equations to handle correlated data. The design matrix is arranged in
-block-diagonal form, and the estimation explicitly accounts for the correlation structure
-provided. Uses sequential quadratic programming (SQP) for optimization.
+\bold{Path 2. Gaussian identity link, no correlation:}
+For the canonical Gaussian case, the constrained estimate has a closed-form
+solution via projection. No unconstrained fitting step or iteration is
+needed; \eqn{\hat{\beta} = G X^T y} projected onto the constraint null
+space via an OLS-style residual computation.
 
-\bold{2. Blockfitting (With or Without Correlation):}
-When blockfit=TRUE and linear-only terms are specified, the function separates spline effects
-from linear-only terms. The design matrix is restructured with spline terms in block-diagonal
-form and linear terms stacked together. This structure is particularly efficient when there
-are many non-spline effects. The function can handle both correlated (GEE) and uncorrelated
-data in this path.
+\bold{Path 3. Non-Gaussian GLMs, no correlation:}
+For GLMs with non-identity links or non-Gaussian families, unconstrained
+estimates are first obtained per partition, then projected onto the
+constraint space. For non-canonical links, iterative (IRWLS-like) fitting
+is performed via a for-loop until convergence.
 
-\bold{3. Canonical Gaussian, No Correlation:}
-For Gaussian family with identity link and no correlation structure, calculations are greatly
-simplified. No unconstrained fit function is needed; estimation uses direct matrix operations.
-This path takes advantage of the closed-form solution available for linear models with
-Gaussian errors.
-
-\bold{4. GLMs, No Correlation:}
-For non-Gaussian GLMs without correlation structure, the function requires an unconstrained_fit_fxn
-to obtain initial estimates. It may use iterative fitting for non-canonical links. This path
-first computes unconstrained estimates for each partition, then applies constraints using the
-method of Lagrangian multipliers.
-
-All paths use efficient matrix decompositions and avoid explicitly constructing full matrices
-when possible. For non-canonical links, iterative fitting is employed to converge to the optimal
-solution.
+In Paths 2 and 3, the Lagrangian projection is computed efficiently via
+an OLS reformulation: letting \eqn{y^* = G^{1/2} \hat{\beta}_{unconstrained}}
+and \eqn{X^* = G^{1/2} A}, the constrained estimate equals
+\eqn{G^{1/2}} times the residuals from regressing \eqn{y^*} on \eqn{X^*}.
+This avoids explicitly forming and inverting \eqn{A^T G A}.
 }
 \keyword{internal}

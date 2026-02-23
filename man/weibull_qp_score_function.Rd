@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{weibull_qp_score_function}
 \alias{weibull_qp_score_function}
-\title{Compute gradient of log-likelihood of Weibull accelerated failure model without penalization}
+\title{Compute Gradient of Log-Likelihood of Weibull Accelerated Failure Model}
 \usage{
 weibull_qp_score_function(
   X,
@@ -24,7 +24,9 @@ weibull_qp_score_function(
 
 \item{order_list}{List of observation indices per partition}
 
-\item{dispersion}{Dispersion parameter (scale^2)}
+\item{dispersion}{Dispersion parameter (sigma^2 = scale^2). The lgspline
+framework stores and passes dispersion (sigma^2); the Weibull scale
+(sigma) matching \code{survreg$scale} is \code{sqrt(dispersion)}.}
 
 \item{VhalfInv}{Inverse square root of correlation matrix (if applicable)}
 
@@ -42,6 +44,13 @@ time (AFT) survival model, supporting right-censored survival data.
 \details{
 Needed if using "blockfit", correlation structures, or quadratic programming
 with Weibull AFT models.
+
+The gradient is computed on a scale that omits the 1/sigma prefactor.
+Specifically, the true score is (1/sigma) * X^T diag(w) (exp(z) - status),
+but both this function and the corresponding information matrix used
+internally omit 1/sigma and 1/sigma^2 respectively, so the Newton-Raphson
+step G*u remains correct. This matches the convention in
+\code{\link{unconstrained_fit_weibull}}.
 }
 \examples{
 
@@ -67,7 +76,7 @@ model_fit <- lgspline(y ~ spl(t1) + t2,
                       qp_score_function = weibull_qp_score_function,
                       dispersion_function = weibull_dispersion_function,
                       glm_weight_function = weibull_glm_weight_function,
-                      shur_correction_function = weibull_shur_correction,
+                      schur_correction_function = weibull_schur_correction,
                       K = 1,
                       blockfit = TRUE,
                       opt = FALSE,

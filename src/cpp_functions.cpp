@@ -90,38 +90,25 @@ double compute_trace_correction(const Rcpp::List& G,
                               const arma::mat& AGAInv,
                               int nc,
                               int K) {
+    // Change 20260215 removed max norm scaling
     double correction = 0.0;
     
-    // Kahan summation for enhanced numerical stability
+    // Kahan summation for numerical stability
     double c = 0.0;
     
-    // Compute overall scaling to prevent over/underflow
-    double max_norm = 0.0;
-    for (int k = 0; k <= K; ++k) {
-        arma::mat G_k = Rcpp::as<arma::mat>(G[k]);
-        max_norm = std::max(max_norm, arma::norm(G_k, "fro"));
-    }
-    
-    // Add small epsilon to prevent division by zero
     const double eps = std::numeric_limits<double>::epsilon();
-    max_norm = std::max(max_norm, eps);
     
     for (int k = 0; k <= K; ++k) {
         arma::mat G_k = Rcpp::as<arma::mat>(G[k]);
         arma::mat A_k = A.rows(k*nc, (k+1)*nc-1);
         arma::mat GXX_k = Rcpp::as<arma::mat>(GXX[k]);
         
-        // Normalize matrices relative to max_norm to prevent scaling issues
-        G_k /= max_norm;
-        A_k /= max_norm;
-        GXX_k /= max_norm;
-        
         // Check for zero/near-zero matrices
         if (arma::norm(G_k, "fro") > eps && 
             arma::norm(A_k, "fro") > eps && 
             arma::norm(GXX_k, "fro") > eps) {
             
-            // Compute intermediate matrix products more carefully
+            // Compute intermediate matrix products
             arma::mat temp1 = G_k * A_k;
             arma::mat temp2 = temp1 * AGAInv;
             arma::mat temp3 = A_k.t() * GXX_k;

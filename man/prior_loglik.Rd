@@ -4,16 +4,17 @@
 \alias{prior_loglik}
 \title{Log-Prior Distribution Evaluation for lgspline Models}
 \usage{
-prior_loglik(model_fit, sigmasq = NULL)
+prior_loglik(model_fit, sigmasq = NULL, include_constant = TRUE)
 }
 \arguments{
-\item{model_fit}{An lgspline model object}
+\item{model_fit}{An lgspline model object.}
 
-\item{sigmasq}{A scalar numeric representing the dispersion parameter. By default it is NULL, and the sigmasq_tilde associated with model_fit will be used. Otherwise, custom values can be supplied.}
+\item{sigmasq}{A scalar numeric representing the dispersion parameter. If NULL, model_fit$sigmasq_tilde is used.}
+
+\item{include_constant}{Logical; if TRUE (default), include the multivariate normal normalizing constant.}
 }
 \value{
-A numeric scalar for the prior-loglikelihood (the penalty on beta coefficients
-actually computed)
+A numeric scalar representing the prior log-likelihood.
 }
 \description{
 Evaluates the log-prior distribution on beta coefficients conditional upon dispersion and penalaties,
@@ -28,7 +29,9 @@ Assuming fixed penalties, the prior distribution of \eqn{\beta} is given as foll
 \deqn{\beta | \sigma^2 \sim \mathcal{N}(\textbf{0}, \frac{1}{\sigma^2}\Lambda)}
 
 The log-likelihood obtained from this can be shown to be equivalent to the following,
-with \eqn{C} a constant with respect to \eqn{\beta}.
+with \eqn{C} a normalizing constant with respect to \eqn{\beta}.
+
+The value of \eqn{C} is returned when \code{include_constant=TRUE}, and ignored when \code{FALSE}.
 
 \deqn{\implies \log P(\beta|\sigma^2) = C-\frac{1}{2\sigma^2}\beta^{T}\Lambda\beta}
 

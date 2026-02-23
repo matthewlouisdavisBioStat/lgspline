@@ -4,7 +4,7 @@
 \alias{create_onehot}
 \title{Create One-Hot Encoded Matrix}
 \usage{
-create_onehot(x)
+create_onehot(x, drop_first = FALSE)
 }
 \arguments{
 \item{x}{A vector containing categorical values (factors, character, etc.)}

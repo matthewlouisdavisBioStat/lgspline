@@ -21,11 +21,14 @@ approaches if standard inversion fails.
 \details{
 Tries methods in order:
 
-1. Direct inversion using \code{armaInv()}
+1. Cholesky decomposition via \code{chol2inv(chol(...))} for symmetric
+   positive-definite matrices (fastest for SPD)
 
-2. Generalized inverse using eigendecomposition
+2. Direct inversion using \code{armaInv()} as first fallback
 
-3. Returns identity matrix with warning if both fail
+3. Generalized inverse using eigendecomposition with small ridge
+
+4. Returns identity matrix with warning if all methods fail
 
 For eigendecomposition, uses a small ridge penalty (\code{1e-16}) for stability and
 zeroes eigenvalues below machine precision.
@@ -33,11 +36,11 @@ zeroes eigenvalues below machine precision.
 \examples{
 ## Well-conditioned matrix
 A <- matrix(c(4,2,2,4), 2, 2)
-invert(A) \%**\% A
+invert(A) \%*\% A
 
 ## Singular matrix falls back to M.P. generalized inverse
 B <- matrix(c(1,1,1,1), 2, 2)
-invert(B) \%**\% B
+invert(B) \%*\% B
 
 }
 \keyword{internal}

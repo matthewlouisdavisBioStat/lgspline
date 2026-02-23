@@ -9,7 +9,8 @@ nr_iterate(gradient_val, neghessian_val)
 \arguments{
 \item{gradient_val}{Numeric vector of gradient values (\eqn{\textbf{u}})}
 
-\item{neghessian_val}{Negative Hessian matrix (\eqn{\textbf{G}^{-1}} approximately)}
+\item{neghessian_val}{Negative Hessian matrix (\eqn{\textbf{G}^{-1}}
+approximately)}
 }
 \value{
 Numeric vector of parameter updates (\eqn{\textbf{G}\textbf{u}})
@@ -21,9 +22,11 @@ Called by \code{\link{damped_newton_r}} in the update step
 }
 \details{
 This helper function is a core component of Newton-Raphson optimization.
-It provides a computationally-stable approach to computing \eqn{\textbf{G}\textbf{u}}, for
-information matrix \eqn{\textbf{G}} and score vector \eqn{\textbf{u}}, where the Newton-Raphson update
-can be expressed as \eqn{\boldsymbol{\beta}^{(m+1)} = \boldsymbol{\beta}^{(m)} + \textbf{G}\textbf{u}}.
+It provides a computationally-stable approach to computing
+\eqn{\textbf{G}\textbf{u}}, for information matrix \eqn{\textbf{G}} and
+score vector \eqn{\textbf{u}}, where the Newton-Raphson update can be
+expressed as
+\eqn{\boldsymbol{\beta}^{(m+1)} = \boldsymbol{\beta}^{(m)} + \textbf{G}\textbf{u}}.
 }
 \seealso{
 \code{\link{damped_newton_r}} for the full optimization routine

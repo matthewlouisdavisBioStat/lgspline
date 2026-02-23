@@ -28,7 +28,8 @@ unconstrained_fit_weibull(
 
 \item{y}{Survival/response times}
 
-\item{LambdaHalf}{Square root of penalty matrix (\eqn{\boldsymbol{\Lambda}^{1/2}})}
+\item{LambdaHalf}{Square root of penalty matrix
+(\eqn{\boldsymbol{\Lambda}^{1/2}})}
 
 \item{Lambda}{Penalty matrix (\eqn{\boldsymbol{\Lambda}})}
 
@@ -61,7 +62,8 @@ full survival time is unknown, typically because the study ended or the
 subject was lost to follow-up before the event of interest occurred.}
 }
 \value{
-Optimized beta parameter estimates (\eqn{\boldsymbol{\beta}}) for Weibull AFT model
+Optimized beta parameter estimates (\eqn{\boldsymbol{\beta}}) for Weibull
+AFT model
 }
 \description{
 Estimates parameters for an unconstrained Weibull accelerated failure time
@@ -76,10 +78,16 @@ Estimation Approach:
 The function employs a two-stage optimization strategy for fitting
 accelerated failure time models via maximum likelihood:
 
-1. Outer Loop: Estimate Scale Parameter using Brent's method
+1. Outer Loop: Estimate Scale Parameter (sigma) using Brent's method
 
-2. Inner Loop: Estimate Regression Coefficients (given scale) using
+2. Inner Loop: Estimate Regression Coefficients (given sigma) using
    damped Newton-Raphson.
+
+Note: the score and information inside the Newton-Raphson are both scaled
+by sigma^2 (i.e., both omit the 1/sigma and 1/sigma^2 prefactors
+respectively). Since the Newton-Raphson step is
+G*u = (X^T W X)^{-1} X^T v, the sigma^2 factors cancel and the step
+remains correct.
 }
 \examples{
 
@@ -106,7 +114,7 @@ model_fit <- lgspline(y ~ spl(t1) + t2,
                       need_dispersion_for_estimation = TRUE,
                       dispersion_function = weibull_dispersion_function,
                       glm_weight_function = weibull_glm_weight_function,
-                      shur_correction_function = weibull_shur_correction,
+                      schur_correction_function = weibull_schur_correction,
                       status = status,
                       opt = FALSE,
                       K = 1)

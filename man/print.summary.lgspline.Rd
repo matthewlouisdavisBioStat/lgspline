@@ -20,5 +20,10 @@ effective degrees of freedom, and a coefficient table for univariate inference
 (if available) analogous to output from \code{\link[stats]{summary.glm}}.
 }
 \description{
-Print Method for lgspline Object Summaries
+Displays a formatted summary of the fitted \code{lgspline} model to the
+console. Uses \code{\link[stats]{printCoefmat}} for coefficient tables to
+obtain standard formatting of p-values and significance codes.
+}
+\seealso{
+\code{\link[stats]{printCoefmat}}
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{matinvsqrt}
 \alias{matinvsqrt}
-\title{Calculate Matrix Inverse Square Root}
+\title{Calculate Matrix Inverse Square Root for Symmetric Matrices}
 \usage{
 matinvsqrt(mat)
 }
@@ -13,7 +13,7 @@ matinvsqrt(mat)
 A matrix \eqn{\textbf{B}} such that \eqn{\textbf{B}\textbf{B} = \textbf{M}^{-1}}
 }
 \description{
-Calculate Matrix Inverse Square Root
+Calculate Matrix Inverse Square Root for Symmetric Matrices
 }
 \details{
 For matrix \eqn{\textbf{M}}, computes \eqn{\textbf{B}} where \eqn{\textbf{B}\textbf{B} = \textbf{M}^{-1}} using eigenvalue decomposition:

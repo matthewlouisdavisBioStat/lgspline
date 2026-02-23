@@ -40,8 +40,8 @@ Default NULL}
 \item{rem_chunks}{Integer; Number of remainder chunks for parallel processing.
 Default NULL}
 
-\item{B_predict}{Matrix; Optional custom coefficient matrix for prediction.
-Default NULL (uses object$B internally).}
+\item{B_predict}{List; Optional custom per-partition coefficient list for prediction,
+e.g. from generate_posterior(). Default NULL (uses object$B).}
 
 \item{take_first_derivatives}{Logical; whether to compute first derivatives of the
 fitted function. Default FALSE}

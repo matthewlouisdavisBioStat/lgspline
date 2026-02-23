@@ -23,6 +23,7 @@
   color_function = NULL,
   add = FALSE,
   vars = c(),
+  legend_order = NULL,
   ...
 )
 }
@@ -74,6 +75,8 @@ and 8 for 2D}
 \code{\link[graphics]{hist}}. Default FALSE}
 
 \item{vars}{Numeric or character vector; Optional indices for selecting variables to plot. Can either be numeric (the column indices of "predictors" or "data") or character (the column names, if available from "predictors" or "data")}
+
+\item{legend_order}{Numeric specifying the re-arranged default order of partitions in the legend.}
 
 \item{...}{Additional arguments passed to underlying plot functions:
 \itemize{

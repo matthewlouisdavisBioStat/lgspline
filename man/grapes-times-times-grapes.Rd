@@ -27,3 +27,4 @@ M2 <- matrix(5:8, 2, 2)
 M1 \%**\% M2
 
 }
+\keyword{internal}

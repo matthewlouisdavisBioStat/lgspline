@@ -20,19 +20,21 @@ subject was lost to follow-up before the event of interest occurred.}
 \item{weights}{Optional observation weights (default = 1)}
 }
 \value{
-Scalar representing the estimated scale
+Scalar representing the estimated Weibull scale (sigma), equivalent to
+\code{survreg$scale}. The dispersion (as stored in
+\code{lgspline$sigmasq_tilde}) is sigma^2.
 }
 \description{
-Computes maximum log-likelihood scale estimate of Weibull accelerated failure
-time (AFT) survival model.
+Computes maximum log-likelihood scale estimate (sigma) for a Weibull
+accelerated failure time (AFT) survival model.
 
 This both provides a tool for actually fitting Weibull AFT Models, and
 boilerplate code for users who wish to incorporate Lagrangian multiplier
 smoothing splines into their own custom models.
 }
 \details{
-Calculates maximum log-likelihood estimate of scale for Weibull AFT model
-accounting for right-censored observations using Brent's method for
+Calculates maximum log-likelihood estimate of scale (sigma) for Weibull AFT
+model accounting for right-censored observations using Brent's method for
 optimization.
 }
 \examples{

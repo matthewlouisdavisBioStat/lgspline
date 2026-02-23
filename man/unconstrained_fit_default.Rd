@@ -28,13 +28,15 @@ unconstrained_fit_default(
 
 \item{y}{Response variable vector}
 
-\item{LambdaHalf}{Square root of penalty matrix (\eqn{\boldsymbol{\Lambda}^{1/2}})}
+\item{LambdaHalf}{Square root of penalty matrix
+(\eqn{\boldsymbol{\Lambda}^{1/2}})}
 
 \item{Lambda}{Penalty matrix (\eqn{\boldsymbol{\Lambda}})}
 
 \item{keep_weighted_Lambda}{Logical flag to control penalty matrix handling:
-- `TRUE`: Return coefficients directly from weighted penalty fitting
-- `FALSE`: Apply damped Newton-Raphson optimization to refine estimates}
+- \code{TRUE}: Return coefficients directly from weighted penalty fitting
+- \code{FALSE}: Apply damped Newton-Raphson optimization to refine
+  estimates}
 
 \item{family}{Distribution family specification}
 
@@ -61,14 +63,15 @@ unconstrained_fit_default(
 \value{
 Optimized parameter estimates for canonical generalized linear models.
 
-For fitting non-canonical GLMs, use \code{keep_weighted_Lambda = TRUE} since the
-score and hessian equations below are no longer valid.
+For fitting non-canonical GLMs, use \code{keep_weighted_Lambda = TRUE}
+since the score and hessian equations below are no longer valid.
 
-For Gamma(link='log') using \code{keep_weighted_Lambda = TRUE} is misleading.
-The information is weighted by a constant (shape parameter) rather than some
-mean-variance relationship. So \code{keep_weighted_Lambda = TRUE} is highly
-recommended for log-link Gamma models. This constant flushes into the
-penalty terms, and so the formulation of the information matrix is valid.
+For Gamma(link='log') using \code{keep_weighted_Lambda = TRUE} is
+misleading. The information is weighted by a constant (shape parameter)
+rather than some mean-variance relationship. So
+\code{keep_weighted_Lambda = TRUE} is highly recommended for log-link Gamma
+models. This constant flushes into the penalty terms, and so the
+formulation of the information matrix is valid.
 
 For other scenarios, like probit regression, there will be diagonal weights
 incorporated into the penalty matrix for providing initial MLE estimates,
@@ -79,7 +82,8 @@ Heuristically, it shouldn't affect much, as these will be updated to their
 proper form when providing estimates under constraint; lgspline otherwise
 does use the correct form of score and information afterwards,
 regardless of canonical/non-canonical status,
-as long as 'glm_weight_function' and 'qp_score_function' are properly specified.
+as long as 'glm_weight_function' and 'qp_score_function' are properly
+specified.
 }
 \description{
 Fits generalized linear models without smoothing constraints

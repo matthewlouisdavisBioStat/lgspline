@@ -2,20 +2,37 @@
 % Please edit documentation in R/leave_one_out.R
 \name{leave_one_out}
 \alias{leave_one_out}
-\title{Compute Leave-One-Out Cross-Validated predictions for
+\title{Compute Leave-One-Out Cross-Validated Predictions for
 Gaussian Response/Identity Link under Constraint.}
 \usage{
-leave_one_out(model_fit)
+leave_one_out(model_fit, leverage_threshold = 100)
 }
 \arguments{
-\item{model_fit}{A fitted Lagrangian smoothing spline model}
+\item{model_fit}{A fitted lgspline model object.}
+
+\item{leverage_threshold}{Numeric scalar in (0, 1). Observations with
+\eqn{H_{ii} \geq} \code{leverage_threshold} are treated as
+high-leverage and their LOO predictions are set to \code{NA}.
+Default \code{100}.}
 }
 \value{
 A vector of leave-one-out cross-validated predictions
 }
 \description{
-Computes the leave-one-out cross-validated predictions from a model fit,
-assuming Gaussian-distributed response with identity link.
+Computes the leave-one-out cross-validated predictions from a model
+fit, assuming Gaussian-distributed response with identity link.
+
+The LOO closed-formula for observation \eqn{i} is \eqn{\hat{y}_{(-i)} = y_i -
+\frac{1}{1 - H_{ii}}(y_i - \hat{y}_i)} where
+\eqn{\mathbf{H}} is the effective hat matrix under
+smoothing constraints, adjusted for weights and correlation structure if
+present.
+
+Observations with leverage at or above \code{leverage_threshold} have
+the denominator \eqn{1 - H_{ii}} near zero, making the shortcut
+numerically unreliable. A warning is
+issued to consider re-fitting with greater penalties or fewer knots if
+many observations are flagged.
 }
 \examples{
 
@@ -23,12 +40,12 @@ assuming Gaussian-distributed response with identity link.
 set.seed(1234)
 t <- rnorm(50)
 y <- sin(t) + rnorm(50, 0, .25)
-fit <- lgspline(t, y)
-loo <- leave_one_out(fit)
-press <- mean((y-loo)^2)
+model_fit <- lgspline(t, y)
+loo <- leave_one_out(model_fit)
+press <- mean((y - loo)^2, na.rm = TRUE)
 
 plot(loo, y,
-   main = "Leave-One-Out Cross-Validation Prediction vs. Observed Response",
+   main = "LOO Cross-Validation Prediction vs. Observed Response",
    xlab = 'Prediction', ylab = 'Response')
 abline(0, 1)
 

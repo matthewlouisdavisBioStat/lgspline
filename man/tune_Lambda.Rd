@@ -19,11 +19,11 @@ tune_Lambda(
   colnm_expansions,
   wiggle_penalty,
   flat_ridge_penalty,
-  invsoftplus_initial_wiggle,
-  invsoftplus_initial_flat,
+  initial_wiggle,
+  initial_flat,
   unique_penalty_per_predictor,
   unique_penalty_per_partition,
-  invsoftplus_penalty_vec,
+  penalty_vec,
   meta_penalty,
   family,
   unconstrained_fit_fxn,
@@ -52,7 +52,7 @@ tune_Lambda(
   custom_penalty_mat,
   order_list,
   glm_weight_function,
-  shur_correction_function,
+  schur_correction_function,
   need_dispersion_for_estimation,
   dispersion_function,
   observation_weights,
@@ -87,15 +87,20 @@ tune_Lambda(
 
 \item{use_custom_bfgs}{Logical; TRUE for analytic gradient BFGS as natively implemented, FALSE for finite differences as implemented by \code{stats::optim()}.}
 
-\item{wiggle_penalty, flat_ridge_penalty}{Initial penalty values}
+\item{wiggle_penalty, flat_ridge_penalty}{Fixed penalty values if provided}
 
-\item{invsoftplus_initial_wiggle, invsoftplus_initial_flat}{Initial grid search values (log scale)}
+\item{initial_wiggle, initial_flat}{Numeric vectors; candidate values for grid
+search initialization on the raw (non-negative) scale. Converted to log
+scale internally for optimization.}
 
 \item{unique_penalty_per_predictor, unique_penalty_per_partition}{Logical; allow predictor/partition-specific penalties}
 
-\item{invsoftplus_penalty_vec}{Initial values for predictor/partition penalties (log scale)}
+\item{penalty_vec}{Numeric vector; initial values for predictor/partition
+penalties on the raw (non-negative) scale. Converted to log scale
+internally for optimization. Use \code{c()} when no per-predictor or
+per-partition penalties are needed.}
 
-\item{meta_penalty}{The "meta" ridge penalty, a regularization for predictor/partition penalties to pull them on log-scale towards 0 (1 on raw scale)}
+\item{meta_penalty}{The "meta" ridge penalty, a regularization for predictor/partition penalties to pull them towards 1 on the raw scale}
 
 \item{family}{GLM family with optional custom tuning loss}
 
@@ -117,7 +122,7 @@ tune_Lambda(
 
 \item{order_list}{List; observation ordering by partition}
 
-\item{glm_weight_function, shur_correction_function}{Functions for GLM weights and corrections}
+\item{glm_weight_function, schur_correction_function}{Functions for GLM weights and corrections}
 
 \item{need_dispersion_for_estimation, dispersion_function}{Control dispersion estimation}
 
@@ -158,6 +163,11 @@ Supports analytical gradients for efficiency with standard GLM families.
 Can optimize unique penalties per predictor/partition.
 Handles custom loss functions and GLM weights.
 Parallel computation available for large problems.
+
+Parameterization: initial penalty values are accepted on the raw
+(non-negative) scale and converted to natural log-scale internally,
+i.e. raw_penalty = exp(theta), so that raw penalties are always positive.
+The chain rule factor d(exp(theta))/d(theta) = exp(theta) = raw_penalty
 }
 \seealso{
 \itemize{

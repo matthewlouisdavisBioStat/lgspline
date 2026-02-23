@@ -5,8 +5,8 @@
 \alias{lgspline-methods}
 \title{lgspline: Lagrangian Multiplier Smoothing Splines}
 \description{
-Allows for common S3 methods including print, summary, coef, plot, and
-predict, with additional inference methods provided.
+Allows for common S3 methods including print, summary, coef, plot, predict,
+confint, and logLik, with additional inference methods provided.
 }
 \details{
 This package implements various methods for working with lgspline models,

@@ -19,11 +19,14 @@ weibull_glm_weight_function(
 
 \item{y}{Observed response/survival times}
 
-\item{order_indices}{Order of observations when partitioned to match "status" to "response"}
+\item{order_indices}{Order of observations when partitioned to match
+"status" to "response"}
 
 \item{family}{Weibull AFT family}
 
-\item{dispersion}{Estimated dispersion parameter (\eqn{s^2})}
+\item{dispersion}{Estimated dispersion parameter (sigma^2 = scale^2). The
+lgspline framework stores and passes dispersion (sigma^2); the Weibull
+scale (sigma) matching \code{survreg$scale} is \code{sqrt(dispersion)}.}
 
 \item{observation_weights}{Weights of observations submitted to function}
 
@@ -34,23 +37,26 @@ full survival time is unknown, typically because the study ended or the
 subject was lost to follow-up before the event of interest occurred.}
 }
 \value{
-Vector of weights for constructing the diagonal weight matrix \eqn{\textbf{W}}
-in the information matrix \eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}}.
+Vector of weights for constructing the diagonal weight matrix
+\eqn{\textbf{W}} in the information matrix
+\eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}}.
 }
 \description{
 Computes diagonal weight matrix \eqn{\textbf{W}} for the information matrix
-\eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}} in Weibull accelerated failure time (AFT) models.
+\eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}}
+in Weibull accelerated failure time (AFT) models.
 }
 \details{
 This function generates weights used in constructing the information matrix
 after unconstrained estimates have been found. Specifically, it is used in
-the construction of the \eqn{\textbf{U}} and \eqn{\textbf{G}} matrices following initial unconstrained
-parameter estimation.
+the construction of the \eqn{\textbf{U}} and \eqn{\textbf{G}} matrices
+following initial unconstrained parameter estimation.
 
 These weights are analogous to the variance terms in generalized linear
-models (GLMs). Like logistic regression uses \eqn{\mu(1-\mu)}, Poisson regression uses
-\eqn{e^{\mu}}, and Linear regression uses constant weights, Weibull AFT models use
-\eqn{\exp((\log y - \log \mu)/s)} where \eqn{s} is the scale (= \eqn{\sqrt{\text{dispersion}}}) parameter.
+models (GLMs). Like logistic regression uses \eqn{\mu(1-\mu)}, Poisson
+regression uses \eqn{e^{\mu}}, and Linear regression uses constant weights,
+Weibull AFT models use \eqn{\exp((\log y - \log \mu)/\sigma)} where
+\eqn{\sigma = \sqrt{\text{dispersion}}} is the scale parameter.
 }
 \examples{
 
@@ -76,7 +82,7 @@ model_fit <- lgspline(y ~ spl(t1) + t2,
                       need_dispersion_for_estimation = TRUE,
                       dispersion_function = weibull_dispersion_function,
                       glm_weight_function = weibull_glm_weight_function,
-                      shur_correction_function = weibull_shur_correction,
+                      schur_correction_function = weibull_schur_correction,
                       status = status,
                       opt = FALSE,
                       K = 1)

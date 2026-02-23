@@ -23,9 +23,9 @@ display. Its main components are:
  \item{basis_functions}{The number of basis functions (coefficients) estimated per partition (p).}
  \item{estimate_dispersion}{A character string ("Yes" or "No") indicating if the dispersion parameter was estimated.}
  \item{cv}{The critical value (\code{critical_value} from the fit) used by the \code{print.summary.lgspline} method for confidence intervals.}
- \item{coefficients}{A matrix summarizing univariate inference results. Columns typically include 'Estimate', 'Std. Error', test statistic ('t value' or 'z value'), 'Pr(>|t|)' or 'Pr(>|z|)', and confidence interval bounds ('CI LB', 'CI UB'). This table is fully populated only if \code{return_varcovmat=TRUE} was set in the original \code{lgspline} call. Otherwise, it defaults to a single column of estimates.}
+ \item{coefficients}{A matrix summarizing univariate inference results. Columns typically include 'Estimate', 'Std. Error', test statistic ('t value' or 'z value'), 'CI LB', 'CI UB', and 'Pr(>|t|)' or 'Pr(>|z|)'. This table is fully populated only if \code{return_varcovmat=TRUE} was set in the original \code{lgspline} call. Otherwise, it defaults to a single column of estimates.}
  \item{sigmasq_tilde}{The estimated (or fixed) dispersion parameter, \eqn{\tilde{\sigma}^2}.}
- \item{trace_XUGX}{The calculated trace term \eqn{\text{trace}(\mathbf{XUGX}^T)}, related to effective degrees of freedom.}
+ \item{trace_XUGX}{The calculated trace term \eqn{\mathrm{trace}(\mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^{\top})}, related to effective degrees of freedom.}
  \item{N}{Number of observations (N), re-included for convenience and printing.}
 }
 }

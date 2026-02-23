@@ -18,10 +18,18 @@ boilerplate code for users who wish to incorporate Lagrangian multiplier
 smoothing splines into their own custom models.
 }
 \details{
-Provides a comprehensive family specification for Weibull AFT models, including Family
-name, link function, inverse link function, and custom loss function for model tuning
+Provides a comprehensive family specification for Weibull AFT models,
+including family name, link function, inverse link function, custom loss
+function for model tuning, and methods for AIC and log-likelihood
+computation compatible with \code{logLik.lgspline}.
 
 Supports right-censored survival data with flexible parameter estimation.
+
+Note on scale vs. dispersion: throughout this package, the lgspline object
+stores \code{sigmasq_tilde} which equals sigma^2 (dispersion), where
+sigma is the Weibull scale parameter matching \code{survreg$scale}.
+Functions that accept a \code{dispersion} argument receive sigma^2;
+functions that accept a \code{scale} argument receive sigma.
 }
 \examples{
 
@@ -50,11 +58,14 @@ model_fit <- lgspline(y ~ spl(t1) + t2,
                       need_dispersion_for_estimation = TRUE,
                       dispersion_function = weibull_dispersion_function,
                       glm_weight_function = weibull_glm_weight_function,
-                      shur_correction_function = weibull_shur_correction,
+                      schur_correction_function = weibull_schur_correction,
                       status = status,
                       opt = FALSE,
                       K = 1)
 
 summary(model_fit)
+
+## Log-likelihood now works via logLik.lgspline:
+# logLik(model_fit)
 
 }

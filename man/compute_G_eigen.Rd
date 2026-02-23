@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{compute_G_eigen}
 \alias{compute_G_eigen}
-\title{Compute Eigenvalues and Related Matrices for G}
+\title{Compute Component \eqn{\textbf{G}^{1/2}\textbf{A}(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}}
 \usage{
 compute_G_eigen(
   X_gram,
@@ -17,50 +17,112 @@ compute_G_eigen(
   unique_penalty_per_partition,
   L_partition_list,
   keep_G = TRUE,
-  shur_corrections
+  schur_corrections
+)
+
+compute_G_eigen(
+  X_gram,
+  Lambda,
+  K,
+  parallel,
+  cl,
+  chunk_size,
+  num_chunks,
+  rem_chunks,
+  family,
+  unique_penalty_per_partition,
+  L_partition_list,
+  keep_G = TRUE,
+  schur_corrections
 )
 }
 \arguments{
-\item{X_gram}{Gram matrix list (\eqn{\textbf{X}^{T}\textbf{X}})}
+\item{X_gram}{List of Gram matrices \eqn{X_k^T W_k X_k} by partition.}
 
-\item{Lambda}{Penalty matrix (\eqn{\boldsymbol{\Lambda}})}
+\item{Lambda}{Penalty matrix \eqn{\Lambda} (shared across partitions).}
 
-\item{K}{Number of partitions minus 1 (\eqn{K})}
+\item{K}{Integer; number of interior knots (partitions = \eqn{K+1}).}
 
-\item{parallel}{Use parallel processing}
+\item{parallel}{Logical; use parallel processing across partitions.}
 
-\item{cl}{Cluster object}
+\item{cl}{Cluster object from \code{parallel::makeCluster}.}
 
-\item{chunk_size}{Chunk size for parallel}
+\item{chunk_size}{Size of parallel chunks}
 
 \item{num_chunks}{Number of chunks}
 
 \item{rem_chunks}{Remaining chunks}
 
-\item{family}{GLM family}
+\item{family}{GLM family object. The link function determines whether
+\eqn{G^{-1/2}} is computed (needed for non-identity links where
+iterative projection requires transforming unconstrained estimates).}
 
-\item{unique_penalty_per_partition}{Use partition penalties}
+\item{unique_penalty_per_partition}{Logical; if \code{TRUE}, add
+partition-specific penalties from \code{L_partition_list}.}
 
-\item{L_partition_list}{Partition penalty list (\eqn{\textbf{L}_\text{partition\_list}})}
+\item{L_partition_list}{List of partition-specific penalty matrices.}
 
-\item{keep_G}{Return full G matrix (\eqn{\textbf{G}})}
+\item{keep_G}{Logical; if \code{TRUE}, return the full \eqn{G} matrix
+in addition to the square roots. Set to \code{FALSE} during
+intermediate IRWLS iterations where only \eqn{G^{1/2}} and
+\eqn{G^{-1/2}} are needed.}
 
-\item{shur_corrections}{List of Shur complement corrections (\eqn{\textbf{S}})}
+\item{schur_corrections}{List of Schur complement correction matrices
+by partition, accounting for nuisance parameter uncertainty.}
+
+\item{G}{List of \eqn{\textbf{G}} matrices}
+
+\item{Ghalf}{List of \eqn{\textbf{G}^{1/2}} matrices}
+
+\item{A}{Constraint matrix \eqn{\textbf{A}}}
+
+\item{AGAInv}{Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}}
+
+\item{Xy}{List of \eqn{\textbf{X}^{T}\textbf{y}} products}
+
+\item{nc}{Number of columns}
+
+\item{chunk_size, num_chunks, rem_chunks}{Partition distribution parameters
+for parallel workers.}
 }
 \value{
-List containing combinations of:
+List containing:
 \itemize{
-  \item G - Full \eqn{\textbf{G}} matrix (if \code{keep_G=TRUE})
-  \item Ghalf - \eqn{\textbf{G}^{1/2}} matrix
-  \item GhalfInv - \eqn{\textbf{G}^{-1/2}} matrix (for non-identity links)
+  \item Result vector
+  \item AGAInvAGXy intermediate product \eqn{(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}
+}
+
+A list with components:
+\describe{
+  \item{G}{List of \eqn{G_k} matrices by partition (if
+    \code{keep_G = TRUE}; \code{NULL} entries otherwise).}
+  \item{Ghalf}{List of \eqn{G_k^{1/2}} matrices by partition.}
+  \item{GhalfInv}{List of \eqn{G_k^{-1/2}} matrices by partition
+    (only for non-Gaussian families or non-identity links).}
 }
 }
 \description{
-Compute Eigenvalues and Related Matrices for G
+Computes partition-wise covariance matrices and their matrix square roots
+from the penalized information matrix. For each partition \eqn{k}, forms
+\eqn{G_k^{-1} = X_k^T W_k X_k + \Lambda + L_k + S_k}, then extracts
+\eqn{G_k}, \eqn{G_k^{1/2}}, and (for non-Gaussian or non-identity link)
+\eqn{G_k^{-1/2}} via eigendecomposition. Eigenvalues at or below zero
+are clamped, yielding a pseudoinverse treatment of rank-deficient blocks.
 }
 \details{
-Computes \eqn{\textbf{G}}, \eqn{\textbf{G}^{1/2}} and \eqn{\textbf{G}^{-1/2}} matrices via eigendecomposition of \eqn{\textbf{X}^{T}\textbf{X} + \boldsymbol{\Lambda}_\text{effective} + \textbf{S}}.
-Handles partition-specific penalties and parallel processing.
-For non-identity link functions, also returns \eqn{\textbf{G}^{-1/2}}.
+Computes \eqn{\textbf{G}^{1/2}\textbf{A}(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}} efficiently in parallel chunks.
+Note: The description seems slightly off from the C++ helper functions called (e.g., `compute_AGXy`, `compute_result_blocks`). This computes a component needed for least-squares transformation involving \eqn{\textbf{G}^{1/2}}.
+Returns both the result and intermediate \eqn{\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}} product for reuse.
+
+The eigendecomposition of \eqn{G_k^{-1}} yields eigenvalues
+\eqn{d_i} and eigenvectors \eqn{V}. The matrix powers are then:
+\deqn{G_k = V \, \mathrm{diag}(1/d_i) \, V^T}
+\deqn{G_k^{1/2} = V \, \mathrm{diag}(1/\sqrt{d_i}) \, V^T}
+\deqn{G_k^{-1/2} = V \, \mathrm{diag}(\sqrt{d_i}) \, V^T}
+
+Eigenvalues \eqn{d_i \le 0} are clamped: the corresponding entries in
+\eqn{1/d_i} and \eqn{1/\sqrt{d_i}} are set to zero (pseudoinverse),
+while the corresponding entries in \eqn{\sqrt{d_i}} are also set to
+zero.
 }
 \keyword{internal}

@@ -18,7 +18,9 @@ right-censored (0). In survival analysis, right-censoring occurs when the
 full survival time is unknown, typically because the study ended or the
 subject was lost to follow-up before the event of interest occurred.}
 
-\item{scale}{Numeric scalar representing the Weibull scale parameter}
+\item{scale}{Numeric scalar representing the Weibull scale parameter
+(sigma), equivalent to \code{survreg$scale}. This is the square root of
+the dispersion stored in \code{lgspline$sigmasq_tilde}.}
 
 \item{weights}{Optional numeric vector of observation weights (default = 1)}
 }
@@ -63,7 +65,7 @@ model_fit <- lgspline(y ~ spl(x1) + x2,
                       need_dispersion_for_estimation = TRUE,
                       dispersion_function = weibull_dispersion_function,
                       glm_weight_function = weibull_glm_weight_function,
-                      shur_correction_function = weibull_shur_correction,
+                      schur_correction_function = weibull_schur_correction,
                       status = status,
                       opt = FALSE,
                       K = 1)

@@ -39,10 +39,17 @@ NULL
 #'
 #'
 #' @export
-create_onehot <- function(x) {
+create_onehot <- function(x, drop_first = FALSE) {
+  ## [Change 2026-02-12] C5: Added drop_first parameter for convenience;
+  # coerce to factor to ensure stable level ordering
+  if(!is.factor(x)) x <- as.factor(x)
   mat <- model.matrix(~ x - 1)
   colnames(mat) <- sub("^x", "", colnames(mat))
-  return(as.data.frame(mat))
+  result <- as.data.frame(mat)
+  if(drop_first && ncol(result) > 1){
+    result <- result[, -1, drop = FALSE]
+  }
+  return(result)
 }
 
 #' Standardize Vector to Z-Scores
@@ -108,7 +115,7 @@ softplus <- function(x){
 #' M2 <- matrix(5:8, 2, 2)
 #' M1 %**% M2
 #'
-#' @export
+#' @keywords internal
 `%**%` <- function(x, y) {
   efficient_matrix_mult(x, y)
 }
@@ -127,11 +134,14 @@ softplus <- function(x){
 #' @details
 #' Tries methods in order:
 #'
-#' 1. Direct inversion using \code{armaInv()}
+#' 1. Cholesky decomposition via \code{chol2inv(chol(...))} for symmetric
+#'    positive-definite matrices (fastest for SPD)
 #'
-#' 2. Generalized inverse using eigendecomposition
+#' 2. Direct inversion using \code{armaInv()} as first fallback
 #'
-#' 3. Returns identity matrix with warning if both fail
+#' 3. Generalized inverse using eigendecomposition with small ridge
+#'
+#' 4. Returns identity matrix with warning if all methods fail
 #'
 #' For eigendecomposition, uses a small ridge penalty (\code{1e-16}) for stability and
 #' zeroes eigenvalues below machine precision.
@@ -139,44 +149,55 @@ softplus <- function(x){
 #' @examples
 #' ## Well-conditioned matrix
 #' A <- matrix(c(4,2,2,4), 2, 2)
-#' invert(A) %**% A
+#' invert(A) %*% A
 #'
 #' ## Singular matrix falls back to M.P. generalized inverse
 #' B <- matrix(c(1,1,1,1), 2, 2)
-#' invert(B) %**% B
+#' invert(B) %*% B
 #'
 #' @keywords internal
 #' @export
 invert <- function(mat, include_warnings = FALSE){
 
-  ## Try inversion
+  ## [Change 2026-02-12] C2 (B2): Try Cholesky first for SPD matrices
+  ## chol2inv(chol(M)) is faster than solve(M) for SPD M
+  t <- try({
+    chol2inv(chol(mat))
+  }, silent = TRUE)
+
+  if(!any(inherits(t, 'try-error'))){
+    return(t)
+  }
+
+  ## Fallback 1: direct inversion via Armadillo
   t <- try({
     armaInv(mat)
   }, silent = TRUE)
 
-  ## Try generalized inverse with small ridge penalty
-  if(any(inherits(t, 'try-error'))){
-    t <- try({
-      eig <- eigen(mat + 1e-16*diag(nrow(mat)), symmetric = TRUE)
-      d_inv <- ifelse(eig$values <= sqrt(.Machine$double.eps),
-                      0,
-                      1/eig$values)
-      eig$vectors %**% (t(eig$vectors) * d_inv)
-    },silent = TRUE)
-  } else {
+  if(!any(inherits(t, 'try-error'))){
     return(t)
   }
 
-  ## Return diagonal matrix with warning
-  # Justification for identity is that for Newton-Raphson, this reduces
-  # to approx. gradient-descent. But this is a terrible option for inference!
-  if(any(inherits(t, 'try-error'))){
-    if(include_warnings) warning('Matrix not inverted, returning identity: ',
-                                 print(t))
-    return(diag(nrow(mat)))
-  } else {
+  ## Fallback 2: generalized inverse with small ridge penalty
+  # [Change 2026-02-12] C1: replaced %**% with crossprod/tcrossprod
+  t <- try({
+    eig <- eigen(mat + 1e-16*diag(nrow(mat)), symmetric = TRUE)
+    d_inv <- ifelse(eig$values <= sqrt(.Machine$double.eps),
+                    0,
+                    1/eig$values)
+    tcrossprod(eig$vectors * rep(d_inv, each = nrow(mat)), eig$vectors)
+  }, silent = TRUE)
+
+  if(!any(inherits(t, 'try-error'))){
     return(t)
   }
+
+  ## Fallback 3: return identity matrix with warning
+  # Justification for identity is that for Newton-Raphson, this reduces
+  # to approx. gradient-descent. But this is a terrible option for inference!
+  if(include_warnings) warning('Matrix not inverted, returning identity: ',
+                               print(t))
+  return(diag(nrow(mat)))
 }
 
 #' Multiply Block Diagonal Matrices in Parallel
@@ -801,7 +822,7 @@ compute_gram_block_diagonal <- function(list_in,
     if(rem_chunks > 0) {
       rem_indices <- num_chunks*chunk_size + 1:rem_chunks
       rem <- lapply(rem_indices, function(k, func) {
-        gramMatrix(list_in[[k]])
+        crossprod(list_in[[k]])
       })
     } else {
       rem <- list()
@@ -812,13 +833,13 @@ compute_gram_block_diagonal <- function(list_in,
       Reduce("c", parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         inds <- (chunk - 1)*chunk_size + 1:chunk_size
         lapply(inds, function(k) {
-          gramMatrix(list_in[[k]])
+          crossprod(list_in[[k]])
         })
       })),
       rem
     )
   } else {
-    result <- lapply(list_in, gramMatrix)
+    result <- lapply(list_in, crossprod)
   }
   return(result)
 }
@@ -1264,15 +1285,16 @@ compute_dG_dlambda <- function(G,
     })
   }
 
+  ## [2026-02-12] replaced %**% with crossprod/tcrossprod
   if(parallel & !is.null(cl)) {
     ## Handle remainder chunks first
     if(rem_chunks > 0) {
       rem_indices <- num_chunks*chunk_size + 1:rem_chunks
       rem <- lapply(rem_indices, function(k) {
         if(unique_penalty_per_partition){
-          G[[k]] %**% -negL_lambda[[k]] %**% G[[k]]
+          crossprod(t(G[[k]]), crossprod(t(-negL_lambda[[k]]), G[[k]]))
         } else {
-          G[[k]] %**% negL_lambda %**% G[[k]]
+          crossprod(t(G[[k]]), crossprod(t(negL_lambda), G[[k]]))
         }
       })
     } else {
@@ -1285,9 +1307,9 @@ compute_dG_dlambda <- function(G,
         inds <- (chunk - 1)*chunk_size + 1:chunk_size
         lapply(inds, function(k) {
           if(unique_penalty_per_partition){
-            G[[k]] %**% -negL_lambda[[k]] %**% G[[k]]
+            crossprod(t(G[[k]]), crossprod(t(-negL_lambda[[k]]), G[[k]]))
           } else {
-            G[[k]] %**% negL_lambda %**% G[[k]]
+            crossprod(t(G[[k]]), crossprod(t(negL_lambda), G[[k]]))
           }
         })
       })),
@@ -1298,9 +1320,9 @@ compute_dG_dlambda <- function(G,
     ## Sequential computation
     result <- lapply(1:(K+1), function(k){
       if(unique_penalty_per_partition){
-        G[[k]] %**% -negL_lambda[[k]]  %**% G[[k]]
+        crossprod(t(G[[k]]), crossprod(t(-negL_lambda[[k]]), G[[k]]))
       } else {
-        G[[k]] %**% negL_lambda %**% G[[k]]
+        crossprod(t(G[[k]]), crossprod(t(negL_lambda), G[[k]]))
       }
     })
   }
@@ -1371,7 +1393,7 @@ compute_dW_dlambda_wrapper <- function(G,
 
       # Compute initial trace
       trace_part <- sum(sapply(inds, function(k)
-        sum(diag(dG_dlambda[[k]] %**% GXX[[k]]))))
+        sum(diag(crossprod(t(dG_dlambda[[k]]), GXX[[k]])))))
 
       # Get relevant chunk of A
       A_chunk <- A[(start_idx*nc + 1):min((max(inds))*nc, nrow(A)), ]
@@ -1507,21 +1529,221 @@ compute_trace_UGXX_wrapper <- function(G,
   }
 }
 
+## [Change 2026-02-15] replace compute trace UGXX with more stable and efficient
+# version below
 
-#' Compute Derivative of \eqn{\textbf{U}\textbf{G}\textbf{X}^{T}\textbf{y}} with Respect to Lambda
+#' Effective degrees of freedom via trace of the hat matrix
 #'
-#' @param AGAInv_AGXy Product of \eqn{(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}} and \eqn{\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}
-#' @param AGAInv Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}
-#' @param G List of \eqn{\textbf{G}} matrices
-#' @param A Constraint matrix \eqn{\textbf{A}}
-#' @param dG_dlambda List of \eqn{d\textbf{G}/d\lambda} matrices
+#' Computes \eqn{\mathrm{tr}(\mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^\top
+#' \mathbf{W}^{1/2}\mathbf{V}^{-1}\mathbf{W}^{1/2})} without forming
+#' the \eqn{N \times N} hat matrix, by reducing the problem to
+#' \eqn{P \times P} and \eqn{r \times r} operations.
+#'
+#' @details
+#' \subsection{Derivation}{
+#' Let \eqn{\mathbf{G} = (\mathbf{X}^\top\mathbf{W}^{1/2}\mathbf{V}^{-1}\mathbf{W}^{1/2}\mathbf{X} + \boldsymbol{\Lambda})^{-1}}
+#' and \eqn{\mathbf{U} = \mathbf{I} - \mathbf{G}\mathbf{A}(\mathbf{A}^\top\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^\top}.
+#' By the cyclic property of the trace:
+#' \deqn{\mathrm{tr}(\mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^\top\mathbf{W}^{1/2}\mathbf{V}^{-1}\mathbf{W}^{1/2}) = \mathrm{tr}(\mathbf{U}\mathbf{G}\,\mathbf{X}^\top\mathbf{W}^{1/2}\mathbf{V}^{-1}\mathbf{W}^{1/2}\mathbf{X})}
+#'
+#' Substituting \eqn{\mathbf{X}^\top\mathbf{W}^{1/2}\mathbf{V}^{-1}\mathbf{W}^{1/2}\mathbf{X} = \mathbf{G}^{-1} - \boldsymbol{\Lambda}}:
+#' \deqn{= \mathrm{tr}(\mathbf{U}\mathbf{G}(\mathbf{G}^{-1} - \boldsymbol{\Lambda})) = \mathrm{tr}(\mathbf{U}) - \mathrm{tr}(\mathbf{U}\mathbf{G}\boldsymbol{\Lambda})}
+#'
+#' Since \eqn{\mathbf{U}} is idempotent,
+#' \eqn{\mathrm{tr}(\mathbf{U}) = \mathrm{rank}(\mathbf{U}) = P - r}
+#' where \eqn{r = \mathrm{rank}(\mathbf{A})}. For the second term,
+#' expand \eqn{\mathbf{U} = \mathbf{I} - \mathbf{G}\mathbf{A}(\mathbf{A}^\top\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^\top}:
+#' \deqn{\mathrm{tr}(\mathbf{U}\mathbf{G}\boldsymbol{\Lambda}) = \mathrm{tr}(\mathbf{G}\boldsymbol{\Lambda}) - \mathrm{tr}\!\left((\mathbf{A}^\top\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^\top\mathbf{G}\boldsymbol{\Lambda}\mathbf{G}\mathbf{A}\right)}
+#'
+#' using the cyclic property on the second term. Both \eqn{\mathbf{G}}
+#' and \eqn{\boldsymbol{\Lambda}} are block-diagonal with \eqn{K+1}
+#' blocks of dimension \eqn{p \times p}, so:
+#' \deqn{\mathrm{tr}(\mathbf{G}\boldsymbol{\Lambda}) = \sum_{k=1}^{K+1}\mathrm{tr}(\mathbf{G}_k\boldsymbol{\Lambda}_k)}
+#' and \eqn{\mathbf{G}\boldsymbol{\Lambda}\mathbf{G}} is also block-diagonal
+#' with blocks \eqn{\mathbf{G}_k\boldsymbol{\Lambda}_k\mathbf{G}_k}.
+#'
+#' Combining:
+#' \deqn{\mathrm{tr}(\mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^\top\mathbf{W}^{1/2}\mathbf{V}^{-1}\mathbf{W}^{1/2}) = (P - r) - \sum_{k=1}^{K+1}\mathrm{tr}(\mathbf{G}_k\boldsymbol{\Lambda}_k) + \mathrm{tr}\!\left((\mathbf{A}^\top\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^\top\mathbf{G}\boldsymbol{\Lambda}\mathbf{G}\mathbf{A}\right)}
+#'
+#' The correction term
+#' \eqn{\mathrm{tr}((\mathbf{A}^\top\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^\top\mathbf{G}\boldsymbol{\Lambda}\mathbf{G}\mathbf{A})}
+#' is an \eqn{r \times r} trace and captures the degrees of freedom
+#' recovered because the constraints pin certain linear combinations of
+#' penalized coefficients, removing them from estimation. When
+#' \eqn{\boldsymbol{\Lambda} = \mathbf{0}} (no penalty), both
+#' \eqn{\mathrm{tr}(\mathbf{G}\boldsymbol{\Lambda})} and the correction
+#' vanish, giving \eqn{\mathrm{edf} = P - r}. When \eqn{\mathbf{U} = \mathbf{I}}
+#' (no constraints), \eqn{r = 0} and the correction vanishes, giving
+#' \eqn{\mathrm{edf} = P - \mathrm{tr}(\mathbf{G}\boldsymbol{\Lambda})}.
+#'
+#' The result is invariant to the correlation structure \eqn{\mathbf{V}}
+#' and GLM weights \eqn{\mathbf{W}}, which enter only through
+#' \eqn{\mathbf{G}}.
+#' }
+#'
+#' \subsection{Partition-specific penalties}{
+#' When \code{unique_penalty_per_partition = TRUE}, each partition \eqn{k}
+#' has an additional penalty matrix \eqn{\mathbf{L}_k} from
+#' \code{L_partition_list}, so the effective per-partition penalty becomes
+#' \eqn{\boldsymbol{\Lambda}_k = \boldsymbol{\Lambda} + \mathbf{L}_k}.
+#' All block-wise traces and products use \eqn{\boldsymbol{\Lambda}_k}
+#' in place of the shared \eqn{\boldsymbol{\Lambda}}.
+#' }
+#'
+#' \subsection{Computational cost}{
+#' The partition-wise traces \eqn{\mathrm{tr}(\mathbf{G}_k\boldsymbol{\Lambda}_k)}
+#' cost \eqn{O(p^2)} each and are parallelizable. The correction term
+#' requires forming \eqn{\mathbf{G}\boldsymbol{\Lambda}\mathbf{G}\mathbf{A}}
+#' (block-diagonal times sparse, \eqn{O((K+1)p^2 r)}) and a single
+#' \eqn{r \times r} trace (\eqn{O(r^2)}). The total cost is
+#' \eqn{O((K+1)p^2 + r^2)}, compared to \eqn{O(N^2)} or \eqn{O(NP)}
+#' for forming and tracing the full hat matrix.
+#' }
+#'
+#' @param G List of \eqn{K+1} matrices \eqn{\mathbf{G}_k}, each \eqn{p \times p}.
+#' @param Lambda Base penalty matrix \eqn{\boldsymbol{\Lambda}}, \eqn{p \times p},
+#'   shared across all partitions. When \code{unique_penalty_per_partition = FALSE},
+#'   this is the full per-block penalty. When \code{TRUE}, the effective penalty
+#'   for partition \eqn{k} is \eqn{\boldsymbol{\Lambda} + \mathbf{L}_k}.
+#' @param A Constraint matrix, \eqn{P \times r}.
+#' @param AGAInv Precomputed \eqn{(\mathbf{A}^\top\mathbf{G}\mathbf{A})^{-1}},
+#'   \eqn{r \times r}.
+#' @param nc Number of columns per partition block (\eqn{p}).
+#' @param nca Number of constraint columns (\eqn{r}).
+#' @param K Number of interior knots (so there are \eqn{K+1} partitions).
+#' @param parallel Logical; use parallel processing.
+#' @param cl Cluster object for parallel computation.
+#' @param chunk_size Size of parallel chunks.
+#' @param num_chunks Number of full-size chunks.
+#' @param rem_chunks Number of remaining partitions in the final chunk.
+#' @param unique_penalty_per_partition Logical; if \code{TRUE}, each partition
+#'   receives an additional penalty from \code{L_partition_list}.
+#' @param L_partition_list List of partition-specific penalty matrices
+#'   \eqn{\mathbf{L}_k}, each \eqn{p \times p}. Only used when
+#'   \code{unique_penalty_per_partition = TRUE}; ignored otherwise.
+#'
+#' @return Scalar effective degrees of freedom, clamped to \eqn{[0, \, (K+1)p]}.
+#'
+#' @keywords internal
+#' @export
+compute_trace_H <- function(G,
+                            Lambda,
+                            A,
+                            AGAInv,
+                            nc,
+                            nca,
+                            K,
+                            parallel,
+                            cl,
+                            chunk_size,
+                            num_chunks,
+                            rem_chunks,
+                            unique_penalty_per_partition,
+                            L_partition_list) {
+
+  n_partitions <- K + 1
+  P <- nc * n_partitions
+  r <- nca
+
+  ## Term 1: rank(U) = P - r
+  rank_U <- P - r
+
+  ## Helper: get the effective Lambda block for partition k
+  #  When unique_penalty_per_partition, Lambda_k = Lambda + L_partition_list[[k]]
+  #  Otherwise Lambda_k = Lambda for all k
+  get_Lambda_k <- function(k) {
+    if (unique_penalty_per_partition) {
+      Lambda + L_partition_list[[k]]
+    } else {
+      Lambda
+    }
+  }
+
+  ## Terms 2 and 3 computed jointly per partition
+  # Term 2: sum_k tr(G_k Lambda_k)
+  # Term 3: B = G Lambda G A (rows assembled block-wise)
+  B <- matrix(0, P, r)
+
+  if (parallel & !is.null(cl)) {
+    ## Build chunk index lists
+    total_chunks <- num_chunks + (rem_chunks > 0)
+    chunk_indices <- vector("list", total_chunks)
+    for (i in seq_len(num_chunks)) {
+      chunk_indices[[i]] <- (i - 1) * chunk_size + seq_len(chunk_size)
+    }
+    if (rem_chunks > 0) {
+      chunk_indices[[total_chunks]] <- num_chunks * chunk_size +
+        seq_len(rem_chunks)
+    }
+
+    ## Parallel: each chunk computes its partition-wise traces and B rows
+    results <- parallel::parLapply(cl, chunk_indices, function(inds) {
+      tr_parts <- numeric(length(inds))
+      B_chunk <- matrix(0, length(inds) * nc, r)
+      for (j in seq_along(inds)) {
+        k <- inds[j]
+        Lk <- get_Lambda_k(k)
+        tr_parts[j] <- sum(G[[k]] * Lk)
+        rows_local <- (j - 1) * nc + seq_len(nc)
+        rows_global <- (k - 1) * nc + seq_len(nc)
+        A_k <- A[rows_global, , drop = FALSE]
+        B_chunk[rows_local, ] <- G[[k]] %**% (Lk %**% (G[[k]] %**% A_k))
+      }
+      list(tr_parts = tr_parts, B_chunk = B_chunk, inds = inds)
+    })
+
+    ## Collect parallel results
+    tr_GLambda <- 0
+    for (res in results) {
+      tr_GLambda <- tr_GLambda + sum(res$tr_parts)
+      for (j in seq_along(res$inds)) {
+        k <- res$inds[j]
+        rows_global <- (k - 1) * nc + seq_len(nc)
+        rows_local <- (j - 1) * nc + seq_len(nc)
+        B[rows_global, ] <- res$B_chunk[rows_local, ]
+      }
+    }
+  } else {
+    ## Sequential
+    tr_GLambda <- 0
+    for (k in seq_len(n_partitions)) {
+      Lk <- get_Lambda_k(k)
+      tr_GLambda <- tr_GLambda + sum(G[[k]] * Lk)
+      rows <- (k - 1) * nc + seq_len(nc)
+      A_k <- A[rows, , drop = FALSE]
+      B[rows, ] <- G[[k]] %**% (Lk %**% (G[[k]] %**% A_k))
+    }
+  }
+
+  ## Term 3: tr((A'GA)^{-1} A' G Lambda G A)
+  D <- crossprod(A, B)
+  tr_correction <- sum(AGAInv * t(D))
+
+  ## Combine
+  edf <- rank_U - tr_GLambda + tr_correction
+
+  return(min(max(edf, 0), P))
+}
+
+#' Derivative of Constrained Penalized Coefficients with Respect to Lambda
+#'
+#' Computes \eqn{d(\mathbf{U}\mathbf{G}\mathbf{X}^{T}\mathbf{y})/d\lambda},
+#' the sensitivity of the constrained coefficient estimates
+#' \eqn{\tilde{\boldsymbol{\beta}} = \mathbf{U}\mathbf{G}\mathbf{X}^T\mathbf{y}}
+#' to changes in the smoothing parameter \eqn{\lambda}.
+#'
+#' @param AGAInv_AGXy Product of \eqn{(\mathbf{A}^{T}\mathbf{G}\mathbf{A})^{-1}} and \eqn{\mathbf{A}^{T}\mathbf{G}\mathbf{X}^{T}\mathbf{y}}
+#' @param AGAInv Inverse of \eqn{\mathbf{A}^{T}\mathbf{G}\mathbf{A}}
+#' @param G List of \eqn{\mathbf{G}} matrices
+#' @param A Constraint matrix \eqn{\mathbf{A}}
+#' @param dG_dlambda List of \eqn{d\mathbf{G}/d\lambda} matrices
 #' @param nc Number of columns
 #' @param nca Number of constraint columns
 #' @param K Number of partitions minus 1 (\eqn{K})
-#' @param Xy List of \eqn{\textbf{X}^{T}\textbf{y}} products
-#' @param Ghalf List of \eqn{\textbf{G}^{1/2}} matrices
-#' @param dGhalf List of \eqn{d\textbf{G}^{1/2}/d\lambda} matrices
-#' @param GhalfXy_temp Temporary storage for \eqn{\textbf{G}^{1/2}\textbf{X}^{T}\textbf{y}}
+#' @param Xy List of \eqn{\mathbf{X}^{T}\mathbf{y}} products
+#' @param Ghalf List of \eqn{\mathbf{G}^{1/2}} matrices
+#' @param dGhalf List of \eqn{d\mathbf{G}^{1/2}/d\lambda} matrices
+#' @param GhalfXy_temp Temporary storage for \eqn{\mathbf{G}^{1/2}\mathbf{X}^{T}\mathbf{y}}
 #' @param parallel Use parallel processing
 #' @param cl Cluster object
 #' @param chunk_size Size of parallel chunks
@@ -1529,12 +1751,76 @@ compute_trace_UGXX_wrapper <- function(G,
 #' @param rem_chunks Remaining chunks
 #'
 #' @details
-#' Computes \eqn{d(\textbf{U}\textbf{G}\textbf{X}^{T}\textbf{y})/d\lambda}.
-#' Uses efficient implementation avoiding large matrix construction.
-#' For large problems (\eqn{K \ge 10}, \eqn{nc > 4}), uses chunked parallel processing.
-#' For smaller problems, uses simpler least squares approach based on \eqn{\textbf{G}^{1/2}}.
+#' This function is called during GCV/penalty optimization and computes
+#' how the constrained coefficient vector changes as the penalty weight
+#' varies. Two implementations are provided depending on problem size.
 #'
-#' @return Vector of derivatives
+#' \subsection{Derivation}{
+#' The constrained estimate is
+#' \eqn{\tilde{\boldsymbol{\beta}} = \mathbf{U}\hat{\boldsymbol{\beta}}}
+#' where
+#' \eqn{\hat{\boldsymbol{\beta}} = \mathbf{G}\mathbf{X}^T\mathbf{y}}
+#' and
+#' \eqn{\mathbf{U} = \mathbf{I} - \mathbf{G}\mathbf{A}(\mathbf{A}^T\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^T}.
+#' Both \eqn{\mathbf{G}} and \eqn{\mathbf{U}} depend on \eqn{\lambda}
+#' through \eqn{\mathbf{G} = (\mathbf{X}^T\mathbf{X} + \lambda\boldsymbol{\Lambda})^{-1}}.
+#'
+#' Differentiating the product \eqn{\mathbf{U}\mathbf{G}\mathbf{X}^T\mathbf{y}}
+#' requires the chain rule applied to three \eqn{\lambda}-dependent
+#' components:
+#' \deqn{\frac{d}{d\lambda}(\mathbf{U}\mathbf{G}\mathbf{X}^T\mathbf{y})}
+#' \deqn{= \frac{d\mathbf{U}}{d\lambda}\hat{\boldsymbol{\beta}} + \mathbf{U}\frac{d\hat{\boldsymbol{\beta}}}{d\lambda}}
+#'
+#' The unconstrained part is straightforward:
+#' \eqn{d\hat{\boldsymbol{\beta}}/d\lambda = (d\mathbf{G}/d\lambda)\mathbf{X}^T\mathbf{y}},
+#' computed partition-wise since \eqn{\mathbf{G}} is block-diagonal.
+#'
+#' The constraint projection derivative is more involved. Writing
+#' \eqn{\mathbf{C} = (\mathbf{A}^T\mathbf{G}\mathbf{A})^{-1}} and
+#' expanding \eqn{d\mathbf{U}/d\lambda} gives three terms (after
+#' applying the product rule and the identity
+#' \eqn{d\mathbf{C}/d\lambda = -\mathbf{C}(d(\mathbf{A}^T\mathbf{G}\mathbf{A})/d\lambda)\mathbf{C}}):
+#' \describe{
+#'   \item{term2a}{\eqn{(d\mathbf{G}/d\lambda)\mathbf{A}\mathbf{C}\mathbf{A}^T\hat{\boldsymbol{\beta}}}
+#'     direct effect of \eqn{d\mathbf{G}/d\lambda} on the projection}
+#'   \item{term2b}{\eqn{\mathbf{G}\mathbf{A}\mathbf{C}(d(\mathbf{A}^T\mathbf{G}\mathbf{A})/d\lambda)\mathbf{C}\mathbf{A}^T\hat{\boldsymbol{\beta}}}
+#'     effect through the change in \eqn{(\mathbf{A}^T\mathbf{G}\mathbf{A})^{-1}}}
+#'   \item{term2c}{\eqn{\mathbf{G}\mathbf{A}\mathbf{C}\mathbf{A}^T(d\hat{\boldsymbol{\beta}}/d\lambda)}
+#'     projection of the unconstrained derivative back through the constraint}
+#' }
+#'
+#' The full derivative is
+#' \eqn{d\hat{\boldsymbol{\beta}}/d\lambda} minus the sum of these
+#' three correction terms.
+#' }
+#'
+#' \subsection{Large problem path (K >= 10, nc > 4)}{
+#' Computes the three correction terms explicitly using the block
+#' structure of \eqn{\mathbf{G}} and \eqn{d\mathbf{G}/d\lambda}.
+#' The intermediate quantity
+#' \eqn{d(\mathbf{A}^T\mathbf{G}\mathbf{A})/d\lambda = \mathbf{A}^T(d\mathbf{G}/d\lambda)\mathbf{A}}
+#' is accumulated partition-wise. Shared vectors
+#' \eqn{\mathbf{A}\mathbf{C}\mathbf{A}^T\hat{\boldsymbol{\beta}}}
+#' and related products are precomputed once and reused across
+#' partitions. Parallelism is over chunks of partitions.
+#' }
+#'
+#' \subsection{Small problem path}{
+#' Reformulates the derivative using the matrix square root
+#' \eqn{\mathbf{G}^{1/2}} and its derivative
+#' \eqn{d\mathbf{G}^{1/2}/d\lambda}. The constraint
+#' \eqn{\mathbf{A}^T\boldsymbol{\beta} = 0} is imposed via least
+#' squares projection: the residuals from regressing
+#' \eqn{\mathbf{G}^{1/2}\mathbf{X}^T\mathbf{y}} onto
+#' \eqn{\mathbf{G}^{1/2}\mathbf{A}} give the constrained component,
+#' and differentiating this projection with respect to \eqn{\lambda}
+#' yields the derivative. Uses \code{.lm.fit} for speed with a
+#' stabilizing rescaling factor to prevent numerical issues when the
+#' constraint matrix is poorly scaled.
+#' }
+#'
+#' @return \eqn{P \times 1} vector of derivatives
+#'   \eqn{d\tilde{\boldsymbol{\beta}}/d\lambda}
 #'
 #' @keywords internal
 #' @export
@@ -1557,33 +1843,40 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
                                     rem_chunks) {
 
   if((K >= 10) & (nc > 4)){
-    # Helper function for chunk processing
+
+    ##  ## Large problem path: explicit three-term derivative
+
+    ## [Change 2026-02-12] replaced %**% with crossprod/tcrossprod,
+    # rigorously improved documentation
+
+    ## Helper function for chunk processing: computes partition-wise
+    # GXy = G_k X_k'y_k, dGXy = (dG_k/dl) X_k'y_k, and accumulates
+    # A_k'(dG_k/dl)A_k into the r x r matrix AdGA for the chain rule
+    # on (A'GA)^{-1}.
     process_chunk <- function(inds, G_chunk, dG_chunk, A_chunk, Xy_chunk) {
-      # Process GXy and dGXy for chunk
+      ## Process GXy and dGXy for chunk
       GXy_chunk <- lapply(seq_along(inds), function(i) {
-        k <- inds[i]
-        G_chunk[[i]] %**% Xy_chunk[[i]]
+        crossprod(t(G_chunk[[i]]), Xy_chunk[[i]])
       })
 
       dGXy_chunk <- lapply(seq_along(inds), function(i) {
-        k <- inds[i]
-        dG_chunk[[i]] %**% Xy_chunk[[i]]
+        crossprod(t(dG_chunk[[i]]), Xy_chunk[[i]])
       })
 
-      # Process AdGA for chunk
+      ## Process AdGA for chunk: accumulates A_k'(dG_k/dl)A_k
       AdGA_chunk <- Reduce("+", lapply(seq_along(inds), function(i) {
         k <- inds[i]
         start_idx <- (k-1)*nc + 1
         end_idx <- k*nc
-        crossprod(A[start_idx:end_idx,], dG_chunk[[i]] %**%
-                    A[start_idx:end_idx,])
+        crossprod(A[start_idx:end_idx,],
+                  crossprod(t(dG_chunk[[i]]), A[start_idx:end_idx,]))
       }))
 
       list(GXy = GXy_chunk, dGXy = dGXy_chunk, AdGA = AdGA_chunk)
     }
 
     if(parallel & !is.null(cl)) {
-      # Handle remainder chunks
+      ## Handle remainder chunks
       if(rem_chunks > 0) {
         rem_indices <- num_chunks*chunk_size + 1:rem_chunks
         rem_result <- process_chunk(
@@ -1597,7 +1890,7 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
         rem_result <- list(GXy = list(), dGXy = list(), AdGA = 0)
       }
 
-      # Process main chunks in parallel
+      ## Process main chunks in parallel
       chunk_results <- parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         start_idx <- (chunk - 1) * chunk_size
         inds <- (start_idx + 1):min(start_idx + chunk_size, K+1)
@@ -1611,7 +1904,7 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
         )
       })
 
-      # Combine results
+      ## Combine results
       GXy <- Reduce("c", c(lapply(chunk_results, `[[`, "GXy"),
                            rem_result$GXy))
       dGXy <- Reduce("c", c(lapply(chunk_results, `[[`, "dGXy"),
@@ -1620,73 +1913,78 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
                             list(rem_result$AdGA)))
 
     } else {
-      # Sequential computation
-      GXy <- Reduce("c", lapply(1:(K+1), function(k) G[[k]] %**% Xy[[k]]))
-      dGXy <- Reduce("c", lapply(1:(K+1), function(k) dG_dlambda[[k]] %**%
-                                   Xy[[k]]))
+      ## Sequential computation
+      GXy <- Reduce("c", lapply(1:(K+1), function(k)
+        crossprod(t(G[[k]]), Xy[[k]])))
+      dGXy <- Reduce("c", lapply(1:(K+1), function(k)
+        crossprod(t(dG_dlambda[[k]]), Xy[[k]])))
       AdGA <- Reduce("+", lapply(1:(K+1), function(k) {
         start_idx <- (k-1)*nc + 1
         end_idx <- k*nc
-        crossprod(A[start_idx:end_idx,], dG_dlambda[[k]] %**%
-                    A[start_idx:end_idx,])
+        crossprod(A[start_idx:end_idx,],
+                  crossprod(t(dG_dlambda[[k]]), A[start_idx:end_idx,]))
       }))
-
     }
 
-    ## Common intermediate matrices that don't need recomputing in each chunk
-    A_AGAInv_AGXy <- cbind(A %**% AGAInv_AGXy)
-    A_term2b_mat <- cbind(A %**% (-AGAInv %**% AdGA %**% AGAInv_AGXy))
-    A_term2c_mat <- A %**% cbind(AGAInv %**% crossprod(A, cbind(unlist(dGXy))))
+    ## Precompute shared vectors used by all three correction terms:
+    #    A_AGAInv_AGXy  = A * C * A' * beta_hat
+    #      (the constraint correction applied to the unconstrained estimate)
+    #    A_term2b_mat   = A * (-C * AdGA * C) * A' * beta_hat
+    #      (effect of dC/dl on the projection, pre-expanded by A)
+    #    A_term2c_mat   = A * C * A' * d(beta_hat)/dl
+    #      (the constraint correction applied to the unconstrained derivative)
+    A_AGAInv_AGXy <- cbind(crossprod(t(A), AGAInv_AGXy))
+    A_term2b_mat <- cbind(crossprod(t(A),
+                                    crossprod(t(-crossprod(t(AGAInv), AdGA)), AGAInv_AGXy)))
+    A_term2c_mat <- crossprod(t(A),
+                              cbind(crossprod(t(AGAInv),
+                                              crossprod(A, cbind(unlist(dGXy))))))
 
-    # Process terms in parallel
+    ## Compute the three correction terms partition-wise:
+    #    term2a_k = (dG_k/dl) * [A C A' beta_hat]_k
+    #    term2b_k = G_k * [A (-C (AdGA) C) A' beta_hat]_k
+    #    term2c_k = G_k * [A C A' (d beta_hat/dl)]_k
     if(parallel & !is.null(cl)) {
       # Handle remainder chunks
       if(rem_chunks > 0) {
         rem_indices <- num_chunks*chunk_size + 1:rem_chunks
 
         term2a_rem <- lapply(rem_indices, function(k) {
-          dG_dlambda[[k]] %**% A_AGAInv_AGXy[(k-1)*nc + 1:nc,,drop=FALSE]
+          crossprod(t(dG_dlambda[[k]]),
+                    A_AGAInv_AGXy[(k-1)*nc + 1:nc,,drop=FALSE])
         })
 
         term2b_rem <- lapply(rem_indices, function(k) {
-          start_idx <- (k-1)*nc + 1
-          end_idx <- k*nc
-          G[[k]] %**% A_term2b_mat[start_idx:end_idx,, drop=FALSE]
+          idx <- (k-1)*nc + 1:nc
+          crossprod(t(G[[k]]), A_term2b_mat[idx,, drop=FALSE])
         })
 
         term2c_rem <- lapply(rem_indices, function(k) {
-          start_idx <- (k-1)*nc + 1
-          end_idx <- k*nc
-          G[[k]] %**% A_term2c_mat[start_idx:end_idx,, drop=FALSE]
+          idx <- (k-1)*nc + 1:nc
+          crossprod(t(G[[k]]), A_term2c_mat[idx,, drop=FALSE])
         })
       } else {
         term2a_rem <- term2b_rem <- term2c_rem <- list()
       }
 
-      # Process main chunks in parallel
+      ## Process main chunks in parallel
       chunk_results <- parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         start_idx <- (chunk - 1) * chunk_size
         inds <- (start_idx + 1):min(start_idx + chunk_size, K+1)
 
-        # Compute all three terms for this chunk
         terms <- lapply(inds, function(k){
-          t2a <- dG_dlambda[[k]] %**%
-            A_AGAInv_AGXy[(k-1)*nc + 1:nc,, drop=FALSE]
+          t2a <- crossprod(t(dG_dlambda[[k]]),
+                           A_AGAInv_AGXy[(k-1)*nc + 1:nc,, drop=FALSE])
           idx <- (k-1)*nc + 1:nc
-          t2b <- G[[k]] %**% A_term2b_mat[idx,, drop=FALSE]
-          t2c <- G[[k]] %**% A_term2c_mat[idx,, drop=FALSE]
+          t2b <- crossprod(t(G[[k]]), A_term2b_mat[idx,, drop=FALSE])
+          t2c <- crossprod(t(G[[k]]), A_term2c_mat[idx,, drop=FALSE])
           list(t2a,t2b,t2c)
         })
-        term2a_chunk <- lapply(terms, `[[`, 1)
-        term2b_chunk <- lapply(terms, `[[`, 2)
-        term2c_chunk <- lapply(terms, `[[`, 3)
-
-        list(term2a = term2a_chunk,
-             term2b = term2b_chunk,
-             term2c = term2c_chunk)
+        list(term2a = lapply(terms, `[[`, 1),
+             term2b = lapply(terms, `[[`, 2),
+             term2c = lapply(terms, `[[`, 3))
       })
 
-      # Combine results
       term2a <- Reduce("c", c(lapply(chunk_results, `[[`, "term2a"),
                               term2a_rem))
       term2b <- Reduce("c", c(lapply(chunk_results, `[[`, "term2b"),
@@ -1695,12 +1993,12 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
                               term2c_rem))
 
     } else {
-      # Sequential computation
       terms <- lapply(1:(K+1), function(k){
-        t2a <- dG_dlambda[[k]] %**% A_AGAInv_AGXy[(k-1)*nc + 1:nc,,drop=FALSE]
+        t2a <- crossprod(t(dG_dlambda[[k]]),
+                         A_AGAInv_AGXy[(k-1)*nc + 1:nc,,drop=FALSE])
         idx <- (k-1)*nc + 1:nc
-        t2b <- G[[k]] %**% A_term2b_mat[idx,, drop=FALSE]
-        t2c <- G[[k]] %**% A_term2c_mat[idx,, drop=FALSE]
+        t2b <- crossprod(t(G[[k]]), A_term2b_mat[idx,, drop=FALSE])
+        t2c <- crossprod(t(G[[k]]), A_term2c_mat[idx,, drop=FALSE])
         list(t2a,t2b,t2c)
       })
       term2a <- lapply(terms, `[[`, 1)
@@ -1708,80 +2006,79 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
       term2c <- lapply(terms, `[[`, 3)
     }
 
-    # Combine final results
     term2a <- Reduce("c", term2a)
     term2b <- Reduce("c", term2b)
     term2c <- Reduce("c", term2c)
+
+    ## Final result: unconstrained derivative minus three correction terms
     return(cbind(unlist(dGXy) - (unlist(term2a) +
                                    unlist(term2b) +
                                    unlist(term2c))))
   } else {
 
-    ## Transform to least squares problem using G^(1/2)
-    GhalfA <- Reduce("rbind", GAmult_wrapper(Ghalf,
-                                             A,
-                                             K,
-                                             nc,
-                                             nca,
-                                             parallel,
-                                             cl,
-                                             chunk_size,
-                                             num_chunks,
-                                             rem_chunks))
+    ## ## Small problem path: least-squares formulation via G^{1/2}
 
-    ## Transform to least squares problem using d[G^(1/2)]/dlambda;
-    dGhalfA <- Reduce("rbind", GAmult_wrapper(dGhalf,
-                                              A,
-                                              K,
-                                              nc,
-                                              nca,
-                                              parallel,
-                                              cl,
-                                              chunk_size,
-                                              num_chunks,
-                                              rem_chunks))
+    ## The constrained estimate can be written as
+    #    beta_tilde = G^{1/2} * residuals(G^{1/2}X'y ~ G^{1/2}A)
+    #  because projecting out the column space of G^{1/2}A from
+    #  G^{1/2}X'y and then multiplying by G^{1/2} is equivalent to
+    #  applying the constraint projection U. Differentiating this
+    #  representation with respect to lambda using the product rule on
+    #  G^{1/2} and dG^{1/2}/dl yields two residual vectors (resids1
+    #  from the derivative of the basis, resids2 from the derivative
+    #  of the right-hand side) that combine into the final derivative.
+
+    ## G^{1/2} A and its derivative (block-diagonal times A)
+    GhalfA <- Reduce("rbind", GAmult_wrapper(Ghalf, A, K, nc, nca,
+                                             parallel, cl, chunk_size,
+                                             num_chunks, rem_chunks))
+
+    dGhalfA <- Reduce("rbind", GAmult_wrapper(dGhalf, A, K, nc, nca,
+                                              parallel, cl, chunk_size,
+                                              num_chunks, rem_chunks))
+
+    ## (dG^{1/2}/dl) X'y (block-diagonal multiply)
     dGhalfXy <- cbind(unlist(
-      matmult_block_diagonal(dGhalf,
-                             Xy,
-                             K,
-                             parallel,
-                             cl,
-                             chunk_size,
-                             num_chunks,
-                             rem_chunks)))
+      matmult_block_diagonal(dGhalf, Xy, K, parallel, cl,
+                             chunk_size, num_chunks, rem_chunks)))
 
-    ## Get first residuals
+    ## Stabilize the least squares solve: rescale by the average
+    # magnitude of G^{1/2}A to prevent numerical issues when the
+    # constraint matrix is poorly conditioned
     comp_stab_sc <- sqrt(mean(abs(GhalfA)))
     comp_stab_sc <- 1*(comp_stab_sc == 0) + comp_stab_sc
+
+    ## resids1: residuals from regressing (dG^{1/2}/dl)X'y onto
+    #           (dG^{1/2}/dl)A -- captures derivative of the basis
     resids1 <- do.call('.lm.fit', list(x = GhalfA / comp_stab_sc,
                                        y = GhalfXy_temp / comp_stab_sc)
     )$residuals * comp_stab_sc
 
-    ## Get second residuals
+    ## resids2: residuals from regressing (dG^{1/2}/dl)X'y onto
+    #           (dG^{1/2}/dl)A -- captures derivative of the RHS
     resids2 <- do.call('.lm.fit', list(x = dGhalfA / comp_stab_sc,
                                        y = dGhalfXy / comp_stab_sc)
     )$residuals * comp_stab_sc
 
-    ## Compute b2 in parallel if requested
+    ## Combine: d(beta_tilde)/dl = (dG^{1/2}/dl)*resids2 + G^{1/2}*resids1
+    # applied partition-wise since G^{1/2} and dG^{1/2}/dl are block-diagonal
     if(parallel & !is.null(cl)) {
-      # Handle remainder chunks for b2
       if(rem_chunks > 0) {
         rem_indices <- num_chunks * chunk_size + 1:rem_chunks
         b2_rem <- lapply(rem_indices, function(k) {
-          dGhalf[[k]] %**% cbind(resids2[(k-1)*nc + 1:nc]) +
-            Ghalf[[k]] %**% cbind(resids1[(k-1)*nc + 1:nc])
+          crossprod(t(dGhalf[[k]]), cbind(resids2[(k-1)*nc + 1:nc])) +
+            crossprod(t(Ghalf[[k]]), cbind(resids1[(k-1)*nc + 1:nc]))
         })
       } else {
         b2_rem <- list()
       }
 
-      ## Process main chunks for b2 in parallel
       b2_result <- c(
         Reduce("c",parallel::parLapply(cl, 1:num_chunks, function(chunk) {
           inds <- (chunk - 1) * chunk_size + 1:chunk_size
           lapply(inds, function(k) {
-            dGhalf[[k]] %**% cbind(resids2[(k-1)*nc + 1:nc]) +
-              Ghalf[[k]] %**% cbind(resids1[(k-1)*nc + 1:nc])
+            crossprod(t(dGhalf[[k]]), cbind(resids2[(k-1)*nc + 1:nc])) +
+              crossprod(t(Ghalf[[k]]), cbind(resids1[(k-1)*nc + 1:nc]))
           })
         })),
         b2_rem
@@ -1789,14 +2086,146 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
       b2 <- unlist(b2_result)
     } else {
       b2 <- Reduce("c", lapply(1:(K+1), function(k) {
-        dGhalf[[k]] %**% cbind(resids2[(k-1)*nc + 1:nc]) +
-          Ghalf[[k]] %**% cbind(resids1[(k-1)*nc + 1:nc])
+        crossprod(t(dGhalf[[k]]), cbind(resids2[(k-1)*nc + 1:nc])) +
+          crossprod(t(Ghalf[[k]]), cbind(resids1[(k-1)*nc + 1:nc]))
       }))
     }
 
-    ## Add components to get final result
     return(cbind(b2))
   }
+}
+
+
+#' Compute Component \eqn{\textbf{G}^{1/2}\textbf{A}(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}
+#'
+#' @param G List of \eqn{\textbf{G}} matrices
+#' @param Ghalf List of \eqn{\textbf{G}^{1/2}} matrices
+#' @param A Constraint matrix \eqn{\textbf{A}}
+#' @param AGAInv Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}
+#' @param Xy List of \eqn{\textbf{X}^{T}\textbf{y}} products
+#' @param nc Number of columns
+#' @param K Number of partitions minus 1 (\eqn{K})
+#' @param parallel Use parallel processing
+#' @param cl Cluster object
+#' @param chunk_size Size of parallel chunks
+#' @param num_chunks Number of chunks
+#' @param rem_chunks Remaining chunks
+#'
+#' @details
+#' Computes \eqn{\textbf{G}^{1/2}\textbf{A}(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}} efficiently in parallel chunks.
+#' Note: The description seems slightly off from the C++ helper functions called (e.g., `compute_AGXy`, `compute_result_blocks`). This computes a component needed for least-squares transformation involving \eqn{\textbf{G}^{1/2}}.
+#' Returns both the result and intermediate \eqn{\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}} product for reuse.
+#'
+#' @return List containing:
+#' \itemize{
+#'   \item Result vector
+#'   \item AGAInvAGXy intermediate product \eqn{(\textbf{A}^{T}\textbf{G}\textbf{A})^{-1}\textbf{A}^{T}\textbf{G}\textbf{X}^{T}\textbf{y}}
+#' }
+#'
+#' @keywords internal
+#' @export
+compute_G_eigen <- function(X_gram, Lambda, K, parallel, cl,
+                            chunk_size, num_chunks, rem_chunks,
+                            family, unique_penalty_per_partition,
+                            L_partition_list, keep_G = TRUE,
+                            schur_corrections) {
+  ## [Changer 2026-02-12] replaced %**% with tcrossprod(V * d, V)
+  ## helper to compute eigen-based matrix powers efficiently
+  compute_from_eigen <- function(eig, keep_G, need_GhalfInv) {
+    eigen_values <- eig$values
+    eigen_values[eig$values <= 0] <- 1
+    inv_eigen_values <- 1/eigen_values
+    inv_eigen_values[eig$values <= 0] <- 0
+    sqrt_inv <- sqrt(inv_eigen_values)
+
+    Ghalf <- tcrossprod(eig$vectors * rep(sqrt_inv, each = nrow(eig$vectors)),
+                        eig$vectors)
+    G_out <- NULL
+    if(keep_G){
+      G_out <- tcrossprod(eig$vectors * rep(inv_eigen_values, each = nrow(eig$vectors)),
+                          eig$vectors)
+    }
+    if(need_GhalfInv){
+      GhalfInv <- tcrossprod(eig$vectors / rep(sqrt_inv, each = nrow(eig$vectors)),
+                             eig$vectors)
+      return(list(G = G_out, Ghalf = Ghalf, GhalfInv = GhalfInv))
+    } else {
+      return(list(G = G_out, Ghalf = Ghalf))
+    }
+  }
+
+  need_GhalfInv <- (paste0(family)[2] != 'identity') |
+    (paste0(family)[1] != 'gaussian')
+
+  if(parallel & !is.null(cl)) {
+    if(rem_chunks > 0) {
+      rem_indices <- num_chunks * chunk_size + 1:rem_chunks
+      rem <- lapply(rem_indices, function(k) {
+        if(unique_penalty_per_partition){
+          eig <- tryCatch(eigen(X_gram[[k]] + Lambda +
+                                  L_partition_list[[k]] + schur_corrections[[k]],
+                                symmetric = TRUE), error = function(e) NULL)
+        } else {
+          eig <- tryCatch(eigen(X_gram[[k]] + Lambda +
+                                  schur_corrections[[k]], symmetric = TRUE),
+                          error = function(e) NULL)
+        }
+        if(is.null(eig)) return(list(G = NULL, Ghalf = NULL))
+        compute_from_eigen(eig, keep_G, need_GhalfInv)
+      })
+    } else {
+      rem <- list()
+    }
+
+    result <- c(
+      Reduce("c", parallel::parLapply(cl, 1:num_chunks, function(chunk) {
+        inds <- (chunk - 1)*chunk_size + 1:chunk_size
+        lapply(inds, function(k) {
+          if(unique_penalty_per_partition){
+            eig <- tryCatch(eigen(X_gram[[k]] + Lambda +
+                                    L_partition_list[[k]] + schur_corrections[[k]],
+                                  symmetric = TRUE), error = function(e) NULL)
+          } else {
+            eig <- tryCatch(eigen(X_gram[[k]] + Lambda +
+                                    schur_corrections[[k]], symmetric = TRUE),
+                            error = function(e) NULL)
+          }
+          if(is.null(eig)) return(list(G = NULL, Ghalf = NULL))
+          compute_from_eigen(eig, keep_G, need_GhalfInv)
+        })
+      })),
+      rem
+    )
+  } else {
+    result <- lapply(1:(K+1), function(k) {
+      if(unique_penalty_per_partition){
+        eig <- tryCatch(eigen(X_gram[[k]] + Lambda +
+                                L_partition_list[[k]] + schur_corrections[[k]],
+                              symmetric = TRUE), error = function(e) NULL)
+      } else {
+        eig <- tryCatch(eigen(X_gram[[k]] + Lambda +
+                                schur_corrections[[k]], symmetric = TRUE),
+                        error = function(e) NULL)
+      }
+      if(is.null(eig)) return(list(G = NULL, Ghalf = NULL))
+      compute_from_eigen(eig, keep_G, need_GhalfInv)
+    })
+  }
+
+  ## Reorganize results by matrix type
+  if(need_GhalfInv){
+    result_processed <- list(
+      G = lapply(result, `[[`, "G"),
+      Ghalf = lapply(result, `[[`, "Ghalf"),
+      GhalfInv = lapply(result, `[[`, "GhalfInv")
+    )
+  } else {
+    result_processed <- list(
+      G = lapply(result, `[[`, "G"),
+      Ghalf = lapply(result, `[[`, "Ghalf")
+    )
+  }
+  return(result_processed)
 }
 
 
@@ -1932,6 +2361,8 @@ compute_GhalfXy_temp_wrapper <- function(G,
   }
 }
 
+## [Change 2026-02-15] Replace softplus with exponential transforms,
+#  accept initial values on the raw rather than inverse-softplus scale
 
 #' Tune Smoothing and Ridge Penalties via Generalized Cross Validation
 #'
@@ -1950,11 +2381,16 @@ compute_GhalfXy_temp_wrapper <- function(G,
 #' @param opt Logical; TRUE to optimize penalties, FALSE to use initial values
 #' @param use_custom_bfgs Logical; TRUE for analytic gradient BFGS as natively implemented, FALSE for finite differences as implemented by \code{stats::optim()}.
 #' @param family GLM family with optional custom tuning loss
-#' @param wiggle_penalty,flat_ridge_penalty Initial penalty values
-#' @param invsoftplus_initial_wiggle,invsoftplus_initial_flat Initial grid search values (log scale)
+#' @param wiggle_penalty,flat_ridge_penalty Fixed penalty values if provided
+#' @param initial_wiggle,initial_flat Numeric vectors; candidate values for grid
+#'   search initialization on the raw (non-negative) scale. Converted to log
+#'   scale internally for optimization.
 #' @param unique_penalty_per_predictor,unique_penalty_per_partition Logical; allow predictor/partition-specific penalties
-#' @param invsoftplus_penalty_vec Initial values for predictor/partition penalties (log scale)
-#' @param meta_penalty The "meta" ridge penalty, a regularization for predictor/partition penalties to pull them on log-scale towards 0 (1 on raw scale)
+#' @param penalty_vec Numeric vector; initial values for predictor/partition
+#'   penalties on the raw (non-negative) scale. Converted to log scale
+#'   internally for optimization. Use \code{c()} when no per-predictor or
+#'   per-partition penalties are needed.
+#' @param meta_penalty The "meta" ridge penalty, a regularization for predictor/partition penalties to pull them towards 1 on the raw scale
 #' @param keep_weighted_Lambda,iterate Logical controlling GLM fitting
 #' @param qp_score_function,quadprog,qp_Amat,qp_bvec,qp_meq Quadratic programming parameters (see arguments of \code{\link[lgspline]{lgspline}})
 #' @param tol Numeric; convergence tolerance
@@ -1964,7 +2400,7 @@ compute_GhalfXy_temp_wrapper <- function(G,
 #' @param cl,chunk_size,num_chunks,rem_chunks Parallel computation parameters
 #' @param custom_penalty_mat Optional custom penalty matrix
 #' @param order_list List; observation ordering by partition
-#' @param glm_weight_function,shur_correction_function Functions for GLM weights and corrections
+#' @param glm_weight_function,schur_correction_function Functions for GLM weights and corrections
 #' @param need_dispersion_for_estimation,dispersion_function Control dispersion estimation
 #' @param observation_weights Optional observation weights
 #' @param homogenous_weights Logical; TRUE if all weights equal
@@ -1992,6 +2428,11 @@ compute_GhalfXy_temp_wrapper <- function(G,
 #' Handles custom loss functions and GLM weights.
 #' Parallel computation available for large problems.
 #'
+#' Parameterization: initial penalty values are accepted on the raw
+#' (non-negative) scale and converted to natural log-scale internally,
+#' i.e. raw_penalty = exp(theta), so that raw penalties are always positive.
+#' The chain rule factor d(exp(theta))/d(theta) = exp(theta) = raw_penalty
+#'
 #' @seealso
 #' \itemize{
 #'   \item \code{\link[stats]{optim}} for Hessian-free optimization
@@ -2014,11 +2455,11 @@ tune_Lambda <- function(
     colnm_expansions,
     wiggle_penalty,
     flat_ridge_penalty,
-    invsoftplus_initial_wiggle,
-    invsoftplus_initial_flat,
+    initial_wiggle,
+    initial_flat,
     unique_penalty_per_predictor,
     unique_penalty_per_partition,
-    invsoftplus_penalty_vec,
+    penalty_vec,
     meta_penalty,
     family,
     unconstrained_fit_fxn,
@@ -2043,7 +2484,7 @@ tune_Lambda <- function(
     custom_penalty_mat,
     order_list,
     glm_weight_function,
-    shur_correction_function,
+    schur_correction_function,
     need_dispersion_for_estimation,
     dispersion_function,
     observation_weights,
@@ -2061,9 +2502,13 @@ tune_Lambda <- function(
     cat('    Starting tuning\n')
   }
 
-  ## For compatibility without multiple predictors nor multiple partitions
-  if(length(invsoftplus_penalty_vec) == 0){
-    penalty_vec <- c()
+  ## Convert raw-scale inputs to log scale for internal optimization
+  log_initial_wiggle <- log(initial_wiggle)
+  log_initial_flat <- log(initial_flat)
+  if(length(penalty_vec) > 0){
+    log_penalty_vec <- log(penalty_vec)
+  } else {
+    log_penalty_vec <- c()
   }
 
   ## No getting G estimates here
@@ -2144,16 +2589,17 @@ tune_Lambda <- function(
     if(verbose){
       cat('        gcvu_fxn start\n')
     }
-    # 2 penalties of interest
-    wiggle_penalty <- unlist(softplus(par[1])) # smoothing spline f''(x)^2
-    flat_ridge_penalty <- unlist(softplus(par[2])) # flat ridge regression penalty
+    ## [Change: softplus -> exp]
+    #  2 penalties of interest
+    wiggle_penalty <- exp(par[1])       # smoothing spline f''(x)^2
+    flat_ridge_penalty <- exp(par[2])   # flat ridge regression penalty
     if(unique_penalty_per_predictor | unique_penalty_per_partition){
-      penalty_vec <- softplus(c(par[-c(1:2)]))
+      penalty_vec <- exp(c(par[-c(1:2)]))
     } else {
-      penalty_vec < c()
+      penalty_vec <- c()
     }
 
-    # Reparameterize
+    ## Reparameterize
     lambda_1 <- wiggle_penalty
     lambda_2 <- flat_ridge_penalty
 
@@ -2181,9 +2627,9 @@ tune_Lambda <- function(
       cat('        compute_G_eigen\n')
     }
 
-    ## Shur complements are not needed here, only in get_B
+    ## Schur complements are not needed here, only in get_B
     # This is for initialization only
-    shur_corrections <- lapply(1:(K+1), function(k)0)
+    schur_corrections <- lapply(1:(K+1), function(k)0)
     G_list <- compute_G_eigen(X_gram,
                               Lambda,
                               K,
@@ -2196,7 +2642,7 @@ tune_Lambda <- function(
                               unique_penalty_per_partition,
                               Lambda_list$L_partition_list,
                               keep_G = TRUE,
-                              shur_corrections)
+                              schur_corrections)
 
     if(verbose){
       cat('        gcvu_fxn get_B\n')
@@ -2205,55 +2651,55 @@ tune_Lambda <- function(
     ## For getting updates of coefficient estimates and correlation matrix
     return_G_getB <- TRUE
     B_list <- get_B(
-               X,
-               X_gram,
-               Lambda,
-               keep_weighted_Lambda,
-               unique_penalty_per_partition,
-               Lambda_list$L_partition_list,
-               A,
-               Xy,
-               y,
-               K,
-               nc,
-               nca,
-               G_list$Ghalf,
-               G_list$GhalfInv,
-               parallel & parallel_eigen,
-               parallel & parallel_aga,
-               parallel & parallel_matmult,
-               parallel & parallel_unconstrained,
-               cl,
-               chunk_size,
-               num_chunks,
-               rem_chunks,
-               family,
-               unconstrained_fit_fxn,
-               iterate,
-               qp_score_function,
-               quadprog,
-               qp_Amat,
-               qp_bvec,
-               qp_meq,
-               prevB = NULL,
-               prevUnconB = NULL,
-               iter_count = 0,
-               prev_diff = Inf,
-               tol,
-               constraint_value_vectors,
-               order_list,
-               glm_weight_function,
-               shur_correction_function,
-               need_dispersion_for_estimation,
-               dispersion_function,
-               observation_weights,
-               homogenous_weights,
-               return_G_getB,
-               blockfit,
-               just_linear_without_interactions,
-               Vhalf,
-               VhalfInv,
-               ...)
+      X,
+      X_gram,
+      Lambda,
+      keep_weighted_Lambda,
+      unique_penalty_per_partition,
+      Lambda_list$L_partition_list,
+      A,
+      Xy,
+      y,
+      K,
+      nc,
+      nca,
+      G_list$Ghalf,
+      G_list$GhalfInv,
+      parallel & parallel_eigen,
+      parallel & parallel_aga,
+      parallel & parallel_matmult,
+      parallel & parallel_unconstrained,
+      cl,
+      chunk_size,
+      num_chunks,
+      rem_chunks,
+      family,
+      unconstrained_fit_fxn,
+      iterate,
+      qp_score_function,
+      quadprog,
+      qp_Amat,
+      qp_bvec,
+      qp_meq,
+      prevB = NULL,
+      prevUnconB = NULL,
+      iter_count = 0,
+      prev_diff = Inf,
+      tol,
+      constraint_value_vectors,
+      order_list,
+      glm_weight_function,
+      schur_correction_function,
+      need_dispersion_for_estimation,
+      dispersion_function,
+      observation_weights,
+      homogenous_weights,
+      return_G_getB,
+      blockfit,
+      just_linear_without_interactions,
+      Vhalf,
+      VhalfInv,
+      ...)
     G_list <- B_list$G_list
     B <- B_list$B
 
@@ -2270,7 +2716,7 @@ tune_Lambda <- function(
                                      chunk_size,
                                      num_chunks,
                                      rem_chunks) +
-                    1e-16*diag(ncol(A)))
+                       1e-16*diag(ncol(A)))
 
     if(verbose){
       cat('        gcvu_fxn matmult_block_diagonal for GXX\n')
@@ -2287,18 +2733,22 @@ tune_Lambda <- function(
     if(verbose){
       cat('        gcvu_fxn compute_trace_UGXX_wrapper\n')
     }
-    sum_W <- compute_trace_UGXX_wrapper(G_list$G,
-                                        A,
-                                        GXX,
-                                        AGAInv,
-                                        nc,
-                                        nca,
-                                        K,
-                                        parallel & parallel_trace,
-                                        cl,
-                                        chunk_size,
-                                        num_chunks,
-                                        rem_chunks)
+    ## [Change 2026-02-15] Replace with more stable compute trace H
+    sum_W <-
+      compute_trace_H(G_list$G,
+                      Lambda,
+                      A,
+                      AGAInv,
+                      nc,
+                      nca,
+                      K,
+                      parallel,
+                      cl,
+                      chunk_size,
+                      num_chunks,
+                      rem_chunks,
+                      unique_penalty_per_partition,
+                      Lambda_list$L_partition_list)
 
     if(verbose)cat('        gcvu_fxn get predictions\n')
     preds <- matmult_block_diagonal(X,
@@ -2321,7 +2771,7 @@ tune_Lambda <- function(
       # recall, for Gaussian, we transformed X and y to incorporate weights
       # prior to inclusion here
       if(any(!is.null(observation_weights[[1]])) &
-         (paste0(family)[2] == 'identity' | paste0(family)[1] == 'gaussian')){
+         (paste0(family)[2] != 'identity' | paste0(family)[1] != 'gaussian')){
         residuals <- lapply(1:(K+1),function(k){
           (family$linkfun((y[[k]]+delta)/(1+2*delta)) -
              (preds[[k]]+delta)/(1+2*delta))*
@@ -2361,7 +2811,7 @@ tune_Lambda <- function(
     }
     if(unique_penalty_per_partition | unique_penalty_per_predictor){
       meta_penalty <- 0.5*meta_penalty*sum((penalty_vec - 1)^2) +
-                      0.5*1e-32*((wiggle_penalty - 1))^2
+        0.5*1e-32*((wiggle_penalty - 1))^2
     } else {
       meta_penalty <- 0.5*1e-32*((wiggle_penalty - 1))^2
     }
@@ -2392,12 +2842,12 @@ tune_Lambda <- function(
     if(verbose){
       cat('        gr_fxn start\n')
     }
-    ## 2 penalties of interest
-    # smoothing spline 2nd derivative squared penalty
-    wiggle_penalty <- unlist(softplus(par[1])) # smoothing spline f''(x)^2
-    flat_ridge_penalty <- unlist(softplus(par[2])) # flat ridge regression penalty
+    ## [Change: softplus -> exp]
+    # 2 penalties of interest
+    wiggle_penalty <- exp(par[1])       # smoothing spline f''(x)^2
+    flat_ridge_penalty <- exp(par[2])   # flat ridge regression penalty
     if(unique_penalty_per_predictor | unique_penalty_per_partition){
-      penalty_vec <- softplus(c(par[-c(1:2)]))
+      penalty_vec <- exp(c(par[-c(1:2)]))
     } else {
       penalty_vec <- c()
     }
@@ -2435,7 +2885,7 @@ tune_Lambda <- function(
       }
 
       ## No need for corrections yet, this is just initialization
-      shur_corrections <- lapply(1:(K+1), function(k)0)
+      schur_corrections <- lapply(1:(K+1), function(k)0)
       G_list <- compute_G_eigen(X_gram,
                                 Lambda,
                                 K,
@@ -2448,7 +2898,7 @@ tune_Lambda <- function(
                                 unique_penalty_per_partition,
                                 Lambda_list$L_partition_list,
                                 keep_G = TRUE,
-                                shur_corrections)
+                                schur_corrections)
 
       if(verbose){
         cat('        gr fxn coefficients\n')
@@ -2457,55 +2907,55 @@ tune_Lambda <- function(
       ## For getting updates of coefficient estimates and correlation matrix
       return_G_getB <- TRUE
       B_list <- get_B(
-                     X,
-                     X_gram,
-                     Lambda,
-                     keep_weighted_Lambda,
-                     unique_penalty_per_partition,
-                     Lambda_list$L_partition_list,
-                     A,
-                     Xy,
-                     y,
-                     K,
-                     nc,
-                     nca,
-                     G_list$Ghalf,
-                     G_list$GhalfInv,
-                     parallel & parallel_eigen,
-                     parallel & parallel_aga,
-                     parallel & parallel_matmult,
-                     parallel & parallel_unconstrained,
-                     cl,
-                     chunk_size,
-                     num_chunks,
-                     rem_chunks,
-                     family,
-                     unconstrained_fit_fxn,
-                     iterate,
-                     qp_score_function,
-                     quadprog,
-                     qp_Amat,
-                     qp_bvec,
-                     qp_meq,
-                     prevB = NULL,
-                     prevUnconB = NULL,
-                     iter_count = 0,
-                     prev_diff = Inf,
-                     tol,
-                     constraint_value_vectors,
-                     order_list,
-                     glm_weight_function,
-                     shur_correction_function,
-                     need_dispersion_for_estimation,
-                     dispersion_function,
-                     observation_weights,
-                     homogenous_weights,
-                     return_G_getB,
-                     blockfit,
-                     just_linear_without_interactions,
-                     Vhalf,
-                     VhalfInv,
-                     ...)
+        X,
+        X_gram,
+        Lambda,
+        keep_weighted_Lambda,
+        unique_penalty_per_partition,
+        Lambda_list$L_partition_list,
+        A,
+        Xy,
+        y,
+        K,
+        nc,
+        nca,
+        G_list$Ghalf,
+        G_list$GhalfInv,
+        parallel & parallel_eigen,
+        parallel & parallel_aga,
+        parallel & parallel_matmult,
+        parallel & parallel_unconstrained,
+        cl,
+        chunk_size,
+        num_chunks,
+        rem_chunks,
+        family,
+        unconstrained_fit_fxn,
+        iterate,
+        qp_score_function,
+        quadprog,
+        qp_Amat,
+        qp_bvec,
+        qp_meq,
+        prevB = NULL,
+        prevUnconB = NULL,
+        iter_count = 0,
+        prev_diff = Inf,
+        tol,
+        constraint_value_vectors,
+        order_list,
+        glm_weight_function,
+        schur_correction_function,
+        need_dispersion_for_estimation,
+        dispersion_function,
+        observation_weights,
+        homogenous_weights,
+        return_G_getB,
+        blockfit,
+        just_linear_without_interactions,
+        Vhalf,
+        VhalfInv,
+        ...)
       G_list <- B_list$G_list
       B <- B_list$B
 
@@ -2522,7 +2972,7 @@ tune_Lambda <- function(
                                        chunk_size,
                                        num_chunks,
                                        rem_chunks) +
-                      1e-16*diag(ncol(A)))
+                         1e-16*diag(ncol(A)))
 
 
       if(verbose){
@@ -2540,18 +2990,23 @@ tune_Lambda <- function(
       if(verbose){
         cat('        sum_W compute_trace_UGXX_wrapper\n')
       }
-      sum_W <- compute_trace_UGXX_wrapper(G_list$G,
-                                          A,
-                                          GXX,
-                                          AGAInv,
-                                          nc,
-                                          nca,
-                                          K,
-                                          parallel & parallel_trace,
-                                          cl,
-                                          chunk_size,
-                                          num_chunks,
-                                          rem_chunks)
+
+      ## [Change 2026-02-15] Use more stable version of trace computation
+      sum_W <-
+        compute_trace_H(G_list$G,
+                        Lambda,
+                        A,
+                        AGAInv,
+                        nc,
+                        nca,
+                        K,
+                        parallel,
+                        cl,
+                        chunk_size,
+                        num_chunks,
+                        rem_chunks,
+                        unique_penalty_per_partition,
+                        Lambda_list$L_partition_list)
 
       if(verbose){
         cat('        gr fxn preds\n')
@@ -2585,7 +3040,7 @@ tune_Lambda <- function(
         } else{
           residuals <- lapply(1:(K+1),function(k){
             family$linkfun((y[[k]]+delta)/(1+2*delta)) -
-               (preds[[k]]+delta)/(1+2*delta)
+              (preds[[k]]+delta)/(1+2*delta)
           })
         }
 
@@ -2613,7 +3068,7 @@ tune_Lambda <- function(
       ## Regularization penalty - pull penalties to 1
       if(unique_penalty_per_partition | unique_penalty_per_predictor){
         meta_penalty <- 0.5*meta_penalty*sum((penalty_vec-1)^2) +
-                        0.5*1e-32*((wiggle_penalty - 1))^2
+          0.5*1e-32*((wiggle_penalty - 1))^2
       } else {
         meta_penalty <- 0.5*1e-32*((wiggle_penalty - 1))^2
       }
@@ -2667,28 +3122,28 @@ tune_Lambda <- function(
       cat('        compute_dG_dlambda \n')
     }
     dG_dlambda <- compute_dG_dlambda(outlist$G_list$G,
-                                      outlist$Lambda,
-                                      K,
-                                      lambda_1,
-                                      unique_penalty_per_partition,
-                                      outlist$L_partition_list,
-                                      parallel & parallel_matmult,
-                                      cl,
-                                      chunk_size,
-                                      num_chunks,
-                                      rem_chunks)
+                                     outlist$Lambda,
+                                     K,
+                                     lambda_1,
+                                     unique_penalty_per_partition,
+                                     outlist$L_partition_list,
+                                     parallel & parallel_matmult,
+                                     cl,
+                                     chunk_size,
+                                     num_chunks,
+                                     rem_chunks)
 
     if(verbose){
       cat('        Compute dGhalf \n')
     }
     dGhalf <- compute_dGhalf(dG_dlambda,
-                              nc,
-                              K,
-                              parallel & parallel_eigen,
-                              cl,
-                              chunk_size,
-                              num_chunks,
-                              rem_chunks)
+                             nc,
+                             K,
+                             parallel & parallel_eigen,
+                             cl,
+                             chunk_size,
+                             num_chunks,
+                             rem_chunks)
 
     if(verbose){
       cat('        compute_dG_u_dlambda_xy \n')
@@ -2716,19 +3171,19 @@ tune_Lambda <- function(
       cat('        compute_dW_dlambda_wrapper \n')
     }
     dW_dlambda <- compute_dW_dlambda_wrapper(outlist$G_list$G,
-                                              A,
-                                              outlist$GXX,
-                                              outlist$G_list$Ghalf,
-                                              dG_dlambda,
-                                              dGhalf,
-                                              outlist$AGAInv,
-                                              nc,
-                                              K,
-                                              parallel & parallel_matmult,
-                                              cl,
-                                              chunk_size,
-                                              num_chunks,
-                                              rem_chunks)
+                                             A,
+                                             outlist$GXX,
+                                             outlist$G_list$Ghalf,
+                                             dG_dlambda,
+                                             dGhalf,
+                                             outlist$AGAInv,
+                                             nc,
+                                             K,
+                                             parallel & parallel_matmult,
+                                             cl,
+                                             chunk_size,
+                                             num_chunks,
+                                             rem_chunks)
 
     ## Compute other components)
     if(verbose){
@@ -2756,17 +3211,27 @@ tune_Lambda <- function(
                           ddenominator_dlambda1) /
       outlist$denom_sq
 
-    ## Chain rule for computing gradients of other elements of the penalty
+    ## Trace-ratio approximation for computing gradients of other elements
+    #  of the penalty. This heuristic operates on the raw penalty scale and
+    #  is invariant to the parameterization (softplus vs exp). It maps
+    #  dGCV/d(raw_lambda_w) to dGCV/d(raw_lambda_r) via the ratio of traces:
+    #    dGCV/d(raw_lambda_r) ~ trace(L2)/trace(Lambda) * dGCV/d(raw_lambda_w)
+    #  The parameterization-specific chain rule is then applied below.
     dGCV_u_dlambda2 <- mean(diag(outlist$L2))/
       mean(diag(outlist$Lambda)) *
       dGCV_u_dlambda1
 
-    # Gradient
+    ## [Change 2026-02-15] softplus -> exp chain rule
+    #
+    #  Under exp parameterization: raw_penalty = exp(theta)
+    #  Chain rule: d(GCV)/d(theta) = d(GCV)/d(raw_penalty) * d(exp(theta))/d(theta)
+    #            = d(GCV)/d(raw_penalty) * exp(theta)
+    #            = d(GCV)/d(raw_penalty) * raw_penalty
     if(verbose){
       cat('        Gradient start \n')
     }
-    gradient <- cbind(c(dGCV_u_dlambda1 * lambda_1 / (1 + lambda_1),
-                        dGCV_u_dlambda2 * lambda_2/ ( 1 + lambda_2)))
+    gradient <- cbind(c(dGCV_u_dlambda1 * lambda_1,
+                        dGCV_u_dlambda2 * lambda_2))
 
     ## Gradients for unique penalties per predictor
     if(unique_penalty_per_predictor){
@@ -2775,12 +3240,11 @@ tune_Lambda <- function(
 
       predictor_penalty_gradient <-
         sapply(1:length(predictor_penalties),function(j){
-        mean(diag(outlist$L_predictor_list[[j]]))/
-        mean(diag(outlist$Lambda)) * # ratio of trace measures contribution
-        dGCV_u_dlambda1 *
-        predictor_penalties[j] /
-        (1 + predictor_penalties[j]) # chain rule, the derivative being passed on
-      })
+          mean(diag(outlist$L_predictor_list[[j]]))/
+            mean(diag(outlist$Lambda)) *     # trace-ratio (raw scale, unchanged)
+            dGCV_u_dlambda1 *
+            predictor_penalties[j]           # [Change: exp chain rule, was /(1 + .)]
+        })
       gradient <- cbind(c(c(gradient),
                           predictor_penalty_gradient))
     }
@@ -2793,27 +3257,33 @@ tune_Lambda <- function(
       partition_penalty_gradient <-
         sapply(1:length(partition_penalties),function(j){
           mean(diag(outlist$L_partition_list[[j]]))/
-          mean(diag(outlist$Lambda +                  # ratio of trace requires
-                    outlist$L_partition_list[[j]])) * # addition because unlike
-          dGCV_u_dlambda1 *                           # predictor penalties,
-          partition_penalties[j] / # chain rule         # partition penalties
-          (1 + partition_penalties[j])
-        })                                            # have not been added to
-                                                      # Lambda yet
-      ## Combined gradient
+            mean(diag(outlist$Lambda +                  # ratio of trace requires
+                        outlist$L_partition_list[[j]])) * # addition because unlike
+            dGCV_u_dlambda1 *                           # predictor penalties,
+            partition_penalties[j]          # [Change: exp chain rule, was /(1 + .)]
+        })                                            # partition penalties
+      # have not been added to
+      ## Combined gradient                            # Lambda yet
       gradient <- cbind(c(gradient, partition_penalty_gradient))
     }
 
-    ## Regularization penalty - pull penalty terms to 1
+    ## [Change: exp chain rule for regularizer]
+    #  Regularization penalty - pull penalty terms to 1
+    #  Objective: 0.5 * c * (exp(theta) - 1)^2
+    #  Gradient:  c * (exp(theta) - 1) * exp(theta) = c * (lambda - 1) * lambda
+    #
+    #  Note: the original softplus code had c*(lambda - 1) without the chain
+    #  rule factor
+    #  Under exp, the exact chain rule factor is simply lambda.
     if(unique_penalty_per_partition | unique_penalty_per_predictor){
-      regulizer <- c(1e-32*(wiggle_penalty - 1),
+      regulizer <- c(1e-32*(wiggle_penalty - 1)*wiggle_penalty,
                      0,
-                     meta_penalty*(penalty_vec - 1))
+                     meta_penalty*(penalty_vec - 1)*penalty_vec)
       meta_penalty <- 0.5*meta_penalty*sum((penalty_vec - 1)^2) +
-                      0.5*1e-32*((wiggle_penalty - 1)^2)
+        0.5*1e-32*((wiggle_penalty - 1)^2)
 
     } else {
-      regulizer <- c(1e-32*(wiggle_penalty - 1),
+      regulizer <- c(1e-32*(wiggle_penalty - 1)*wiggle_penalty,
                      0)
       meta_penalty <- 0.5*1e-32*((wiggle_penalty - 1)^2)
     }
@@ -2858,7 +3328,7 @@ tune_Lambda <- function(
     for (iter in 1:100) {
       ## Compute gradient if needed
       if(dont_skip_gr){
-        result <- gr_fxn(c(lambda[1],lambda[2], invsoftplus_penalty_vec), outlist)
+        result <- gr_fxn(c(lambda[1],lambda[2], log_penalty_vec), outlist)
         gradient <- result$gradient
         outlist <- result$outlist
       }
@@ -2867,10 +3337,10 @@ tune_Lambda <- function(
       if(iter <= 2){
         new_lambda <- lambda - damp * gradient
 
-        ## Reset to best solution if numerical issues
-        if(any(!is.finite(softplus(new_lambda))) |
-           any(is.nan(softplus(new_lambda))) |
-           any(is.na(softplus(new_lambda)))){
+        ## [Change: softplus -> exp] Reset to best solution if numerical issues
+        if(any(!is.finite(exp(new_lambda))) |
+           any(is.nan(exp(new_lambda))) |
+           any(is.na(exp(new_lambda)))){
           new_lambda <- best_lambda
         }
 
@@ -2924,10 +3394,10 @@ tune_Lambda <- function(
         ## Compute BFGS step direction
         new_lambda <- lambda - damp * Inv %**% cbind(gradient)
 
-        ## Reset to best solution if numerical issues
-        if(any(!is.finite(softplus(new_lambda))) |
-           any(is.nan(softplus(new_lambda))) |
-           any(is.na(softplus(new_lambda)))){
+        ## [Change: softplus -> exp] Reset to best solution if numerical issues
+        if(any(!is.finite(exp(new_lambda))) |
+           any(is.nan(exp(new_lambda))) |
+           any(is.na(exp(new_lambda)))){
           new_lambda <- best_lambda
         }
       }
@@ -2947,7 +3417,7 @@ tune_Lambda <- function(
         prev_outlist <- outlist
         outlist <- gcvu_fxn(c(new_lambda[1],
                               new_lambda[2],
-                              invsoftplus_penalty_vec))
+                              log_penalty_vec))
         new_gcv_u <- outlist$GCV_u
         if(any(is.na(new_gcv_u))){
           new_gcv_u <- gcv_u
@@ -3000,38 +3470,38 @@ tune_Lambda <- function(
   if(opt){
 
     ## Create all combinations of the grid values
-    initial_grid <- expand.grid(wiggle = invsoftplus_initial_wiggle,
-                                flat = invsoftplus_initial_flat)
+    initial_grid <- expand.grid(wiggle = log_initial_wiggle,
+                                flat = log_initial_flat)
 
     ## Function to safely evaluate gcv_u
     safe_gcvu <- function(par) {
       tryCatch({
         result <-
-          gcvu_fxn(c(unlist(par), invsoftplus_penalty_vec))$GCV_u
+          gcvu_fxn(c(unlist(par), log_penalty_vec))$GCV_u
         if(is.na(result) | is.nan(result)) {
           return(Inf)
         }
         return(result)
       }, error = function(e) {
         if(include_warnings)
-        return(Inf)
+          return(Inf)
       })
     }
 
     ## Evaluate GCV_u for each grid point
     gcv_values <- apply(initial_grid, 1, safe_gcvu)
     bads <- which(is.na(gcv_values) |
-                   is.nan(gcv_values) |
-                   !is.finite(gcv_values))
+                    is.nan(gcv_values) |
+                    !is.finite(gcv_values))
     if(verbose){
       cat('    Finished grid evaluations\n')
     }
     if(length(bads) == length(gcv_values)){
       stop('All GCV criteria for the initial tuning grid were computed as NA,',
-      ' NaN, or non-finite: check your data for corrupt or missing values,',
-      ' try changing initial tuning grid, or try manual tuning instead.',
-      ' If you are setting no_intercept = TRUE, try experimenting with',
-      ' standardize_response = FALSE vs. TRUE.')
+           ' NaN, or non-finite: check your data for corrupt or missing values,',
+           ' try changing initial tuning grid, or try manual tuning instead.',
+           ' If you are setting no_intercept = TRUE, try experimenting with',
+           ' standardize_response = FALSE vs. TRUE.')
     } else if(length(bads) > 0){
       gcv_values <- gcv_values[-c(bads)]
     }
@@ -3047,23 +3517,23 @@ tune_Lambda <- function(
     ## lgspline BFGS custom implementation (closed-form gradient)
     if(use_custom_bfgs){
       res <- withCallingHandlers(
-        try(quasi_nr_fxn(c(best_start, invsoftplus_penalty_vec)), silent = TRUE),
+        try(quasi_nr_fxn(c(best_start, log_penalty_vec)), silent = TRUE),
         warning = function(w) if (include_warnings) warning(w) else invokeRestart("muffleWarning"),
         message = function(m) if (include_warnings) message(m) else invokeRestart("muffleMessage")
       )
       if(any(inherits(res, 'try-error'))){
         if(include_warnings) print(res)
         if(include_warnings) warning('Custom BFGS implementation failed. Try use_custom_bfgs =',
-        ' FALSE, or manual tuning. Resorting to best as selected from',
-        ' grid search.')
-        par <- c(best_start, invsoftplus_penalty_vec)
+                                     ' FALSE, or manual tuning. Resorting to best as selected from',
+                                     ' grid search.')
+        par <- c(best_start, log_penalty_vec)
       } else {
         par <- res$par
       }
     } else {
       ## vs. base R (finite-difference approx.)
       res <- withCallingHandlers(
-        try({optim(c(best_start, invsoftplus_penalty_vec),
+        try({optim(c(best_start, log_penalty_vec),
                    fn = function(par){
                      gcvu_fxn(par)$GCV_u
                    },
@@ -3075,8 +3545,8 @@ tune_Lambda <- function(
       if(any(inherits(res, 'try-error'))){
         if(include_warnings) print(res)
         if(include_warnings) warning('Base R BFGS failed. Try use_custom_bfgs = TRUE, or manual',
-        ' tuning. Resorting to best as selected from grid search.')
-        par <- c(best_start, invsoftplus_penalty_vec)
+                                     ' tuning. Resorting to best as selected from grid search.')
+        par <- c(best_start, log_penalty_vec)
       } else {
         par <- res$par
       }
@@ -3087,21 +3557,22 @@ tune_Lambda <- function(
 
     ## Inflate the penalties, since there's an inherent bias towards
     # no penalization in-sample
+    ## [Change: softplus -> exp]
     infl <- ((nr+2)/((nr-2)))^2
-    wiggle_penalty <- softplus(par[1])*infl
-    flat_ridge_penalty <- softplus(par[2])*infl
+    wiggle_penalty <- exp(par[1])*infl
+    flat_ridge_penalty <- exp(par[2])*infl
 
     ## Update penalty vec for predictor-and-partition specific penalties
-    if(length(invsoftplus_penalty_vec) > 0){
-      penalty_vec <- softplus(invsoftplus_penalty_vec)
+    if(length(log_penalty_vec) > 0){
       penalty_vec[1:length(penalty_vec)] <-
-        softplus(c(par[-c(1,2)]))*infl
+        exp(c(par[-c(1,2)]))*infl
     }
-  } else if(length(invsoftplus_penalty_vec) > 0){
-    penalty_vec <- softplus(invsoftplus_penalty_vec)
-  } else {
-    penalty_vec <- c()
+  } else if(length(penalty_vec) == 0){
+    ## No per-predictor or per-partition penalties; nothing to do
+    # penalty_vec remains c() from input
   }
+  ## When !opt and length(penalty_vec) > 0, penalty_vec is already on raw
+  #  scale from input and used as-is
 
 
   if(verbose){
@@ -3128,6 +3599,7 @@ tune_Lambda <- function(
               "L_predictor_list" = Lambda_list$L_predictor_list,
               "L_partition_list" = Lambda_list$L_partition_list))
 }
+
 
 #' Efficient Matrix Multiplication of G and A Matrices
 #'
@@ -3197,96 +3669,148 @@ GAmult_wrapper <- function(G,
   return(result)
 }
 
-#' Get Constrained GLM Coefficient Estimates
+## [Change 2026-02-16] Removed blockfit path (old Path 2) entirely;
+#  blockfit is now handled by a separate blockfit_solve function called
+#  by lgspline.fit before dispatching to get_B. Parameters blockfit,
+#  just_linear_without_interactions, prevB, prevUnconB, iter_count,
+#  and prev_diff are retained in the signature for call-site
+#  compatibility but are no longer used internally. IRWLS recursion
+#  replaced with a stable for-loop. Documentation rewritten.
+
+#' Compute Constrained GLM Coefficient Estimates via Lagrangian Multipliers
 #'
 #' @description
-#' Core estimation function for Lagrangian multiplier smoothing splines. Computes
-#' coefficient estimates under smoothness constraints and penalties for GLMs, handling
-#' four distinct computational paths depending on model structure.
+#' Core estimation function for Lagrangian multiplier smoothing splines.
+#' Computes penalized coefficient estimates subject to smoothness constraints
+#' (continuity, differentiability at knots) and optional user-supplied linear
+#' equality or inequality constraints. Dispatches to one of three computational
+#' paths depending on the model structure:
 #'
-#' @param X List of design matrices by partition
-#' @param X_gram List of Gram matrices by partition
-#' @param Lambda Combined penalty matrix (smoothing spline + ridge)
-#' @param keep_weighted_Lambda Logical; retain GLM weights in smoothing spline penalty
-#' @param unique_penalty_per_partition Logical; whether to use partition-specific penalties
-#' @param L_partition_list List of partition-specific penalty matrices
-#' @param A Matrix of smoothness constraints (continuity, differentiability)
-#' @param Xy List of X^T y products by partition
-#' @param y List of responses by partition
-#' @param K Integer; number of knots (partitions = K+1)
-#' @param nc Integer; number of coefficients per partition
-#' @param nca Integer; number of columns in constraint matrix
-#' @param Ghalf List of G^(1/2) matrices by partition
-#' @param GhalfInv List of G^(-1/2) matrices by partition
-#' @param parallel_eigen,parallel_aga,parallel_matmult,parallel_unconstrained Logical flags for parallel computation components
-#' @param cl Cluster object for parallel processing
-#' @param chunk_size,num_chunks,rem_chunks Parameters for chunking in parallel processing
-#' @param family GLM family object (includes link function and variance functions)
-#' @param unconstrained_fit_fxn Function for obtaining unconstrained estimates
-#' @param iterate Logical; whether to use iterative optimization for non-linear links
-#' @param qp_score_function Function; see description in \code{\link[lgspline]{lgspline}}. Accepts arguments in order "X, y, mu, order_list, dispersion, VhalfInv, ...".
-#' @param quadprog Logical; whether to use quadratic programming for inequality constraints
-#' @param qp_Amat,qp_bvec,qp_meq Quadratic programming constraint parameters
-#' @param prevB List of previous coefficient estimates for warm starts
-#' @param prevUnconB List of previous unconstrained coefficient estimates
-#' @param iter_count,prev_diff Iteration tracking for convergence
-#' @param tol Numeric; convergence tolerance
-#' @param constraint_value_vectors List of additional constraint values
-#' @param order_list List of observation orderings by partition
-#' @param glm_weight_function Function for computing GLM weights
-#' @param shur_correction_function Function for uncertainty corrections in information matrix
-#' @param need_dispersion_for_estimation Logical; whether dispersion needs estimation
-#' @param dispersion_function Function for estimating dispersion parameter
-#' @param observation_weights Optional observation weights by partition
-#' @param homogenous_weights Logical; whether weights are constant
-#' @param return_G_getB Logical; whether to return G matrices with coefficient estimates
-#' @param blockfit Logical; whether to use block-fitting approach for special structure
-#' @param just_linear_without_interactions Vector of columns for non-spline effects
-#' @param Vhalf,VhalfInv Square root and inverse square root correlation matrices for GEE fitting
-#' @param ... Additional arguments passed to fitting functions
+#' \bold{Path 1. GEE without blockfitting:}
+#' When \code{Vhalf} and \code{VhalfInv} are provided, the function uses
+#' generalized estimating equations. X and y arrive UNWHITENED; whitening
+#' is applied internally to the full N x P block-diagonal design matrix
+#' to preserve cross-partition correlation contributions.
+#' Two sub-paths:
+#' \itemize{
+#'   \item \bold{Path 1a: Gaussian identity + GEE}: closed-form full-system
+#'     solve in whitened space.
+#'   \item \bold{Path 1b: Non-Gaussian GEE}: damped SQP with full whitened
+#'     design X_tilde = V^{-1/2} X_block.
+#' }
 #'
-#' @details
-#' This function implements the method of Lagrangian multipliers for fitting constrained
-#' generalized linear models with smoothing splines. The function follows one of four main
-#' computational paths depending on the model structure:
+#' \bold{Path 2. Gaussian identity link, no correlation:}
+#' For the canonical Gaussian case, the constrained estimate has a closed-form
+#' solution via projection. No unconstrained fitting step or iteration is
+#' needed; \eqn{\hat{\beta} = G X^T y} projected onto the constraint null
+#' space via an OLS-style residual computation.
 #'
-#' \bold{1. Pure GEE (No Blockfitting):}
-#' When Vhalf and VhalfInv are provided without blockfitting, the function uses generalized
-#' estimating equations to handle correlated data. The design matrix is arranged in
-#' block-diagonal form, and the estimation explicitly accounts for the correlation structure
-#' provided. Uses sequential quadratic programming (SQP) for optimization.
+#' \bold{Path 3. Non-Gaussian GLMs, no correlation:}
+#' For GLMs with non-identity links or non-Gaussian families, unconstrained
+#' estimates are first obtained per partition, then projected onto the
+#' constraint space. For non-canonical links, iterative (IRWLS-like) fitting
+#' is performed via a for-loop until convergence.
 #'
-#' \bold{2. Blockfitting (With or Without Correlation):}
-#' When blockfit=TRUE and linear-only terms are specified, the function separates spline effects
-#' from linear-only terms. The design matrix is restructured with spline terms in block-diagonal
-#' form and linear terms stacked together. This structure is particularly efficient when there
-#' are many non-spline effects. The function can handle both correlated (GEE) and uncorrelated
-#' data in this path.
+#' In Paths 2 and 3, the Lagrangian projection is computed efficiently via
+#' an OLS reformulation: letting \eqn{y^* = G^{1/2} \hat{\beta}_{unconstrained}}
+#' and \eqn{X^* = G^{1/2} A}, the constrained estimate equals
+#' \eqn{G^{1/2}} times the residuals from regressing \eqn{y^*} on \eqn{X^*}.
+#' This avoids explicitly forming and inverting \eqn{A^T G A}.
 #'
-#' \bold{3. Canonical Gaussian, No Correlation:}
-#' For Gaussian family with identity link and no correlation structure, calculations are greatly
-#' simplified. No unconstrained fit function is needed; estimation uses direct matrix operations.
-#' This path takes advantage of the closed-form solution available for linear models with
-#' Gaussian errors.
-#'
-#' \bold{4. GLMs, No Correlation:}
-#' For non-Gaussian GLMs without correlation structure, the function requires an unconstrained_fit_fxn
-#' to obtain initial estimates. It may use iterative fitting for non-canonical links. This path
-#' first computes unconstrained estimates for each partition, then applies constraints using the
-#' method of Lagrangian multipliers.
-#'
-#' All paths use efficient matrix decompositions and avoid explicitly constructing full matrices
-#' when possible. For non-canonical links, iterative fitting is employed to converge to the optimal
-#' solution.
+#' @param X List of length \eqn{K+1}; partition-specific design matrices.
+#' @param X_gram List of Gram matrices \eqn{X_k^T W_k X_k} by partition.
+#' @param Lambda Combined penalty matrix (smoothing spline + ridge).
+#' @param keep_weighted_Lambda Logical; if \code{TRUE}, retain GLM weights
+#'   in the smoothing spline penalty during IRWLS updates.
+#' @param unique_penalty_per_partition Logical; if \code{TRUE}, add
+#'   partition-specific penalties from \code{L_partition_list} to
+#'   \code{Lambda}.
+#' @param L_partition_list List of partition-specific penalty matrices.
+#' @param A Constraint matrix. Columns encode smoothness constraints
+#'   (continuity and derivative matching at knots) and any user-supplied
+#'   equality constraints. The system \eqn{A^T \beta = c} is enforced,
+#'   where \eqn{c} comes from \code{constraint_value_vectors}.
+#' @param Xy List of cross-products \eqn{X_k^T y_k} by partition.
+#' @param y List of response vectors by partition (UNWHITENED even when GEE).
+#' @param K Integer; number of interior knots. The predictor domain is
+#'   partitioned into \eqn{K+1} segments.
+#' @param nc Integer; number of coefficients per partition.
+#' @param nca Integer; number of columns in \code{A}.
+#' @param Ghalf List of \eqn{G^{1/2}} matrices by partition, where
+#'   \eqn{G = (X^T W X + \Lambda)^{-1}}.
+#' @param GhalfInv List of \eqn{G^{-1/2}} matrices by partition.
+#' @param parallel_eigen,parallel_aga,parallel_matmult,parallel_unconstrained
+#'   Logical flags for parallelizing eigendecompositions, \eqn{A^T G A}
+#'   computation, matrix multiplications, and unconstrained partition fits.
+#' @param cl Cluster object from \code{parallel::makeCluster}.
+#' @param chunk_size,num_chunks,rem_chunks Partition distribution
+#'   parameters for parallel workers.
+#' @param family GLM family object (link, variance, and optionally
+#'   \code{custom_dev.resids}).
+#' @param unconstrained_fit_fxn Function for partition-wise unconstrained
+#'   coefficient estimation (non-Gaussian GLMs only).
+#' @param iterate Logical; if \code{TRUE}, iterate (IRWLS) for
+#'   non-canonical links.
+#' @param qp_score_function Score function for quadratic programming.
+#'   Signature: \code{function(X, y, mu, order_list, dispersion,
+#'   VhalfInv, ...)}.
+#' @param quadprog Logical; if \code{TRUE}, use \code{quadprog::solve.QP}
+#'   to handle inequality constraints.
+#' @param qp_Amat,qp_bvec,qp_meq Inequality constraint specification
+#'   for \code{quadprog::solve.QP}.
+#' @param prevB Retired; kept for call-site compatibility. Previously
+#'   held the constrained estimate from the prior IRWLS iteration.
+#'   Ignored internally; IRWLS state is now managed by a local for-loop.
+#' @param prevUnconB Retired; kept for call-site compatibility. Previously
+#'   held the unconstrained estimates, reused across IRWLS iterations.
+#'   Ignored internally.
+#' @param iter_count Retired; kept for call-site compatibility. Previously
+#'   the IRWLS iteration counter. Ignored internally.
+#' @param prev_diff Retired; kept for call-site compatibility. Previously
+#'   the mean absolute coefficient change from the prior IRWLS step.
+#'   Ignored internally.
+#' @param tol Convergence tolerance for coefficient change and deviance.
+#' @param constraint_value_vectors List encoding the right-hand side
+#'   \eqn{c} in \eqn{A^T \beta = c}. When empty or all zero, the
+#'   homogeneous system is solved.
+#' @param order_list List of index vectors mapping partition rows to
+#'   original data ordering.
+#' @param glm_weight_function Function computing GLM working weights.
+#' @param schur_correction_function Function computing Schur complement
+#'   corrections to the information matrix for nuisance parameter
+#'   uncertainty.
+#' @param need_dispersion_for_estimation Logical; if \code{TRUE},
+#'   dispersion enters weight and score functions.
+#' @param dispersion_function Dispersion estimation function.
+#' @param observation_weights List of observation weights by partition.
+#' @param homogenous_weights Logical; constant weights across observations.
+#' @param return_G_getB Logical; if \code{TRUE}, return covariance
+#'   components alongside coefficients.
+#' @param blockfit Retired; kept for call-site compatibility. Blockfit
+#'   estimation is now handled by a separate \code{blockfit_solve}
+#'   function before dispatching to \code{get_B}. Ignored internally.
+#' @param just_linear_without_interactions Retired; kept for call-site
+#'   compatibility. Was used to identify covariates pooled across
+#'   partitions in blockfit mode. Ignored internally.
+#' @param Vhalf,VhalfInv Square root and inverse square root of the
+#'   working correlation matrix for GEE estimation. X and y are
+#'   UNWHITENED; whitening is applied internally.
+#' @param ... Passed to fitting, weight, correction, and dispersion
+#'   functions.
 #'
 #' @return
-#' For `return_G_getB = FALSE`: A list of coefficient vectors by partition.
+#' If \code{return_G_getB = FALSE}: a list of coefficient column vectors,
+#' one per partition.
 #'
-#' For `return_G_getB = TRUE`: A list with elements:
+#' If \code{return_G_getB = TRUE}: a list with elements:
 #' \describe{
-#'   \item{B}{List of coefficient vectors by partition}
-#'   \item{G_list}{List containing G matrices (covariance matrices), Ghalf (square root),
-#'                 and GhalfInv (inverse square root)}
+#'   \item{B}{List of coefficient column vectors by partition.}
+#'   \item{G_list}{List with components \code{G}, \code{Ghalf}, and
+#'     \code{GhalfInv} (partition-wise covariance matrices and their
+#'     matrix square roots). For GEE paths, G contains the diagonal
+#'     blocks of the full information matrix inverse; the full-system
+#'     G^{1/2} is used for the solve but per-partition diagonal blocks
+#'     are returned for downstream inference compatibility.}
 #' }
 #'
 #' @keywords internal
@@ -3329,7 +3853,7 @@ get_B <- function(X,
                   constraint_value_vectors,
                   order_list,
                   glm_weight_function,
-                  shur_correction_function,
+                  schur_correction_function,
                   need_dispersion_for_estimation,
                   dispersion_function,
                   observation_weights,
@@ -3341,55 +3865,233 @@ get_B <- function(X,
                   VhalfInv,
                   ...){
 
-  ## For generalized estimating equations only
-  if((!is.null(Vhalf) &
-     (!is.null(VhalfInv))) &
-     !(blockfit & length(just_linear_without_interactions) > 0)){
-     ## Re-order to match partition ordering
-     Vhalf <- Vhalf[unlist(order_list), unlist(order_list)]
-     VhalfInv <- VhalfInv[unlist(order_list), unlist(order_list)]
-    if(is.null(observation_weights) | length(unlist(observation_weights)) == 0){
+  ## Path 1: GEE (correlation structures present)
+  #  [Change 2026-02-16] X and y are now UNWHITENED (the buggy per-
+  #  partition whitening in lgspline.fit has been removed). This path
+  #  forms the full whitened design X_tilde = V^{-1/2} X_block
+  #  internally, preserving cross-partition correlation contributions.
+  #  Two sub-paths:
+  #    1a. Gaussian identity + GEE: closed-form solve in full P-space.
+  #    1b. Non-Gaussian GEE: damped SQP with full whitened design.
+  ## [Change 2026-02-16] Simplified condition: blockfit guard removed.
+  if(!is.null(Vhalf) & !is.null(VhalfInv)){
+
+    ## Permute correlation matrices to partition ordering
+    perm <- unlist(order_list)
+    Vhalf_perm    <- Vhalf[perm, perm]
+    VhalfInv_perm <- VhalfInv[perm, perm]
+
+    if(is.null(observation_weights) |
+       length(unlist(observation_weights)) == 0){
       observation_weights <- 1
     }
 
-    ## New design matrix in block-diagonal form
+    ## Assemble the unwhitened block-diagonal design
     X_block <- collapse_block_diagonal(X)
+    y_block <- cbind(unlist(y))
 
-    ## Initial beta coefficients is the 0 vector
-    beta_block <- cbind(rep(0, ncol(X_block)))
+    ## Full whitened design (NOT block-diagonal) and whitened response
+    X_tilde <- VhalfInv_perm %**% X_block
+    y_tilde <- VhalfInv_perm %**% y_block
 
-    ## Penalties
+    ## Block-diagonal penalty matrix
     if(unique_penalty_per_partition){
-      Lambda_block <- Reduce("rbind", lapply(1:(K+1),function(k){
+      Lambda_block <- Reduce("rbind", lapply(1:(K+1), function(k){
         Reduce("cbind", lapply(1:(K+1), function(j){
-          if(j == k) Lambda +
-            L_partition_list[[k]] else 0*
-            Lambda
+          if(j == k) Lambda + L_partition_list[[k]] else 0 * Lambda
         }))
       }))
     } else {
       Lambda_block <- Reduce("rbind", lapply(1:(K+1), function(k){
         Reduce("cbind", lapply(1:(K+1), function(j){
-          if(j == k) Lambda else 0*
-            Lambda
+          if(j == k) Lambda else 0 * Lambda
         }))
       }))
     }
 
-    ## Response (recall this is VhalfInv %**% y right now)
-    # The whitening transform was already applied
-    y_block <- cbind(unlist(y))
-    Vhalfy <- Vhalf %**% y_block
+    ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+    ## Path 1a: Gaussian identity + GEE (closed-form full-system solve)
+    ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+    is_gauss_id <- (paste0(family)[1] == 'gaussian' &
+                      paste0(family)[2] == 'identity')
 
-    ## Solve smoothing constraints and qp constraints simultaneously
+    if(is_gauss_id){
+
+      ## Full P x P Gram matrix (includes cross-partition blocks)
+      Gram_full <- crossprod(X_tilde)
+
+      ## Full G = (X_tilde^T X_tilde + Lambda_block)^{-1}
+      G_full_inv <- Gram_full + Lambda_block
+      G_full <- invert(G_full_inv)
+
+      ## G^{1/2} via eigendecomposition of the full P x P G
+      eig_G <- eigen(G_full, symmetric = TRUE)
+      vals_G <- eig_G$values
+      vals_G[vals_G <= 0] <- 0
+      G_full_half <- eig_G$vectors %**%
+        (t(eig_G$vectors) * sqrt(vals_G))
+
+      ## G^{-1/2} for per-partition extraction
+      inv_sqrt_vals_G <- ifelse(sqrt(pmax(eig_G$values, 0)) > 0,
+                                1 / sqrt(pmax(eig_G$values, 0)), 0)
+      G_full_half_inv <- eig_G$vectors %**%
+        (t(eig_G$vectors) * inv_sqrt_vals_G)
+
+      ## Cross-product X_tilde^T y_tilde (full P x 1)
+      Xy_tilde <- crossprod(X_tilde, y_tilde)
+
+      ## Lagrangian projection in full P-dimensional space
+      if(K == 0 | any(all.equal(unique(A), 0) == TRUE)){
+        A_proj <- cbind(rep(0, nc * (K + 1)))
+      } else {
+        A_proj <- A
+      }
+
+      ## Use the G^{1/2}r* trick (see details)
+      y_star <- G_full_half %**% Xy_tilde
+      X_star <- G_full_half %**% A_proj
+
+      comp_stab_sc <- 1 / sqrt(K + 1)
+      resids_star <- .lm.fit(
+        X_star * comp_stab_sc,
+        y_star * comp_stab_sc
+      )$residuals / comp_stab_sc
+
+      ## Nonzero constraint values: add particular solution
+      if(length(constraint_value_vectors) > 0){
+        if(any(unlist(constraint_value_vectors) != 0)){
+          preds_star <- X_star %**%
+            (invert(crossprod(X_star) * comp_stab_sc) %**%
+               crossprod(A_proj,
+                         Reduce("rbind",
+                                constraint_value_vectors) *
+                           comp_stab_sc))
+          resids_star <- resids_star + c(preds_star)
+        }
+      }
+
+      beta_block <- G_full_half %**% cbind(resids_star)
+
+      ## Unpack into per-partition result list
+      result <- lapply(1:(K+1), function(k){
+        cbind(beta_block[(k-1)*nc + 1:nc])
+      })
+
+      ## Optional QP refinement for inequality constraints
+      if(quadprog){
+        ## Merge equality + inequality constraints
+        if(K == 0 | any(all.equal(unique(A), 0) == TRUE)){
+          A_qp <- cbind(rep(0, nc * (K + 1)))
+        } else {
+          A_qp <- A
+        }
+        if(!is.null(qp_Amat)){
+          qp_Amat_c <- cbind(A_qp, qp_Amat)
+        } else {
+          qp_Amat_c <- A_qp
+        }
+        if(length(constraint_value_vectors) > 0){
+          constr_rhs <- Reduce('rbind', constraint_value_vectors)
+          if(nrow(constr_rhs) < ncol(A_qp)){
+            constr_rhs <- c(rep(0, ncol(A_qp) - nrow(constr_rhs)),
+                            constr_rhs)
+          }
+        } else {
+          constr_rhs <- rep(0, ncol(A_qp))
+        }
+        if(!is.null(qp_bvec)){
+          qp_bvec_c <- c(constr_rhs, qp_bvec)
+        } else {
+          qp_bvec_c <- constr_rhs
+        }
+        if(!is.null(qp_meq)){
+          qp_meq_c <- ncol(A_qp) + qp_meq
+        } else {
+          qp_meq_c <- ncol(A_qp)
+        }
+
+        ## Use full whitened X_tilde for info matrix
+        info <- Gram_full + Lambda_block
+        sc <- sqrt(mean(abs(info)))
+
+        qp_score <- qp_score_function(
+          X_tilde, y_tilde,
+          VhalfInv_perm %**% cbind(family$linkinv(
+            c(X_block %**% beta_block))),
+          unlist(order_list), 1, VhalfInv_perm,
+          unlist(observation_weights), ...
+        )
+        beta_new <- try({quadprog::solve.QP(
+          Dmat = info / sc,
+          dvec = (qp_score -
+                    Lambda_block %**% beta_block +
+                    info %**% beta_block) / sc,
+          Amat = qp_Amat_c,
+          bvec = qp_bvec_c,
+          meq  = qp_meq_c
+        )$solution}, silent = TRUE)
+
+        if(!any(inherits(beta_new, 'try-error'))){
+          beta_block <- cbind(beta_new)
+          result <- lapply(1:(K+1), function(k){
+            cbind(beta_block[(k-1)*nc + 1:nc])
+          })
+        }
+      }
+
+      ## Return with G_list
+      if(return_G_getB){
+        ## Extract per-partition diagonal blocks of G_full for
+        #  downstream inference. Off-diagonal blocks are needed for the
+        #  correct projection but get_U, compute_trace_H, etc. only
+        #  use diagonal blocks -- a pre-existing approximation in the
+        #  GEE pipeline.
+        G_diag <- lapply(1:(K+1), function(k){
+          G_full[(k-1)*nc + 1:nc, (k-1)*nc + 1:nc]
+        })
+        Ghalf_diag <- lapply(1:(K+1), function(k){
+          G_full_half[(k-1)*nc + 1:nc, (k-1)*nc + 1:nc]
+        })
+        GhalfInv_diag <- lapply(1:(K+1), function(k){
+          G_full_half_inv[(k-1)*nc + 1:nc, (k-1)*nc + 1:nc]
+        })
+        ## [Change 2026-02-16] Recompute G_diag as tcrossprod(Ghalf_diag)
+        #  so that downstream varcov (sigma^2 * UG) is computed from the
+        #  same Ghalf that will be used in matmult_U. This ensures
+        #  G = Ghalf %*% t(Ghalf) exactly, avoiding floating-point
+        #  asymmetry between G_full diagonal blocks and their square roots.
+        G_diag_from_half <- lapply(1:(K+1), function(k){
+          tcrossprod(Ghalf_diag[[k]])
+        })
+        return(list(
+          B = result,
+          G_list = list(G = G_diag_from_half,
+                        Ghalf = Ghalf_diag,
+                        GhalfInv = GhalfInv_diag)
+        ))
+      } else {
+        return(result)
+      }
+    }
+
+    ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+    ## Path 1b: Non-Gaussian GEE (damped SQP with full whitened design)
+    #  [Change 2026-02-16] Uses X_tilde (full whitened design) for the
+    #  information matrix. Linear predictor is X_block %*% beta
+    #  (original scale) since X_block is unwhitened.
+    ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+
+    beta_block <- cbind(rep(0, ncol(X_block)))
+
+    ## SQP iteration control
     damp_cnt <- 0
     master_cnt <- 0
     err <- Inf
 
-    ## Initial link-transformed predictions
-    XB <- Vhalf %**% (X_block %**% beta_block)
+    ## Original-scale linear predictor (X_block is unwhitened)
+    XB <- X_block %**% beta_block
 
-    ## Dummy qp objects and constraint matrix A, if not available
+    ## Build combined constraint matrix for solve.QP
     if(K == 0 | any(all.equal(unique(A), 0) == TRUE)){
       A <- cbind(rep(0, nc*(K+1)))
     }
@@ -3417,987 +4119,338 @@ get_B <- function(X,
       qp_meq <- ncol(A)
     }
 
-    ## Invoke procedure for fitting SQP problems
+    ## Damped SQP loop
     while(err > tol & damp_cnt < 10 & master_cnt < 100){
-      ## Initialize counters
       master_cnt <- master_cnt + 1
       damp <- 2^(-(damp_cnt))
 
-      ## Information matrix in block-diagonal form
+      ## Dispersion on original scale
       if(need_dispersion_for_estimation){
         dispersion_temp <- dispersion_function(
-          family$linkinv(XB),
-          Vhalfy,
-          unlist(order_list),
-          family,
-          unlist(observation_weights),
+          mu = family$linkinv(XB),
+          y = y_block,
+          order_indices = unlist(order_list),
+          family = family,
+          observation_weights = unlist(observation_weights),
+          VhalfInv = VhalfInv,
           ...
         )
       } else {
         dispersion_temp <- 1
       }
-      W <- c(glm_weight_function(family$linkinv(XB),
-                                 Vhalfy,
-                                 unlist(order_list),
-                                 family,
-                                 dispersion_temp,
-                                 unlist(observation_weights),
-                                 ...))
 
-      ## Re-package into partition form for shur correction
-      result <- lapply(1:(K+1),function(k){
+      ## GLM working weights on original scale
+      W <- c(glm_weight_function(family$linkinv(XB),
+                                 y_block,
+                                 unlist(order_list),
+                                 family, dispersion_temp,
+                                 unlist(observation_weights), ...))
+
+      ## Schur correction (X_block is original-scale design)
+      result <- lapply(1:(K+1), function(k){
         cbind(beta_block[(k-1)*nc + 1:nc])
       })
-      shur_correction <-
-        shur_correction_function(
-          list(Vhalf %**% X_block),
-          list(cbind(Vhalfy)),
+      schur_correction <-
+        schur_correction_function(
+          list(X_block), list(y_block),
           list(cbind(unlist(result))),
-          dispersion_temp,
-          list(unlist(order_list)),#order_list,
-          0,#K,
-          family,
-          unlist(observation_weights),
-          ...
+          dispersion_temp, list(unlist(order_list)),
+          0, family, unlist(observation_weights), ...
         )
-      if(!(any(unlist(shur_correction) != 0))){
-        shur_correction_collapsed <- 0
-        shur_correction <- 0
+      if(!(any(unlist(schur_correction) != 0))){
+        schur_correction_collapsed <- 0
       } else {
-        shur_correction_collapsed <- collapse_block_diagonal(shur_correction)
+        schur_correction_collapsed <-
+          collapse_block_diagonal(schur_correction)
       }
 
-      ## Information matrix (G^{-1})
-      info <- t(X_block) %**% (W * X_block) +
+      ## Info matrix using full whitened design X_tilde
+      info <- crossprod(X_tilde, W * X_tilde) +
         Lambda_block +
-        shur_correction_collapsed
+        schur_correction_collapsed
 
-      ## Numerical stability
       sc <- sqrt(mean(abs(info)))
 
-      ## Initialize without inequality constraint, single Newton-Raphson step
       if(master_cnt == 1){
-        infoinv_block <- sc*invert(sc*info)
+        ## First iteration: constrained Newton step
+        infoinv_block <- sc * invert(sc * info)
         U <- (diag(1, nrow(info)) -
-                infoinv_block %**%
-                A %**%
-                invert(t(A) %**% infoinv_block %**% A) %**%
-                t(A))
-        ## = UG[X^{T}(y-g(XB))]
-        # Lambda_block %**% beta_block not needed since beta_block initializes
-        # to 0
+                tcrossprod(infoinv_block %**%
+                             A %**%
+                             invert(crossprod(A,
+                                              infoinv_block %**% A)),
+                           A))
+        ## Score: X_tilde^T (y_tilde - V^{-1/2} mu)
+        mu_vec <- cbind(family$linkinv(c(XB)))
         beta_new <- c(
-            U %**%
-            infoinv_block %**%
-            t(X_block) %**%
-            (y_block - VhalfInv %**% cbind(family$linkinv(c(XB))))
+          U %**% infoinv_block %**%
+            crossprod(X_tilde,
+                      y_tilde - VhalfInv_perm %**% mu_vec)
         )
         infoinv_block <- NULL
       } else {
-        ## Else QP update with inequality constraints
+        ## Subsequent iterations: solve.QP
         qp_score <- qp_score_function(
-          X_block,
-          y_block,
-          VhalfInv %**% cbind(family$linkinv(XB)),
-          unlist(order_list),
-          dispersion_temp,
-          VhalfInv,
-          unlist(observation_weights),
-          ...
+          X_tilde, y_tilde,
+          VhalfInv_perm %**% cbind(family$linkinv(XB)),
+          unlist(order_list), dispersion_temp,
+          VhalfInv_perm,
+          unlist(observation_weights), ...
         )
         beta_new <- try({quadprog::solve.QP(
-          Dmat = info/sc,
+          Dmat = info / sc,
           dvec = (qp_score -
                     Lambda_block %**% beta_block +
-                    info %**% beta_block)/sc,
+                    info %**% beta_block) / sc,
           Amat = qp_Amat,
           bvec = qp_bvec,
           meq = qp_meq
         )$solution}, silent = TRUE)
       }
 
-      ## quadprog is very sensitive to positive definiteness
       if(any(inherits(beta_new, 'try-error'))){
-        beta_new <- 0*beta_block
+        beta_new <- 0 * beta_block
       }
 
-      ## If no iteration, return solution as non-damped solution
-      if((!iterate & master_cnt > 2) |
-         (paste0(family)[1] == 'gaussian' &
-          paste0(family)[2] == 'identity')){
+      ## Non-iterative: accept after Newton step
+      if(!iterate & master_cnt > 2){
         beta_block <- beta_new
         damp_cnt <- 11
         master_cnt <- 101
         err <- tol - 1
-
-        ## Else, use damped SQP
       } else {
-        ## Damped update
-        beta_new <- (1-damp)*beta_block + damp*beta_new
-        XB <- Vhalf %**% (X_block %**% cbind(beta_new))
+        ## Damped update; deviance on original scale
+        beta_new <- (1 - damp) * beta_block + damp * beta_new
+        XB <- X_block %**% cbind(beta_new)
+
         if(need_dispersion_for_estimation){
           dispersion_temp <- dispersion_function(
-            family$linkinv(XB),
-            Vhalfy,
-            unlist(order_list),
-            family,
-            unlist(observation_weights),
+            mu = family$linkinv(XB),
+            y = y_block,
+            order_indices = unlist(order_list),
+            family = family,
+            observation_weights = unlist(observation_weights),
+            VhalfInv = VhalfInv,
             ...
           )
         } else {
           dispersion_temp <- 1
         }
         W <- c(glm_weight_function(family$linkinv(XB),
-                                   Vhalfy,
+                                   y_block,
                                    unlist(order_list),
-                                   family,
-                                   dispersion_temp,
-                                   unlist(observation_weights),
-                                   ...))
+                                   family, dispersion_temp,
+                                   unlist(observation_weights), ...))
 
-        ## Priority goes
-        # 1) family$custom_dev.resids if available
-        # 2) family$dev.resids if available
-        # 3) MSE otherwise
+        ## Deviance on original scale
+        mu_new <- family$linkinv(c(XB))
         if(!is.null(family$custom_dev.resids)){
-          raw <- family$custom_dev.resids(Vhalfy,
-                                          family$linkinv(c(XB)),
-                                          unlist(order_list),
-                                          family,
-                                          unlist(observation_weights),
-                                          ...)
+          raw <- family$custom_dev.resids(
+            y_block, mu_new, unlist(order_list),
+            family, unlist(observation_weights), ...
+          )
+          W_safe <- pmax(W, sqrt(.Machine$double.eps))
           err_new <- mean((
-                        VhalfInv %**% cbind(sign(raw)*sqrt(abs(
-                          raw
-                        ))) / sqrt(c(W))
-                      )^2)
+            VhalfInv_perm %**%
+              cbind(sign(raw) * sqrt(abs(raw)) / sqrt(c(W_safe)))
+          )^2)
         } else if(is.null(family$dev.resids)){
-          err_new <- mean((unlist(observation_weights)*
-                         (y_block - VhalfInv %**% cbind(family$linkinv(XB))))^2)
+          err_new <- mean((unlist(observation_weights) *
+                             (y_block - cbind(mu_new)))^2)
         } else {
           err_new <-
-            mean(unlist(observation_weights)*
-                   family$dev.resids(y_block,
-                                     VhalfInv %**% cbind(family$linkinv(XB)),
-                                     wt = 1/W))
+            mean(unlist(observation_weights) *
+                   family$dev.resids(y_block, cbind(mu_new),
+                                     wt = 1 / W))
         }
-        if(is.null(err_new) | is.na(err_new) | !is.finite(err_new)){
-            damp_cnt <- damp_cnt + 1
-          } else if(err_new <= err){
 
-          ## Update coefficients, set damp to 0
-          prev_err <- err
-          err <- err_new
-          abs_diff <- max(abs(beta_new - beta_block))
-          beta_block <- beta_new
-          damp_cnt <- 0
-
-          ## Convergence criteria met when improvement in performance is
-          # negligible and change in beta coefficients is small and
-          # more than 10 iterations have passed
-          if((abs_diff < tol) &
-             (prev_err - err < tol) &
-             (master_cnt > 10)){
-            damp_cnt <- 11
-            master_cnt <- 101
-            err <- tol - 1
-          }
-
-        } else {
-          damp_cnt <- damp_cnt + 1
-        }
-      }
-
-      ## Re-package into partition form
-      result <- lapply(1:(K+1),function(k){
-        cbind(beta_block[(k-1)*nc + 1:nc])
-      })
-    }
-    ## Return output, with G re-computed if desired
-    if(return_G_getB){
-      if(paste0(family)[1] == 'gaussian' &
-         paste0(family)[2] == 'identity'){
-        return(list(
-          B = result,
-          G_list = list(G = lapply(Ghalf, function(mat) mat %**% mat),
-                        Ghalf = Ghalf)
-        ))
-      }
-      ## Update estimates and variance components
-      XB <- Vhalf %**% (X_block %**% cbind(unlist(result)))
-      if(need_dispersion_for_estimation){
-        dispersion_temp <- dispersion_function(
-          family$linkinv(XB),
-          Vhalfy,
-          unlist(order_list),
-          family,
-          unlist(observation_weights),
-          ...
-        )
-      } else {
-        dispersion_temp <- 1
-      }
-      W <- c(glm_weight_function(family$linkinv(XB),
-                                 Vhalfy,
-                                 unlist(order_list),
-                                 family,
-                                 dispersion_temp,
-                                 unlist(observation_weights),
-                                 ...))
-
-      shur_correction <-
-        shur_correction_function(
-          list(Vhalf %**% X_block),
-          list(cbind(Vhalfy)),
-          list(cbind(unlist(result))),
-          dispersion_temp,
-          list(unlist(order_list)),#order_list,
-          0,#K,
-          family,
-          unlist(observation_weights),
-          ...
-        )
-      if(!(any(unlist(shur_correction) != 0))){
-        shur_correction_collapsed <- 0
-        shur_correction <- 0
-      } else {
-        shur_correction_collapsed <- collapse_block_diagonal(shur_correction)
-      }
-
-      info <- t(X_block) %**% (W * X_block) +
-        Lambda_block +
-        shur_correction_collapsed
-
-      G <- lapply(1:(K+1), function(k)NA)
-      Ghalf <- lapply(1:(K+1), function(k)NA)
-      GhalfInv <- lapply(1:(K+1), function(k)NA)
-      for(k in 1:(K+1)){
-        G[[k]] <- info[(k-1)*nc + 1:nc, (k-1)*nc + 1:nc]
-        eig <- eigen(G[[k]], symmetric = TRUE)
-        vals <- eig$values
-        vals[eig$values <= sqrt(.Machine$double.eps)] <- 0
-        sqrt_vals <- sqrt(vals)
-        Ghalf[[k]] <- eig$vectors %**% (t(eig$vectors) * sqrt_vals)
-        inv_sqvals <- ifelse(sqrt_vals > 0, 1/sqrt_vals, 0)
-        GhalfInv[[k]] <- eig$vectors %**% (t(eig$vectors) * inv_sqvals)
-      }
-
-      G_list <- list(
-        Ghalf = Ghalf,
-        GhalfInv = GhalfInv,
-        G = G
-      )
-
-      return(list(
-        B = result,
-        G_list = G_list
-      ))
-    } else {
-      return(result)
-    }
-  }
-
-  ## Fit in block-diagonal form if desired with many independent spline effects
-  # Not parallelized nor memory efficient, except for case of many
-  # non-interactive non-spline effects and few spline effects with many knots
-  # Any linear constraints upon non-spline effects without interactions will be
-  # lost.
-  # Compatible with (in fact, assumes) GEE scenario
-  if(blockfit &
-     length(just_linear_without_interactions) > 0 &
-     K > 0){
-    if(is.null(observation_weights) | length(unlist(observation_weights)) == 0){
-      observation_weights <- 1
-    }
-    ## Assumes GEE scenario
-    # replaces correlation structure Vwith identity matrix if missing
-    if(is.null(Vhalf) | is.null(VhalfInv)){
-      cor_fl <- FALSE
-      #Vhalf <- diag(nrow(cbind(unlist(y))))
-      #VhalfInv <- Vhalf
-    } else {
-      cor_fl <- TRUE
-      ## Re-order to match the block-partition ordering
-      Vhalf <- Vhalf[unlist(order_list), unlist(order_list)]
-      VhalfInv <- VhalfInv[unlist(order_list), unlist(order_list)]
-    }
-
-    ## Extract just-linear-without-interaction expansions
-    # one partition
-    flat_cols <- unlist(
-                    c(sapply(paste0('_',just_linear_without_interactions,'_'),
-                        function(col)which(colnames(X[[1]]) == col))))
-    # all partitions
-    flat_cols_collapsed <- Reduce("c",
-                                  sapply(1:(K+1),function(kk){
-                                    nc*(kk-1) + flat_cols
-                                  }))
-
-    ## New design matrix in block-diagonal form,
-    # with linear-only terms (X2) binded together agnostic to partition
-    # to the usual spline effects (X1)
-    X1 <- Reduce("rbind", lapply(1:(K+1),function(k){
-      Reduce("cbind",lapply(1:(K+1),function(j){
-        if(nrow(X[[k]]) == 0){
-          return(X[[k]][,-flat_cols,drop=FALSE])
-        } else if(j == k) X[[k]][,-flat_cols,drop=FALSE] else 0*
-                          X[[k]][,-flat_cols,drop=FALSE]
-      }))
-    }))
-    X2 <- Reduce("rbind", lapply(1:(K+1),function(k){
-      return(X[[k]][,flat_cols,drop=FALSE])
-    }))
-    X_block <- cbind(X1, X2)
-    X1 <- NULL
-    X2 <- NULL
-
-    ## Initial beta coefficients is the 0 vector
-    beta_block <- cbind(rep(0, ncol(X_block)))
-
-    ## Penalties
-    # Fix for Lambda_block construction
-    # First extract components correctly
-    nc_flat <- length(flat_cols)
-    nc_minus_flat <- nc - nc_flat
-
-    # Create correct non-flat block diagonal
-    Lambda_non_flat <- Lambda[-flat_cols, -flat_cols]
-    Lambda_flat <- Lambda[flat_cols, flat_cols]
-
-    # Create block-diagonal matrix for non-flat penalties
-    Lambda_block1 <- Reduce("rbind", lapply(1:(K+1), function(k){
-      Reduce("cbind", lapply(1:(K+1), function(j){
-        if(j == k) {
-          if(unique_penalty_per_partition) {
-            Lambda_non_flat + L_partition_list[[k]][-flat_cols, -flat_cols]
-          } else {
-            Lambda_non_flat
-          }
-        } else {
-          matrix(0, nrow=nrow(Lambda_non_flat), ncol=ncol(Lambda_non_flat))
-        }
-      }))
-    }))
-
-    # Keep flat penalties as is
-    Lambda_block2 <- Lambda_flat
-
-    # Build correctly sized Lambda_block
-    Lambda_block <- matrix(0, nrow=ncol(X_block), ncol=ncol(X_block))
-    Lambda_block[1:nrow(Lambda_block1), 1:ncol(Lambda_block1)] <- Lambda_block1
-    Lambda_block[(nrow(Lambda_block1)+1):(ncol(X_block)),
-                 (ncol(Lambda_block1)+1):(ncol(X_block))] <- Lambda_block2
-
-    y_block <- cbind(unlist(y))
-    if(cor_fl){
-      Vhalfy <- Vhalf %**% y_block
-    } else {
-      Vhalfy <- y_block
-    }
-
-    ## Solve smoothing constraints and qp constraints simultaneously
-    damp_cnt <- 0
-    master_cnt <- 0
-    err <- Inf
-
-    ## Initial link-transformed predictions
-    if(cor_fl){
-      XB <- Vhalf %**% (X_block %**% beta_block)
-    } else {
-      XB <- X_block %**% beta_block
-    }
-
-    ## Dummy qp objects and constraint matrix A, if not available
-    # Below merges equality and inequality constraints together
-    if(K == 0 | any(all.equal(unique(A), 0) == TRUE)){
-      A <- cbind(rep(0, nc*(K+1)))
-    }
-    At <- t(A)
-    A0 <- At[,-flat_cols_collapsed,drop=FALSE]
-    A1 <- At[,flat_cols] / (K + 1)
-    for(k in 2:(K+1)){
-      A1 <- A1 + At[,flat_cols + (k-1)*nc] / (K + 1)
-    }
-    At <- cbind(A0, A1)
-    A <- t(At)
-    A1 <- NULL
-    A0 <- NULL
-    if(!is.null(qp_Amat)){
-      qp_At <- t(qp_Amat)
-      qp_A0 <- qp_At[,-flat_cols_collapsed,drop=FALSE]
-      qp_A1 <- qp_At[,flat_cols] / (K + 1)
-      for(k in 2:(K+1)){
-        qp_A1 <- qp_A1 + qp_At[,flat_cols + (k-1)*nc] / (K + 1)
-      }
-      qp_At <- cbind(qp_A0, qp_A1)
-      qp_Amat <- t(qp_At)
-      qp_Amat <- cbind(A, qp_Amat)
-    } else {
-      qp_Amat <- A
-    }
-    qp_A1 <- NULL
-    qp_A0 <- NULL
-
-    if(length(constraint_value_vectors) > 0){
-      constr_A <- Reduce('rbind', constraint_value_vectors)
-      if(nrow(constr_A) < ncol(A)){
-        constr_A <- c(rep(0, ncol(A) - nrow(constr_A)), constr_A)
-      }
-    } else {
-      constr_A <- rep(0, ncol(A))
-    }
-    if(!is.null(qp_bvec)){
-      qp_bvec <- c(constr_A, qp_bvec)
-    } else {
-      qp_bvec <- constr_A
-    }
-    if(!is.null(qp_meq)){
-      qp_meq <- ncol(A) + qp_meq
-    } else {
-      qp_meq <- ncol(A)
-    }
-
-    ## Invoke procedure for fitting SQP problems
-    nc_flat <- length(flat_cols)
-    nc_minus_flat <- nc - nc_flat
-    while(err > tol & damp_cnt < 10 & master_cnt < 100){
-      ## Initialize counters
-      master_cnt <- master_cnt + 1
-      damp <- 2^(-(damp_cnt))
-
-      ## Information matrix in block-diagonal form
-      if(need_dispersion_for_estimation){
-        dispersion_temp <- dispersion_function(
-          family$linkinv(XB),
-          Vhalfy,
-          unlist(order_list),
-          family,
-          unlist(observation_weights),
-          ...
-        )
-      } else {
-        dispersion_temp <- 1
-      }
-      W <- c(glm_weight_function(family$linkinv(XB),
-                                 Vhalfy,
-                                 unlist(order_list),
-                                 family,
-                                 dispersion_temp,
-                                 unlist(observation_weights),
-                                 ...))
-
-      ## Re-package into partition form for shur correction
-      result <- lapply(1:(K+1),function(k){
-        beta <- rep(0, nc)
-        beta[-flat_cols] <- beta_block[(k-1)*nc_minus_flat +
-                                         1:nc_minus_flat]
-        beta[flat_cols] <- beta_block[(K+1)*nc_minus_flat +
-                                        1:nc_flat]
-        cbind(beta)
-      })
-      if(cor_fl){
-        shur_correction <-
-          shur_correction_function(
-            list(Vhalf %**% collapse_block_diagonal(X)),
-            list(cbind(Vhalfy)),
-            list(cbind(unlist(result))),
-            dispersion_temp,
-            list(unlist(order_list)),#order_list,
-            0,#K,
-            family,
-            unlist(observation_weights),
-            ...
-          )
-      } else {
-        shur_correction <-
-          shur_correction_function(
-            list(collapse_block_diagonal(X)),
-            list(cbind(Vhalfy)),
-            list(cbind(unlist(result))),
-            dispersion_temp,
-            list(unlist(order_list)),#order_list,
-            0,#K,
-            family,
-            unlist(observation_weights),
-            ...
-          )
-      }
-      shur_correction <- lapply(1:(K + 1), function(k){
-        shur_correction[[1]][(k-1)*nc + 1:nc, (k-1)*nc + 1:nc]
-      })
-      if(!(any(unlist(shur_correction) != 0))){
-        shur_correction_collapsed <- 0
-        shur_correction <- 0
-      } else {
-        ## Extract components from each partition's shur_correction
-        shur_non_flat_list <- lapply(1:(K+1), function(k) {
-          shur_correction[[k]][-flat_cols, -flat_cols]
-        })
-
-        ## Build block-diagonal for non-flat
-        shur_correction1 <- Reduce("rbind", lapply(1:(K+1), function(k) {
-          Reduce("cbind", lapply(1:(K+1), function(j) {
-            if(j == k) shur_non_flat_list[[k]] else
-              matrix(0, nrow=nrow(shur_non_flat_list[[k]]),
-                     ncol=ncol(shur_non_flat_list[[k]]))
-          }))
-        }))
-
-        ## Sum flat components
-        shur_correction2 <- Reduce("+", lapply(1:(K+1), function(k) {
-          shur_correction[[k]][flat_cols, flat_cols]
-        }))
-        if(K > 0) shur_correction2 <- shur_correction2 / (K+1)
-
-        ## Build final matrix with same structure as Lambda_block
-        shur_correction_collapsed <- matrix(0, nrow=ncol(X_block),
-                                            ncol=ncol(X_block))
-        shur_correction_collapsed[1:nrow(shur_correction1),
-                                  1:ncol(shur_correction1)] <- shur_correction1
-        shur_correction_collapsed[(nrow(shur_correction1)+1):ncol(X_block),
-                                  (ncol(shur_correction1)+1):ncol(X_block)] <-
-          shur_correction2
-      }
-      info <- t(X_block) %**% (c(W) * X_block) +
-        Lambda_block +
-        shur_correction_collapsed
-
-      ## Numerical stability
-      sc <- sqrt(mean(abs(info)))
-
-      ## Initialize without inequality constraint, single Newton-Raphson step
-      if(master_cnt == 1){
-        infoinv_block <- sc*invert(sc*info)
-        U <- (diag(1, nrow(info)) -
-                infoinv_block %**%
-                A %**%
-                invert(t(A) %**% infoinv_block %**% A) %**%
-                t(A))
-        ## = UG[X^{T}(y-g(XB))]
-        # Lambda_block %**% beta_block not needed since beta_block initializes
-        # to 0
-        if(cor_fl){
-          beta_new <- c(
-            U %**%
-              infoinv_block %**%
-              t(X_block) %**%
-              (y_block - VhalfInv %**% cbind(family$linkinv(c(XB)))))
-        } else {
-          beta_new <- c(
-            U %**%
-              infoinv_block %**%
-              t(X_block) %**%
-              (y_block - family$linkinv(c(XB))))
-        }
-        infoinv_block <- NULL
-      } else {
-        ## Else QP update with inequality constraints
-        if(cor_fl){
-          mu <- VhalfInv %**% cbind(family$linkinv(XB))
-        } else {
-          mu <- cbind(family$linkinv(XB))
-        }
-        if(cor_fl){
-          qp_score <- qp_score_function(
-            X_block,
-            y_block,
-            mu,
-            unlist(order_list),
-            dispersion_temp,
-            VhalfInv,
-            unlist(observation_weights),
-            ...
-          )
-        } else {
-          qp_score <- qp_score_function(
-            X_block,
-            y_block,
-            mu,
-            unlist(order_list),
-            dispersion_temp,
-            NULL,
-            unlist(observation_weights),
-            ...
-          )
-        }
-        beta_new <- try({quadprog::solve.QP(
-          Dmat = info/sc,
-          dvec = (qp_score -
-                  Lambda_block %**% beta_block +
-                          info %**% beta_block)/sc,
-          Amat = qp_Amat,
-          bvec = qp_bvec,
-          meq = qp_meq
-        )$solution}, silent = TRUE)
-      }
-
-      ## quadprog is very sensitive to positive definiteness
-      if(any(inherits(beta_new, 'try-error'))){
-        beta_new <- 0*beta_block
-      }
-
-      ## If no iteration, return solution as non-damped solution
-      if((!iterate & master_cnt > 2) |
-         (paste0(family)[1] == 'gaussian' &
-          paste0(family)[2] == 'identity')){
-        beta_block <- cbind(beta_new)
-        damp_cnt <- 11
-        master_cnt <- 101
-        err <- tol - 1
-        ## Else, use damped SQP
-      } else {
-        ## Damped update
-        beta_new <- (1-damp)*beta_block + damp*beta_new
-        if(cor_fl){
-          XB <- Vhalf %**% (X_block %**% cbind(beta_new))
-        } else {
-          XB <- X_block %**% cbind(beta_new)
-        }
-        if(need_dispersion_for_estimation){
-          dispersion_temp <- dispersion_function(
-            family$linkinv(XB),
-            Vhalfy,
-            unlist(order_list),
-            family,
-            unlist(observation_weights),
-            ...
-          )
-        } else {
-          dispersion_temp <- 1
-        }
-        W <- c(glm_weight_function(family$linkinv(XB),
-                                   Vhalfy,
-                                   unlist(order_list),
-                                   family,
-                                   dispersion_temp,
-                                   unlist(observation_weights),
-                                   ...))
-
-        ## Priority goes
-        # 1) family$custom_dev.resids if available
-        # 2) family$dev.resids if available
-        # 3) MSE
-        if(!is.null(family$custom_dev.resids)){
-          raw <- family$custom_dev.resids(Vhalfy,
-                                          family$linkinv(c(XB)),
-                                          unlist(order_list),
-                                          family,
-                                          unlist(observation_weights),
-                                          ...)
-          if(cor_fl){
-            err_new <- mean((
-              VhalfInv %**% cbind(sign(raw)*sqrt(abs(
-                raw
-              ))) / sqrt(c(W))
-            )^2)
-          } else{
-            err_new <- mean(raw)
-          }
-        } else if(is.null(family$dev.resids)){
-          if(cor_fl){
-            err_new <- mean(unlist(observation_weights)*
-                          (y_block - VhalfInv %**% cbind(family$linkinv(XB))^2))
-          } else {
-            err_new <- mean(unlist(observation_weights)*
-                              (y_block - cbind(family$linkinv(XB))^2))
-          }
-        } else {
-          if(cor_fl){
-            err_new <-
-              mean(unlist(observation_weights)*
-                     family$dev.resids(y_block,
-                                       VhalfInv %**% family$linkinv(XB),
-                                       wt = 1/W))
-          } else {
-            err_new <-
-              mean(unlist(observation_weights)*
-                     family$dev.resids(y_block,
-                                       family$linkinv(XB),
-                                       wt = 1/W))
-          }
-        }
+        ## Step acceptance
         if(is.null(err_new) | is.na(err_new) | !is.finite(err_new)){
           damp_cnt <- damp_cnt + 1
         } else if(err_new <= err){
-
-          ## Update coefficients, set damp to 0
           prev_err <- err
           err <- err_new
           abs_diff <- max(abs(beta_new - beta_block))
           beta_block <- beta_new
           damp_cnt <- 0
-
-          ## Convergence criteria met when improvement in performance is
-          # negligible and change in beta coefficients is small and
-          # more than 10 iterations have passed
-          if((abs_diff < tol) &
-             (prev_err - err < tol) &
+          if((abs_diff < tol) & (prev_err - err < tol) &
              (master_cnt > 10)){
             damp_cnt <- 11
             master_cnt <- 101
             err <- tol - 1
           }
-
         } else {
           damp_cnt <- damp_cnt + 1
         }
       }
 
-      ## Re-package into partition form
-      nc_flat <- length(flat_cols)
-      nc_minus_flat <- nc - nc_flat
-      result <- lapply(1:(K+1),function(k){
-        beta <- rep(0, nc)
-        beta[-flat_cols] <- beta_block[(k-1)*nc_minus_flat +
-                                           1:nc_minus_flat]
-        beta[flat_cols] <- beta_block[(K+1)*nc_minus_flat +
-                                      1:nc_flat]
-        cbind(beta)
+      ## Unpack per-partition
+      result <- lapply(1:(K+1), function(k){
+        cbind(beta_block[(k-1)*nc + 1:nc])
       })
     }
-    ## Return output, with G re-computed if desired
+
+    ## Return with covariance components
     if(return_G_getB){
-      if(paste0(family)[1] == 'gaussian' &
-         paste0(family)[2] == 'identity'){
-        return(list(
-          B = result,
-          G_list = list(G = lapply(Ghalf, function(mat) mat %**% mat),
-                        Ghalf = Ghalf)
-        ))
-      }
-      ## ## ## ##
-      ## update
-      if(cor_fl){
-        XB <- Vhalf %**% (collapse_block_diagonal(X) %**% cbind(unlist(result)))
-      } else {
-        XB <- collapse_block_diagonal(X) %**% cbind(unlist(result))
-      }
+      ## Recompute G at final estimates using full whitened info
+      XB <- X_block %**% cbind(unlist(result))
       if(need_dispersion_for_estimation){
         dispersion_temp <- dispersion_function(
-          family$linkinv(XB),
-          Vhalfy,
-          unlist(order_list),
-          family,
-          unlist(observation_weights),
+          mu = family$linkinv(XB),
+          y = y_block,
+          order_indices = unlist(order_list),
+          family = family,
+          observation_weights = unlist(observation_weights),
+          VhalfInv = VhalfInv,
           ...
         )
       } else {
         dispersion_temp <- 1
       }
       W <- c(glm_weight_function(family$linkinv(XB),
-                                 Vhalfy,
+                                 y_block,
                                  unlist(order_list),
-                                 family,
-                                 dispersion_temp,
-                                 unlist(observation_weights),
-                                 ...))
-      if(cor_fl){
-        shur_correction <-
-          shur_correction_function(
-            list(Vhalf %**% collapse_block_diagonal(X)),
-            list(cbind(Vhalfy)),
-            list(cbind(unlist(result))),
-            dispersion_temp,
-            list(unlist(order_list)),#order_list,
-            0,#K,
-            family,
-            unlist(observation_weights),
-            ...
-          )
+                                 family, dispersion_temp,
+                                 unlist(observation_weights), ...))
+
+      schur_correction <-
+        schur_correction_function(
+          list(X_block), list(y_block),
+          list(cbind(unlist(result))),
+          dispersion_temp, list(unlist(order_list)),
+          0, family, unlist(observation_weights), ...
+        )
+      if(!(any(unlist(schur_correction) != 0))){
+        schur_correction_collapsed <- 0
       } else {
-        shur_correction <-
-          shur_correction_function(
-            list(collapse_block_diagonal(X)),
-            list(cbind(Vhalfy)),
-            list(cbind(unlist(result))),
-            dispersion_temp,
-            list(unlist(order_list)),#order_list,
-            0,#K,
-            family,
-            unlist(observation_weights),
-            ...
-          )
+        schur_correction_collapsed <-
+          collapse_block_diagonal(schur_correction)
       }
-      shur_correction <- lapply(1:(K + 1), function(k){
-        shur_correction[[1]][(k-1)*nc + 1:nc, (k-1)*nc + 1:nc]
-      })
-      if(!(any(unlist(shur_correction) != 0))){
-        shur_correction_collapsed <- 0
-        shur_correction <- 0
-      } else {
-        ## Extract components from each partition's shur_correction
-        shur_non_flat_list <- lapply(1:(K+1), function(k) {
-          shur_correction[[k]][-flat_cols, -flat_cols]
-        })
 
-        ## Build block-diagonal for non-flat
-        shur_correction1 <- Reduce("rbind", lapply(1:(K+1), function(k) {
-          Reduce("cbind", lapply(1:(K+1), function(j) {
-            if(j == k) shur_non_flat_list[[k]] else
-              matrix(0, nrow=nrow(shur_non_flat_list[[k]]),
-                     ncol=ncol(shur_non_flat_list[[k]]))
-          }))
-        }))
-
-        ## Sum flat components
-        shur_correction2 <- Reduce("+", lapply(1:(K+1), function(k) {
-          shur_correction[[k]][flat_cols, flat_cols]
-        }))
-        if(K > 0) shur_correction2 <- shur_correction2 / (K+1)
-
-        ## Build final matrix with same structure as Lambda_block
-        shur_correction_collapsed <- matrix(0, nrow=ncol(X_block),
-                                            ncol=ncol(X_block))
-        shur_correction_collapsed[1:nrow(shur_correction1),
-                                  1:ncol(shur_correction1)] <- shur_correction1
-        shur_correction_collapsed[(nrow(shur_correction1)+1):ncol(X_block),
-                                  (ncol(shur_correction1)+1):ncol(X_block)] <-
-          shur_correction2
-      }
-      info <- t(X_block) %**% (c(W) * X_block) +
+      info <- crossprod(X_tilde, W * X_tilde) +
         Lambda_block +
-        shur_correction_collapsed
+        schur_correction_collapsed
 
-      ## Replace the current G construction with this
-      G <- lapply(1:(K+1), function(k) {NA})
-      Ghalf <- lapply(1:(K+1), function(k) {NA})
-      GhalfInv <- lapply(1:(K+1), function(k) {NA})
-
-      ## Extract the sizes we need
-      info_size <- dim(info)[1]
-      non_flat_block_size <- (K+1) * nc_minus_flat
-      flat_block_size <- nc_flat
-
-      ## For each partition
-      for(k in 1:(K+1)) {
-        ## Initialize a matrix for this partition's G
-        G[[k]] <- matrix(0, nrow=nc, ncol=nc)
-
-        # Extract the non-flat portion for this partition
-        non_flat_start <- (k-1) * nc_minus_flat + 1
-        non_flat_end <- k * nc_minus_flat
-        non_flat_indices <- non_flat_start:non_flat_end
-
-        # Extract the flat portion (same for all partitions)
-        flat_start <- non_flat_block_size + 1
-        flat_end <- info_size
-        flat_indices <- flat_start:flat_end
-
-        # Copy the non-flat portion to G[[k]]
-        G[[k]][-flat_cols, -flat_cols] <- info[non_flat_indices,
-                                               non_flat_indices]
-
-        # Copy the flat portion to G[[k]]
-        G[[k]][flat_cols, flat_cols] <- info[flat_start:flat_end,
-                                             flat_start:flat_end]
-
-        # Copy the off-diagonal blocks (interactions between flat and non-flat)
-        # = Upper-right: non-flat rows, flat columns
-        G[[k]][-flat_cols, flat_cols] <- info[non_flat_indices,
-                                              flat_indices]
-
-        # = Lower-left: flat rows, non-flat columns (transpose of upper-right)
-        G[[k]][flat_cols, -flat_cols] <- t(info[non_flat_indices,
-                                                flat_indices])
-
-        # Now compute Ghalf and GhalfInv as before
-        eig <- eigen(G[[k]], symmetric = TRUE)
+      ## Extract per-partition diagonal blocks of the full info
+      #  matrix and compute G, Ghalf, GhalfInv via eigendecomposition.
+      #  [Change 2026-02-16] G_diag is computed as tcrossprod(Ghalf_diag)
+      #  to ensure G = Ghalf %*% t(Ghalf) exactly for downstream varcov.
+      G <- lapply(1:(K+1), function(k) NA)
+      Ghalf <- lapply(1:(K+1), function(k) NA)
+      GhalfInv <- lapply(1:(K+1), function(k) NA)
+      for(k in 1:(K+1)){
+        info_kk <- info[(k-1)*nc + 1:nc, (k-1)*nc + 1:nc]
+        eig <- eigen(info_kk, symmetric = TRUE)
         vals <- eig$values
-        vals[eig$values <= sqrt(.Machine$double.eps)] <- 0
-        sqrt_vals <- sqrt(vals)
-        Ghalf[[k]] <- eig$vectors %**% (t(eig$vectors) * sqrt_vals)
+        vals_safe <- pmax(vals, 0)
+        vals_safe[vals <= sqrt(.Machine$double.eps)] <- 0
+        sqrt_vals <- sqrt(vals_safe)
+        Ghalf[[k]] <- eig$vectors %**%
+          (t(eig$vectors) * sqrt_vals)
         inv_sqvals <- ifelse(sqrt_vals > 0, 1/sqrt_vals, 0)
-        GhalfInv[[k]] <- eig$vectors %**% (t(eig$vectors) * inv_sqvals)
+        GhalfInv[[k]] <- eig$vectors %**%
+          (t(eig$vectors) * inv_sqvals)
+        ## G = Ghalf %*% t(Ghalf) exactly
+        G[[k]] <- tcrossprod(Ghalf[[k]])
       }
-      G_list <- list(
-        Ghalf = Ghalf,
-        GhalfInv = GhalfInv,
-        G = G
-      )
+
       return(list(
         B = result,
-        G_list = G_list
+        G_list = list(Ghalf = Ghalf,
+                      GhalfInv = GhalfInv,
+                      G = G)
       ))
     } else {
       return(result)
     }
   }
 
-  ## For cases besides canonical Gaussian
+  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+  ## Paths 2 and 3: No correlation structure
+  #  The code below handles both the Gaussian identity case (Path 2, which
+  #  has a closed-form solution) and the general GLM case (Path 3, which
+  #  requires unconstrained fitting followed by Lagrangian projection).
+  #  The family check determines which sub-path to take.
+  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+
+  ## Path 3: Non-Gaussian or non-identity link (requires iterative fitting)
   if(!(paste0(family)[2] == 'identity') |
      !(paste0(family)[1] == 'gaussian')){
     use_lm <- FALSE
+
+    ## Compute Lambda^{1/2} for augmented regression in unconstrained fits
     eig <- eigen(Lambda, symmetric = TRUE)
     LambdaHalf <- eig$vectors %**% (t(eig$vectors) * sqrt(ifelse(
       eig$values > 0,
       eig$values,
       0)))
-    if(any(is.null(prevUnconB)) & parallel_unconstrained){
-      ## Unconstrained estimate, extract from each partition
+
+    ## Obtain unconstrained (partition-wise) estimates, either in parallel
+    #  or sequentially.
+    if(parallel_unconstrained){
+      ## Parallel unconstrained fitting across partitions
       unconstrained_estimate <-
         parallel::parLapply(cl,
-                  1:(K+1),
-                  function(k,
-                           unique_penalty_per_partition,
-                           unconstrained_fit_fxn,
-                           keep_weighted_Lambda,
-                           family,
-                           tol,
-                           K,
-                           parallel_unconstrained,
-                           cl,
-                           chunk_size,
-                           num_chunks,
-                           rem_chunks,
-                           observation_weights){
-                    ## Adjust penalties if unique penalties are present for each partition
-                    if(unique_penalty_per_partition){
-                      Lambda_temp <- Lambda + L_partition_list[[k]]
-                      eig <- eigen(Lambda_temp, symmetric = TRUE)
-                      LambdaHalf_temp <- eig$vectors %**%
-                        (t(eig$vectors) * sqrt(ifelse(eig$values <= 0,
-                                          0,
-                                        eig$values)))
-                    } else {
-                      LambdaHalf_temp <- LambdaHalf
-                      Lambda_temp <- Lambda
-                    }
-
-                    ## Fit ordinary model to each partition separately
-                    cbind(c(unconstrained_fit_fxn(X[[k]],
-                                                  y[[k]],
-                                                  LambdaHalf_temp,
-                                                  Lambda_temp,
-                                                  keep_weighted_Lambda,
-                                                  family,
-                                                  tol,
-                                                  K,
-                                                  parallel_unconstrained,
-                                                  cl,
-                                                  chunk_size,
-                                                  num_chunks,
-                                                  rem_chunks,
-                                                  order_list[[k]],
-                                                  observation_weights[[k]],
-                                                  ...)))
-                                          },
-                                          unique_penalty_per_partition,
-                                          unconstrained_fit_fxn,
-                                          keep_weighted_Lambda,
-                                          family,
-                                          tol,
-                                          K,
-                                          parallel_unconstrained,
-                                          cl,
-                                          chunk_size,
-                                          num_chunks,
-                                          rem_chunks,
-                                          observation_weights)
-    } else if(any(is.null(prevUnconB))){
-      ## Starting unconstrained fits per partition
+                            1:(K+1),
+                            function(k,
+                                     unique_penalty_per_partition,
+                                     unconstrained_fit_fxn,
+                                     keep_weighted_Lambda,
+                                     family,
+                                     tol,
+                                     K,
+                                     parallel_unconstrained,
+                                     cl,
+                                     chunk_size,
+                                     num_chunks,
+                                     rem_chunks,
+                                     observation_weights){
+                              ## Add partition-specific penalty if requested
+                              if(unique_penalty_per_partition){
+                                Lambda_temp <- Lambda + L_partition_list[[k]]
+                                eig <- eigen(Lambda_temp, symmetric = TRUE)
+                                LambdaHalf_temp <- eig$vectors %**%
+                                  (t(eig$vectors) * sqrt(ifelse(eig$values <= 0,
+                                                                0,
+                                                                eig$values)))
+                              } else {
+                                LambdaHalf_temp <- LambdaHalf
+                                Lambda_temp <- Lambda
+                              }
+                              ## Fit unconstrained model to this partition
+                              cbind(
+                                c(unconstrained_fit_fxn(X[[k]],
+                                                        y[[k]],
+                                                        LambdaHalf_temp,
+                                                        Lambda_temp,
+                                                        keep_weighted_Lambda,
+                                                        family,
+                                                        tol,
+                                                        K,
+                                                        parallel_unconstrained,
+                                                        cl,
+                                                        chunk_size,
+                                                        num_chunks,
+                                                        rem_chunks,
+                                                        order_list[[k]],
+                                                        observation_weights[[k]],
+                                                        ...)))
+                            },
+                            unique_penalty_per_partition,
+                            unconstrained_fit_fxn,
+                            keep_weighted_Lambda,
+                            family,
+                            tol,
+                            K,
+                            parallel_unconstrained,
+                            cl,
+                            chunk_size,
+                            num_chunks,
+                            rem_chunks,
+                            observation_weights)
+    } else {
+      ## Sequential unconstrained fitting across partitions
       unconstrained_estimate <- lapply(1:(K+1), function(k){
-
-        ## Adjust penalties if unique penalties are present for each partition
         if(unique_penalty_per_partition){
           Lambda_temp <- Lambda + L_partition_list[[k]]
           eig <- eigen(Lambda_temp, symmetric = TRUE)
@@ -4409,8 +4462,6 @@ get_B <- function(X,
           LambdaHalf_temp <- LambdaHalf
           Lambda_temp <- Lambda
         }
-
-        ## Fit ordinary model to each partition separately
         cbind(c(unconstrained_fit_fxn(X[[k]],
                                       y[[k]],
                                       LambdaHalf_temp,
@@ -4428,17 +4479,13 @@ get_B <- function(X,
                                       observation_weights[[k]],
                                       ...)))
       })
-    } else {
-      unconstrained_estimate <- prevUnconB
     }
 
-    ## No knots, we're done
+    ## Special case: no knots, no QP, no nonzero constraint values.
+    #  The unconstrained estimate is already the solution.
     if(K == 0 & !quadprog & length(constraint_value_vectors) == 0){
       if(return_G_getB){
-
-        ## ## ## ##
-        ## update
-        # dispersion
+        ## Recompute G at the unconstrained estimate
         if(need_dispersion_for_estimation){
           mu <- family$linkinv(
             unlist(
@@ -4451,53 +4498,51 @@ get_B <- function(X,
                                      num_chunks,
                                      rem_chunks)))
           dispersion_temp <- dispersion_function(
-            mu,
-            unlist(y),
-            unlist(order_list),
-            family,
-            unlist(observation_weights),
+            mu = mu,
+            y = unlist(y),
+            order_indices = unlist(order_list),
+            family = family,
+            observation_weights = unlist(observation_weights),
+            VhalfInv = VhalfInv,
             ...
           )
         } else {
           dispersion_temp <- 1
         }
-
-        ## Weighted design matrix for convenience in computing G agnostic to
-        # distribution
+        ## Weighted design for G = (X^T W X + Lambda)^{-1}
         Xw <- lapply(1:(K+1),
                      function(k){
-                       var <- glm_weight_function(family$linkinv(X[[k]] %**%
-                                        cbind(c(unconstrained_estimate[[k]]))),
-                                                  y[[k]],
-                                                  order_list[[k]],
-                                                  family,
-                                                  dispersion_temp,
-                                                  observation_weights[[k]],
-                                                  ...)
+                       var <- glm_weight_function(family$linkinv(
+                         X[[k]] %**%
+                           cbind(c(
+                             unconstrained_estimate[[k]]
+                           ))
+                       ),
+                       y[[k]],
+                       order_list[[k]],
+                       family,
+                       dispersion_temp,
+                       observation_weights[[k]],
+                       ...)
                        cbind(X[[k]] * c(sqrt(var)))
                      })
-        ## X^{T}WX
         X_gram <- compute_gram_block_diagonal(Xw,
                                               parallel_matmult,
                                               cl,
                                               chunk_size,
                                               num_chunks,
                                               rem_chunks)
-
-        ## Shur complements
-        shur_corrections <- shur_correction_function(
-           X,
-           y,
-           unconstrained_estimate,
-           dispersion_temp,
-           order_list,
-           K,
-           family,
-           observation_weights,
-           ...
+        schur_corrections <- schur_correction_function(
+          X,
+          y,
+          unconstrained_estimate,
+          dispersion_temp,
+          order_list,
+          K,
+          family,
+          observation_weights,
+          ...
         )
-
-        # Correlation matrix G, G^{1/2}, and G^{-1/2}
         G_list <- compute_G_eigen(X_gram,
                                   Lambda,
                                   K,
@@ -4510,7 +4555,9 @@ get_B <- function(X,
                                   unique_penalty_per_partition,
                                   L_partition_list,
                                   keep_G = TRUE,
-                                  shur_corrections)
+                                  schur_corrections)
+        ## [Change 2026-02-16] Ensure G = tcrossprod(Ghalf) exactly
+        G_list$G <- lapply(G_list$Ghalf, function(mat) tcrossprod(mat))
         return(list(
           B = unconstrained_estimate,
           G_list = G_list
@@ -4520,57 +4567,11 @@ get_B <- function(X,
       }
     }
 
-    ## Else, iterate
-    if(iter_count > 0){
-      if(need_dispersion_for_estimation){
-        mu <- family$linkinv(
-          unlist(
-            matmult_block_diagonal(X,
-                                   unconstrained_estimate,
-                                   K,
-                                   parallel_matmult,
-                                   cl,
-                                   chunk_size,
-                                   num_chunks,
-                                   rem_chunks)))
-        dispersion_temp <- dispersion_function(
-          mu,
-          unlist(y),
-          unlist(order_list),
-          family,
-          unlist(observation_weights),
-          ...
-        )
-      } else {
-        dispersion_temp <- 1
-      }
-      shur_corrections <- shur_correction_function(
-        X,
-        y,
-        prevB,
-        dispersion_temp,
-        order_list,
-        K,
-        family,
-        observation_weights,
-        ...
-      )
-      ## Update G^{-1/2} for left multiplying against unconstrained estimate
-      GhalfInv <- compute_G_eigen(X_gram,
-                                  Lambda,
-                                  K,
-                                  parallel_eigen,
-                                  cl,
-                                  chunk_size,
-                                  num_chunks,
-                                  rem_chunks,
-                                  family,
-                                  unique_penalty_per_partition,
-                                  L_partition_list,
-                                  keep_G = FALSE,
-                                  shur_corrections)$GhalfInv
-    }
-    ## G^{1/2}X'y = G^{-1/2}GX'y
+    ## Transform unconstrained estimate to y* for the OLS projection:
+    #  y* = G^{1/2} beta_unconstrained = G^{-1/2} G beta_unconstrained
+    #  The identity G^{1/2} = G^{-1/2} G is used because
+    #  G beta_unconstrained is already stored as unconstrained_estimate,
+    #  and G^{-1/2} is available from the eigendecomposition.
     GhalfXy <- cbind(
       unlist(
         matmult_block_diagonal(
@@ -4583,24 +4584,43 @@ get_B <- function(X,
           num_chunks,
           rem_chunks)))
 
-    ## Otherwise, with identity link, the computations greatly simplify
+    ## Path 2: Gaussian identity link (closed-form solution)
   } else {
     use_lm <- TRUE
+
+    ## No knots, no QP, no constraint values: direct solution beta = G X^T y
     if(K == 0 & !quadprog & length(constraint_value_vectors) == 0){
-      G <- list(Ghalf[[1]] %**% Ghalf[[1]])
+      ## [Change 2026-02-16] tcrossprod for symmetric Ghalf
+      G <- list(tcrossprod(Ghalf[[1]]))
       result <- list(G[[1]] %**% Xy[[1]])
-      ## Return the coefficients directly
       if(return_G_getB){
+        ## [Change 2026-02-16] Ensure G = tcrossprod(Ghalf) exactly
+        Ghalf_exact <- lapply(G, function(Gk){
+          eig_k <- eigen(Gk, symmetric = TRUE)
+          vals_k <- pmax(eig_k$values, 0)
+          eig_k$vectors %**% (t(eig_k$vectors) * sqrt(vals_k))
+        })
+        GhalfInv_exact <- lapply(Ghalf_exact, function(Gh){
+          eig_k <- eigen(tcrossprod(Gh), symmetric = TRUE)
+          vals_k <- pmax(eig_k$values, 0)
+          sq_v <- sqrt(vals_k)
+          inv_sq_v <- ifelse(sq_v > 0, 1/sq_v, 0)
+          eig_k$vectors %**% (t(eig_k$vectors) * inv_sq_v)
+        })
         return(list(
           B = result,
           G_list = list(G = G,
-                        Ghalf = Ghalf)
+                        Ghalf = Ghalf_exact,
+                        GhalfInv = GhalfInv_exact)
         ))
       } else {
         return(result)
       }
     } else {
-      ## G^{1/2}X'y, the 'ystar' of the OLS problem
+      ## With constraints: transform to y* = G^{1/2} X^T y.
+      #  For Gaussian identity, G^{1/2} (not G^{-1/2}) multiplies X^T y
+      #  because the unconstrained estimate IS G X^T y = G^{1/2}(G^{1/2} X^T y),
+      #  so y* = G^{1/2} X^T y is the appropriate transform.
       GhalfXy <- cbind(
         unlist(
           matmult_block_diagonal(Ghalf,
@@ -4614,7 +4634,18 @@ get_B <- function(X,
     }
   }
 
-  ## \textbf{G}^{1/2}\textbf{A}, the 'xstar' of the ols problem
+  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+  #  Common Lagrangian projection (Paths 2 and 3)
+  #  The constrained estimate is obtained by projecting the unconstrained
+  #  estimate onto the null space of A^T, reformulated as an OLS problem:
+  #    y* = G^{1/2} beta_unconstrained  (computed above)
+  #    X* = G^{1/2} A                   (computed below)
+  #    resid = (I - X*(X*^T X*)^{-1} X*^T) y*
+  #    beta_constrained = G^{1/2} resid
+  #  This avoids explicitly forming and inverting A^T G A.
+  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+
+  ## Compute X* = G^{1/2} A, stacking partition blocks vertically
   GhalfA <- Reduce("rbind",
                    GAmult_wrapper(Ghalf,
                                   A,
@@ -4627,32 +4658,37 @@ get_B <- function(X,
                                   num_chunks,
                                   rem_chunks))
 
+  ## Replace any NA values in y* with the link-transformed zero
+  #  (can arise from empty partitions)
   GhalfXy <- ifelse(is.na(GhalfXy), family$linkinv(0), GhalfXy)
+
+  ## OLS residuals: project y* onto the orthogonal complement of col(X*).
+  #  The scaling by 1/sqrt(K+1) improves numerical stability of .lm.fit
+  #  when the constraint matrix has many rows.
   comp_stab_sc <- 1/sqrt(K + 1)
   resids_star <- do.call('.lm.fit',list(x = GhalfA * comp_stab_sc,
                                         y = GhalfXy * comp_stab_sc)
   )$residuals /  comp_stab_sc
-  ## For imposing additional linear constraints homogenous across partitions
+
+  ## If constraint values are nonzero (A^T beta = c with c != 0),
+  #  add the particular solution (I - U) b_0 where A^T b_0 = c.
+  #  The full Lagrangian solution is: U beta_hat + (I - U) b_0
   if(length(constraint_value_vectors) > 0){
     if(any(unlist(constraint_value_vectors) != 0)){
-      ## Compute the (I-U)b0 portion of Lagrngian solution,
-      ## Ubhat + (I-U)b0
       comp_stab_sc <- 1/sqrt(K + 1)
+      ## [Change 2026-02-16] crossprod avoids explicit transpose of A
       preds_star <- GhalfA %**%
-        (invert(gramMatrix(GhalfA) * comp_stab_sc) %**%
-           (t(A) %**%
-              (Reduce("rbind", constraint_value_vectors) * comp_stab_sc)
-           )
+        (invert(crossprod(GhalfA) * comp_stab_sc) %**%
+           crossprod(A,
+                     Reduce("rbind", constraint_value_vectors) * comp_stab_sc)
         )
-
-      ## add these to the "residuals" of before
       resids_star <- resids_star + c(preds_star)
     }
   }
 
-  ## Coefficients are the previous + update
+  ## Back-transform: beta_constrained = G^{1/2} resid (per partition)
   if(parallel_matmult & !is.null(cl)){
-    # Handle remainder chunks first
+    ## Handle remainder partitions that don't fill a full chunk
     if(rem_chunks > 0) {
       rem_indices <- num_chunks * chunk_size + 1:rem_chunks
       rem <- lapply(rem_indices, function(k) {
@@ -4661,7 +4697,7 @@ get_B <- function(X,
     } else {
       rem <- list()
     }
-    ## Process main chunks in parallel
+    ## Parallel back-transformation across partition chunks
     result <- c(
       Reduce("c",parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         start_idx <- (chunk - 1) * chunk_size + 1
@@ -4672,39 +4708,402 @@ get_B <- function(X,
       })),
       rem
     )
-
   } else {
     result <- lapply(1:(K+1), function(k) {
       Ghalf[[k]] %**% cbind(resids_star[(k-1)*nc + 1:nc])
     })
   }
 
-  ## Sequential computation for U and B
-  if(iterate & !use_lm & iter_count < 100){
-    if(any(!is.null(prevB))){
-      ## Change in previous estimate and current estimate of beta
-      diff <- mean(
+  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+  ## [Change 2026-02-16] IRWLS iteration for non-canonical links (Path 3 only).
+  #  Replaced recursive calls to get_B with a for-loop that updates G and
+  #  re-projects until convergence, coefficient divergence, or 100 iterations.
+  #  The unconstrained estimates are computed once and reused across iterations.
+  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+
+  if(iterate & !use_lm){
+    prevB_IRWLS <- NULL
+    prev_diff_IRWLS <- Inf
+
+    for(IRWLS_iter in 1:100){
+      ## Check convergence against previous constrained estimate
+      if(!is.null(prevB_IRWLS)){
+        diff_IRWLS <- mean(
+          unlist(
+            sapply(1:(K+1),
+                   function(k)mean(
+                     abs(result[[k]] - prevB_IRWLS[[k]])))))
+        if(diff_IRWLS < tol) break
+        ## If difference is growing, revert to previous and stop
+        if(prev_diff_IRWLS <= diff_IRWLS){
+          result <- prevB_IRWLS
+          break
+        }
+        prev_diff_IRWLS <- diff_IRWLS
+      }
+
+      ## Save current constrained estimate for next convergence check
+      prevB_IRWLS <- result
+
+      ## Recompute G at the current constrained estimate
+      if(need_dispersion_for_estimation){
+        dispersion_temp <- dispersion_function(
+          mu = family$linkinv(unlist(matmult_block_diagonal(X,
+                                                       result,
+                                                       K,
+                                                       parallel_matmult,
+                                                       cl,
+                                                       chunk_size,
+                                                       num_chunks,
+                                                       rem_chunks))),
+          y = unlist(y),
+          order_indices = unlist(order_list),
+          family = family,
+          observation_weights = unlist(observation_weights),
+          VhalfInv = VhalfInv,
+          ...
+        )
+      } else {
+        dispersion_temp <- 1
+      }
+
+      ## Weighted design matrix X W^{1/2} for computing X^T W X
+      Xw <- lapply(1:(K+1),
+                   function(k){
+                     if(nrow(X[[k]]) == 0){
+                       return(X[[k]])
+                     }
+                     var <- glm_weight_function(family$linkinv(
+                       X[[k]] %**% cbind(c(result[[k]]))
+                     ),
+                     y[[k]],
+                     order_list[[k]],
+                     family,
+                     dispersion_temp,
+                     observation_weights[[k]],
+                     ...)
+                     ## [Change 2026-02-16] Direct row-scaling replaces
+                     #  t(t(X) %**% D) pattern: avoids two transposes and
+                     #  diag() construction.
+                     if(length(var) == 1){
+                       if(c(var) == 0){
+                         return(X[[k]] * 0)
+                       } else {
+                         return(X[[k]] * c(sqrt(var)))
+                       }
+                     } else {
+                       var <- c(sqrt(var))
+                     }
+                     X[[k]] * var
+                   })
+      X_gram_IRWLS <- compute_gram_block_diagonal(Xw,
+                                                 parallel_matmult,
+                                                 cl,
+                                                 chunk_size,
+                                                 num_chunks,
+                                                 rem_chunks)
+
+      ## Schur corrections at current estimate
+      schur_corrections_IRWLS <- schur_correction_function(
+        X,
+        y,
+        result,
+        dispersion_temp,
+        order_list,
+        K,
+        family,
+        observation_weights,
+        ...
+      )
+      G_list_IRWLS <- compute_G_eigen(X_gram_IRWLS,
+                                     Lambda,
+                                     K,
+                                     parallel_eigen,
+                                     cl,
+                                     chunk_size,
+                                     num_chunks,
+                                     rem_chunks,
+                                     family,
+                                     unique_penalty_per_partition,
+                                     L_partition_list,
+                                     keep_G = FALSE,
+                                     schur_corrections_IRWLS)
+
+      ## Update Ghalf and GhalfInv for this iteration
+      Ghalf <- G_list_IRWLS$Ghalf
+      GhalfInv <- G_list_IRWLS$GhalfInv
+
+      ## Recompute transformed unconstrained estimate with updated G^{-1/2}
+      GhalfXy <- cbind(
         unlist(
-          sapply(1:(K+1),
-                 function(k)mean(
-                   abs(result[[k]] - prevB[[k]])))))
-      if(diff < tol){
-        iter_count <- Inf
+          matmult_block_diagonal(
+            GhalfInv,
+            unconstrained_estimate,
+            K,
+            parallel_matmult,
+            cl,
+            chunk_size,
+            num_chunks,
+            rem_chunks)))
+
+      ## Lagrangian projection with updated G^{1/2}
+      GhalfA <- Reduce("rbind",
+                       GAmult_wrapper(Ghalf,
+                                      A,
+                                      K,
+                                      nc,
+                                      nca,
+                                      parallel_aga,
+                                      cl,
+                                      chunk_size,
+                                      num_chunks,
+                                      rem_chunks))
+
+      GhalfXy <- ifelse(is.na(GhalfXy), family$linkinv(0), GhalfXy)
+
+      comp_stab_sc <- 1/sqrt(K + 1)
+      resids_star <- do.call('.lm.fit',list(x = GhalfA * comp_stab_sc,
+                                            y = GhalfXy * comp_stab_sc)
+      )$residuals / comp_stab_sc
+
+      if(length(constraint_value_vectors) > 0){
+        if(any(unlist(constraint_value_vectors) != 0)){
+          comp_stab_sc <- 1/sqrt(K + 1)
+          ## [Change 2026-02-16] crossprod avoids explicit transpose of A
+          preds_star <- GhalfA %**%
+            (invert(crossprod(GhalfA) * comp_stab_sc) %**%
+               crossprod(A,
+                         Reduce("rbind", constraint_value_vectors) * comp_stab_sc)
+            )
+          resids_star <- resids_star + c(preds_star)
+        }
       }
-      ## if difference is getting bigger, stop - return previous
-      if(c(prev_diff) <= c(diff)){
-        result <- prevB
-        iter_count <- Inf
+
+      ## Back-transform: beta_constrained = G^{1/2} resid (per partition)
+      if(parallel_matmult & !is.null(cl)){
+        if(rem_chunks > 0) {
+          rem_indices <- num_chunks * chunk_size + 1:rem_chunks
+          rem <- lapply(rem_indices, function(k) {
+            Ghalf[[k]] %**% cbind(resids_star[(k-1)*nc + 1:nc])
+          })
+        } else {
+          rem <- list()
+        }
+        result <- c(
+          Reduce("c",parallel::parLapply(cl, 1:num_chunks, function(chunk) {
+            start_idx <- (chunk - 1) * chunk_size + 1
+            end_idx <- chunk * chunk_size
+            lapply(start_idx:end_idx, function(k) {
+              Ghalf[[k]] %**% cbind(resids_star[(k-1)*nc + 1:nc])
+            })
+          })),
+          rem
+        )
+      } else {
+        result <- lapply(1:(K+1), function(k) {
+          Ghalf[[k]] %**% cbind(resids_star[(k-1)*nc + 1:nc])
+        })
       }
-    } else {
-      diff <- Inf
     }
-    ## ## ## ##
-    ## update
-    # dispersion
+  }
+
+  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+  ## Optional QP refinement (Path 3 only, when quadprog = TRUE)
+  #  After obtaining the Lagrangian projection estimate, further refine
+  #  with inequality constraints via solve.QP in full block-diagonal form.
+  #  This is not parallelized or memory-efficient.
+  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+
+  if(quadprog){
+
+    ## Construct full block-diagonal design and penalty matrices
+    X_block <- Reduce("rbind", lapply(1:(K+1),function(k){
+      Reduce("cbind",lapply(1:(K+1),function(j){
+        if(nrow(X[[k]]) == 0){
+          return(X[[k]])
+        } else if(j == k) X[[k]] else 0*X[[k]]
+      }))
+    }))
+    beta_block <- cbind(unlist(result))
+    if(unique_penalty_per_partition){
+      Lambda_block <- Reduce("rbind", lapply(1:(K+1),function(k){
+        Reduce("cbind", lapply(1:(K+1), function(j){
+          if(j == k) Lambda + L_partition_list[[k]] else 0*Lambda
+        }))
+      }))
+    } else {
+      Lambda_block <- Reduce("rbind", lapply(1:(K+1),function(k){
+        Reduce("cbind", lapply(1:(K+1), function(j){
+          if(j == k) Lambda else 0*Lambda
+        }))
+      }))
+    }
+    y_block <- cbind(unlist(y))
+
+    ## Damped SQP loop for QP refinement
+    damp_cnt <- 0
+    master_cnt <- 0
+    err <- Inf
+    XB <- X_block %**% beta_block
+
+    while(err > tol & damp_cnt < 10 & master_cnt < 100){
+      master_cnt <- master_cnt + 1
+      damp <- 2^(-(damp_cnt))
+
+      if(need_dispersion_for_estimation){
+        dispersion_temp <- dispersion_function(
+          mu = family$linkinv(XB),
+          y = y_block,
+          order_indices = unlist(order_list),
+          family = family,
+          observation_weights = unlist(observation_weights),
+          VhalfInv = VhalfInv,
+          ...
+        )
+      } else {
+        dispersion_temp <- 1
+      }
+      W <- c(glm_weight_function(family$linkinv(XB),
+                                 y_block,
+                                 unlist(order_list),
+                                 family,
+                                 dispersion_temp,
+                                 unlist(observation_weights),
+                                 ...))
+
+      ## Schur correction in partition form
+      result <- lapply(1:(K+1),function(k){
+        cbind(beta_block[(k-1)*nc + 1:nc])
+      })
+      schur_correction <-
+        schur_correction_function(
+          X,
+          y,
+          result,
+          dispersion_temp,
+          order_list,
+          K,
+          family,
+          observation_weights,
+          ...
+        )
+      if(!(any(unlist(schur_correction) != 0))){
+        schur_correction <- 0
+      } else {
+        schur_correction <- collapse_block_diagonal(schur_correction)
+      }
+      ## [Change 2026-02-16] crossprod avoids explicit transpose
+      info <- crossprod(X_block, W * X_block) + Lambda_block + schur_correction
+
+      sc <- sqrt(mean(abs(info)))
+
+      ## QP step with both equality (smoothness) and inequality constraints
+      qp_score <- qp_score_function(
+        X_block,
+        y_block,
+        cbind(family$linkinv(XB)),
+        unlist(order_list),
+        dispersion_temp,
+        NULL,
+        unlist(observation_weights),
+        ...
+      )
+      beta_new <- try({quadprog::solve.QP(
+        Dmat = info/sc,
+        dvec = (qp_score -
+                  Lambda_block %**% beta_block +
+                  info %**% beta_block)/sc,
+        Amat = cbind(A, qp_Amat),
+        bvec = c(rep(0, ncol(A)), qp_bvec),
+        meq = ncol(A) + qp_meq
+      )$solution}, silent = TRUE)
+
+      if(any(inherits(beta_new, 'try-error'))){
+        beta_new <- 0*beta_block
+      }
+
+      if(!iterate & master_cnt > 1){
+        beta_block <- beta_new
+        damp_cnt <- 11
+        master_cnt <- 101
+        err <- tol - 1
+      } else {
+        ## Damped update with deviance monitoring.
+        #  NOTE: The custom_dev.resids check here requires BOTH
+        #  !is.null(custom_dev.resids) AND is.null(dev.resids), which
+        #  differs from the GEE path where custom_dev.resids takes
+        #  unconditional priority.
+        # [Change 2026-02-15] Important comment above for clarification
+        beta_new <- (1-damp)*beta_block + damp*beta_new
+        XB <- X_block %**% beta_new
+        if(!is.null(family$custom_dev.resids) &
+           is.null(family$dev.resids)){
+          err_new <- mean(
+            family$custom_dev.resids(y_block,
+                                     family$linkinv(c(XB)),
+                                     unlist(order_list),
+                                     family,
+                                     unlist(observation_weights),
+                                     ...))
+        } else if(is.null(family$dev.resids)){
+          err_new <- mean(unlist(observation_weights)*
+                            (y_block - family$linkinv(XB))^2)
+        } else {
+          err_new <-
+            mean(unlist(observation_weights)*
+                   family$dev.resids(y_block,
+                                     family$linkinv(XB),
+                                     wt = 1))
+        }
+
+        if(is.null(err_new) | is.na(err_new) | !is.finite(err_new)){
+          damp_cnt <- damp_cnt + 1
+        } else if(err_new <= err){
+
+          prev_err <- err
+          err <- err_new
+          abs_diff <- max(abs(beta_new - beta_block))
+          beta_block <- beta_new
+          damp_cnt <- 0
+
+          if((abs_diff < tol) &
+             (prev_err - err < tol) &
+             (master_cnt > 10)){
+            damp_cnt <- 11
+            master_cnt <- 101
+            err <- tol - 1
+          }
+
+        } else {
+          damp_cnt <- damp_cnt + 1
+        }
+      }
+
+      ## Unpack into per-partition form
+      result <- lapply(1:(K+1),function(k){
+        cbind(beta_block[1:nc + (k-1)*nc])
+      })
+    }
+  }
+
+  ## Return coefficients, optionally with recomputed G
+  if(return_G_getB){
+    if(paste0(family)[1] == 'gaussian' &
+       paste0(family)[2] == 'identity'){
+      ## [Change 2026-02-16] Ensure G = tcrossprod(Ghalf) exactly
+      #  so downstream varcov computation is consistent.
+      G_exact <- lapply(Ghalf, function(mat) tcrossprod(mat))
+      return(list(
+        B = result,
+        G_list = list(G = G_exact,
+                      Ghalf = Ghalf,
+                      GhalfInv = GhalfInv)
+      ))
+    }
+    ## Non-Gaussian: recompute G at the final estimates
     if(need_dispersion_for_estimation){
       dispersion_temp <- dispersion_function(
-        family$linkinv(unlist(matmult_block_diagonal(X,
+        mu = family$linkinv(unlist(matmult_block_diagonal(X,
                                                      result,
                                                      K,
                                                      parallel_matmult,
@@ -4712,50 +5111,51 @@ get_B <- function(X,
                                                      chunk_size,
                                                      num_chunks,
                                                      rem_chunks))),
-        unlist(y),
-        unlist(order_list),
-        family,
-        unlist(observation_weights),
+        y = unlist(y),
+        order_indices = unlist(order_list),
+        family = family,
+        observation_weights = unlist(observation_weights),
+        VhalfInv = VhalfInv,
         ...
       )
     } else {
       dispersion_temp <- 1
     }
-    # Weighted X for convenience
+    ## X W^{1/2} for computing X^T W X
     Xw <- lapply(1:(K+1),
                  function(k){
                    if(nrow(X[[k]]) == 0){
                      return(X[[k]])
                    }
-                   var <- glm_weight_function(family$linkinv(X[[k]] %**%
-                                                cbind(c(result[[k]]))),
-                                            y[[k]],
-                                            order_list[[k]],
-                                            family,
-                                            dispersion_temp,
-                                            observation_weights[[k]],
-                                            ...)
+                   var <- glm_weight_function(family$linkinv(
+                     X[[k]] %**% cbind(c(result[[k]]))
+                   ),
+                   y[[k]],
+                   order_list[[k]],
+                   family,
+                   dispersion_temp,
+                   observation_weights[[k]],
+                   ...)
+                   ## [Change 2026-02-16] Direct row-scaling replaces
+                   #  t(t(X) %**% D) pattern
                    if(length(var) == 1){
                      if(c(var) == 0){
-                       return(t(t(X[[k]]) %**% rbind(0)))
+                       return(X[[k]] * 0)
                      } else {
-                       return(t(t(X[[k]]) %**% rbind(sqrt(var))))
+                       return(X[[k]] * c(sqrt(var)))
                      }
                    } else {
-                     var <- diag(c(sqrt(var)))
+                     var <- c(sqrt(var))
                    }
-                   t(t(X[[k]]) %**% var)
+                   X[[k]] * var
                  })
-    # X^{T}WX
     X_gram <- compute_gram_block_diagonal(Xw,
                                           parallel_matmult,
                                           cl,
                                           chunk_size,
                                           num_chunks,
                                           rem_chunks)
-    # Shur complements for accounting for uncertainty of estimating dispersion
-    # or additional factors
-    shur_corrections <- shur_correction_function(
+    schur_corrections <- schur_correction_function(
       X,
       y,
       result,
@@ -4777,333 +5177,18 @@ get_B <- function(X,
                               family,
                               unique_penalty_per_partition,
                               L_partition_list,
-                              keep_G = FALSE,
-                              shur_corrections)
-
-    ## Call recursively
-    result <- get_B(X,
-                    X_gram,
-                    Lambda,
-                    keep_weighted_Lambda,
-                    unique_penalty_per_partition,
-                    L_partition_list,
-                    A,
-                    Xy,
-                    y,
-                    K,
-                    nc,
-                    nca,
-                    G_list$Ghalf,
-                    G_list$GhalfInv,
-                    parallel_eigen,
-                    parallel_aga,
-                    parallel_matmult,
-                    parallel_unconstrained,
-                    cl,
-                    chunk_size,
-                    num_chunks,
-                    rem_chunks,
-                    family,
-                    unconstrained_fit_fxn,
-                    iterate,
-                    qp_score_function,
-                    quadprog,
-                    qp_Amat,
-                    qp_bvec,
-                    qp_meq,
-                    prevB = result,
-                    prevUnconB = unconstrained_estimate,
-                    iter_count = iter_count + 1,
-                    prev_diff = diff, # update arguments for each recursive call
-                    tol,
-                    constraint_value_vectors,
-                    order_list,
-                    glm_weight_function,
-                    shur_correction_function,
-                    need_dispersion_for_estimation,
-                    dispersion_function,
-                    observation_weights,
-                    homogenous_weights,
-                    return_G_getB,
-                    blockfit,
-                    just_linear_without_interactions,
-                    Vhalf,
-                    VhalfInv,
-                    ...)
+                              keep_G = TRUE,
+                              schur_corrections)
+    ## [Change 2026-02-16] Ensure G = tcrossprod(Ghalf) exactly
+    #  so downstream varcov computation is consistent regardless of
+    #  what compute_G_eigen returns for G.
+    G_list$G <- lapply(G_list$Ghalf, function(mat) tcrossprod(mat))
+    return(list(
+      B = result,
+      G_list = G_list
+    ))
   } else {
-
-    ## Impose quadratic programming constraints if desired
-    # Not parallelized nor memory efficient
-    if(quadprog){
-
-      ## Big-matrix components (not memory efficient anymore)
-      X_block <- Reduce("rbind", lapply(1:(K+1),function(k){
-        Reduce("cbind",lapply(1:(K+1),function(j){
-          if(nrow(X[[k]]) == 0){
-            return(X[[k]])
-          } else if(j == k) X[[k]] else 0*X[[k]]
-        }))
-      }))
-      beta_block <- cbind(unlist(result))
-      if(unique_penalty_per_partition){
-        Lambda_block <- Reduce("rbind", lapply(1:(K+1),function(k){
-          Reduce("cbind", lapply(1:(K+1), function(j){
-            if(j == k) Lambda + L_partition_list[[k]] else 0*Lambda
-          }))
-        }))
-      } else {
-        Lambda_block <- Reduce("rbind", lapply(1:(K+1),function(k){
-          Reduce("cbind", lapply(1:(K+1), function(j){
-            if(j == k) Lambda else 0*Lambda
-          }))
-        }))
-      }
-      y_block <- cbind(unlist(y))
-
-      ## Solve smoothing constraints and qp constraints simultaneously
-      damp_cnt <- 0
-      master_cnt <- 0
-      err <- Inf
-
-      ## Initial link-transformed predictions
-      XB <- X_block %**% beta_block
-
-      ## Invoke procedure for fitting SQP problems
-      while(err > tol & damp_cnt < 10 & master_cnt < 100){
-        ## Initialize counters
-        master_cnt <- master_cnt + 1
-        damp <- 2^(-(damp_cnt))
-
-        ## Information matrix in block-diagonal form
-        if(need_dispersion_for_estimation){
-          dispersion_temp <- dispersion_function(
-            family$linkinv(XB),
-            y_block,
-            unlist(order_list),
-            family,
-            unlist(observation_weights),
-            ...
-          )
-        } else {
-          dispersion_temp <- 1
-        }
-        W <- c(glm_weight_function(family$linkinv(XB),
-                                 y_block,
-                                 unlist(order_list),
-                                 family,
-                                 dispersion_temp,
-                                 unlist(observation_weights),
-                                 ...))
-
-        ## Re-package into partition form for shur correction
-        result <- lapply(1:(K+1),function(k){
-          cbind(beta_block[(k-1)*nc + 1:nc])
-        })
-        shur_correction <-
-                    shur_correction_function(
-                                              X,
-                                              y,
-                                              result,
-                                              dispersion_temp,
-                                              order_list,
-                                              K,
-                                              family,
-                                              observation_weights,
-                                              ...
-            )
-        if(!(any(unlist(shur_correction) != 0))){
-          shur_correction <- 0
-        } else {
-          shur_correction <- collapse_block_diagonal(shur_correction)
-        }
-        info <- (t(X_block) %**% (W * X_block)) + Lambda_block + shur_correction
-
-        ## Numerical stability
-        sc <- sqrt(mean(abs(info)))
-
-        ## QP update
-        qp_score <- qp_score_function(
-          X_block,
-          y_block,
-          cbind(family$linkinv(XB)),
-          unlist(order_list),
-          dispersion_temp,
-          NULL,
-          unlist(observation_weights),
-          ...
-        )
-        beta_new <- try({quadprog::solve.QP(
-          Dmat = info/sc,
-          dvec = (qp_score -
-                    Lambda_block %**% beta_block +
-                    info %**% beta_block)/sc,
-          Amat = cbind(A, qp_Amat),
-          bvec = c(rep(0, ncol(A)), qp_bvec),
-          meq = ncol(A) + qp_meq
-        )$solution}, silent = TRUE)
-
-        ## quadprog is very sensitive to positive definiteness
-        if(any(inherits(beta_new, 'try-error'))){
-          beta_new <- 0*beta_block
-        }
-
-        ## If no iteration, return solution as non-damped solution
-        if(!iterate & master_cnt > 1){
-          beta_block <- beta_new
-          damp_cnt <- 11
-          master_cnt <- 101
-          err <- tol - 1
-          ## Else, use damped SQP
-        } else {
-          ## Damped update
-          beta_new <- (1-damp)*beta_block + damp*beta_new
-          XB <- X_block %**% beta_new
-          if(!is.null(family$custom_dev.resids) &
-             is.null(family$dev.resids)){
-            err_new <- mean(
-              family$custom_dev.resids(y_block,
-                                       family$linkinv(c(XB)),
-                                       unlist(order_list),
-                                       family,
-                                       unlist(observation_weights),
-                                       ...))
-          } else if(is.null(family$dev.resids)){
-            err_new <- mean(unlist(observation_weights)*
-                              (y_block - family$linkinv(XB))^2)
-          } else {
-            err_new <-
-              mean(unlist(observation_weights)*
-                     family$dev.resids(y_block,
-                                       family$linkinv(XB),
-                                       wt = 1))
-          }
-          if(is.null(err_new) | is.na(err_new) | !is.finite(err_new)){
-            damp_cnt <- damp_cnt + 1
-          } else if(err_new <= err){
-
-            ## Update mean absolute value of score (err)
-            # and coefficients, set damp to 0
-            prev_err <- err
-            err <- err_new
-            abs_diff <- max(abs(beta_new - beta_block))
-            beta_block <- beta_new
-            damp_cnt <- 0
-
-            ## Convergence criteria met when improvement in performance is
-            # negligible and change in beta coefficients is small and
-            # more than 10 iterations have passed
-            if((abs_diff < tol) &
-               (prev_err - err < tol) &
-               (master_cnt > 10)){
-              damp_cnt <- 11
-              master_cnt <- 101
-              err <- tol - 1
-            }
-
-          } else {
-            damp_cnt <- damp_cnt + 1
-          }
-        }
-
-        ## Re-package into partition form
-        result <- lapply(1:(K+1),function(k){
-          cbind(beta_block[1:nc + (k-1)*nc])
-        })
-      }
-    }
-    if(return_G_getB){
-      if(paste0(family)[1] == 'gaussian' &
-         paste0(family)[2] == 'identity'){
-          return(list(
-            B = result,
-            G_list = list(G = lapply(Ghalf, function(mat) mat %**% mat),
-                          Ghalf = Ghalf)
-          ))
-      }
-      ## ## ## ##
-      ## update
-      if(need_dispersion_for_estimation){
-        dispersion_temp <- dispersion_function(
-          family$linkinv(unlist(matmult_block_diagonal(X,
-                                                       result,
-                                                       K,
-                                                       parallel_matmult,
-                                                       cl,
-                                                       chunk_size,
-                                                       num_chunks,
-                                                       rem_chunks))),
-          unlist(y),
-          unlist(order_list),
-          family,
-          unlist(observation_weights),
-          ...
-        )
-      } else {
-        dispersion_temp <- 1
-      }
-      ## Compute square root matrix of X^{T}WX => XW^{1/2}
-      Xw <- lapply(1:(K+1),
-                   function(k){
-                     if(nrow(X[[k]]) == 0){
-                       return(X[[k]])
-                     }
-                     var <- glm_weight_function(family$linkinv(X[[k]] %**%
-                                                    cbind(c(result[[k]]))),
-                                                y[[k]],
-                                                order_list[[k]],
-                                                family,
-                                                dispersion_temp,
-                                                observation_weights[[k]],
-                                                ...)
-                     if(length(var) == 1){
-                       if(c(var) == 0){
-                         return(t(t(X[[k]]) %**% rbind(0)))
-                       } else {
-                         return(t(t(X[[k]]) %**% rbind(sqrt(var))))
-                       }
-                     } else {
-                       var <- diag(c(sqrt(var)))
-                     }
-                     t(t(X[[k]]) %**% var)
-                   })
-      X_gram <- compute_gram_block_diagonal(Xw,
-                                            parallel_matmult,
-                                            cl,
-                                            chunk_size,
-                                            num_chunks,
-                                            rem_chunks)
-      # Shur complements
-      shur_corrections <- shur_correction_function(
-        X,
-        y,
-        result,
-        dispersion_temp,
-        order_list,
-        K,
-        family,
-        observation_weights,
-        ...
-      )
-      G_list <- compute_G_eigen(X_gram,
-                                Lambda,
-                                K,
-                                parallel_eigen,
-                                cl,
-                                chunk_size,
-                                num_chunks,
-                                rem_chunks,
-                                family,
-                                unique_penalty_per_partition,
-                                L_partition_list,
-                                keep_G = TRUE,
-                                shur_corrections)
-      return(list(
-        B = result,
-        G_list = G_list
-      ))
-    } else {
-      return(result)
-    }
+    return(result)
   }
 }
 
@@ -5185,7 +5270,9 @@ AGAmult_wrapper <- function(G,
 #' @export
 get_U <- function(G, A, K, nc, nca){
   AGAInv <- invert(AGAmult(G, A, K, nc, nca))
-  I_minus_U <- t(matmult_U(A %**% (AGAInv %**% (-t(A))), G, nc, K))
+  ## [Change 2026-02-12] replaced %**% with crossprod/tcrossprod
+  I_minus_U <- t(matmult_U(crossprod(t(A),
+                                     crossprod(t(AGAInv), (-t(A)))), G, nc, K))
   return(I_minus_U + diag(nc*(K+1)))
 }
 
@@ -5329,32 +5416,58 @@ compute_Lambda <- function(custom_penalty_mat,
   }
 }
 
+## [Change 2026-02-15] Improved documentation and functionality
+#  of compute_G_eigen
+
 #' Compute Eigenvalues and Related Matrices for G
 #'
-#' @param X_gram Gram matrix list (\eqn{\textbf{X}^{T}\textbf{X}})
-#' @param Lambda Penalty matrix (\eqn{\boldsymbol{\Lambda}})
-#' @param K Number of partitions minus 1 (\eqn{K})
-#' @param parallel Use parallel processing
-#' @param cl Cluster object
-#' @param chunk_size Chunk size for parallel
-#' @param num_chunks Number of chunks
-#' @param rem_chunks Remaining chunks
-#' @param family GLM family
-#' @param unique_penalty_per_partition Use partition penalties
-#' @param L_partition_list Partition penalty list (\eqn{\textbf{L}_\text{partition\_list}})
-#' @param keep_G Return full G matrix (\eqn{\textbf{G}})
-#' @param shur_corrections List of Shur complement corrections (\eqn{\textbf{S}})
+#' @description
+#' Computes partition-wise covariance matrices and their matrix square roots
+#' from the penalized information matrix. For each partition \eqn{k}, forms
+#' \eqn{G_k^{-1} = X_k^T W_k X_k + \Lambda + L_k + S_k}, then extracts
+#' \eqn{G_k}, \eqn{G_k^{1/2}}, and (for non-Gaussian or non-identity link)
+#' \eqn{G_k^{-1/2}} via eigendecomposition. Eigenvalues at or below zero
+#' are clamped, yielding a pseudoinverse treatment of rank-deficient blocks.
+#'
+#' @param X_gram List of Gram matrices \eqn{X_k^T W_k X_k} by partition.
+#' @param Lambda Penalty matrix \eqn{\Lambda} (shared across partitions).
+#' @param K Integer; number of interior knots (partitions = \eqn{K+1}).
+#' @param parallel Logical; use parallel processing across partitions.
+#' @param cl Cluster object from \code{parallel::makeCluster}.
+#' @param chunk_size,num_chunks,rem_chunks Partition distribution parameters
+#'   for parallel workers.
+#' @param family GLM family object. The link function determines whether
+#'   \eqn{G^{-1/2}} is computed (needed for non-identity links where
+#'   iterative projection requires transforming unconstrained estimates).
+#' @param unique_penalty_per_partition Logical; if \code{TRUE}, add
+#'   partition-specific penalties from \code{L_partition_list}.
+#' @param L_partition_list List of partition-specific penalty matrices.
+#' @param keep_G Logical; if \code{TRUE}, return the full \eqn{G} matrix
+#'   in addition to the square roots. Set to \code{FALSE} during
+#'   intermediate IRWLS iterations where only \eqn{G^{1/2}} and
+#'   \eqn{G^{-1/2}} are needed.
+#' @param schur_corrections List of Schur complement correction matrices
+#'   by partition, accounting for nuisance parameter uncertainty.
 #'
 #' @details
-#' Computes \eqn{\textbf{G}}, \eqn{\textbf{G}^{1/2}} and \eqn{\textbf{G}^{-1/2}} matrices via eigendecomposition of \eqn{\textbf{X}^{T}\textbf{X} + \boldsymbol{\Lambda}_\text{effective} + \textbf{S}}.
-#' Handles partition-specific penalties and parallel processing.
-#' For non-identity link functions, also returns \eqn{\textbf{G}^{-1/2}}.
+#' The eigendecomposition of \eqn{G_k^{-1}} yields eigenvalues
+#' \eqn{d_i} and eigenvectors \eqn{V}. The matrix powers are then:
+#' \deqn{G_k = V \, \mathrm{diag}(1/d_i) \, V^T}
+#' \deqn{G_k^{1/2} = V \, \mathrm{diag}(1/\sqrt{d_i}) \, V^T}
+#' \deqn{G_k^{-1/2} = V \, \mathrm{diag}(\sqrt{d_i}) \, V^T}
 #'
-#' @return List containing combinations of:
-#' \itemize{
-#'   \item G - Full \eqn{\textbf{G}} matrix (if \code{keep_G=TRUE})
-#'   \item Ghalf - \eqn{\textbf{G}^{1/2}} matrix
-#'   \item GhalfInv - \eqn{\textbf{G}^{-1/2}} matrix (for non-identity links)
+#' Eigenvalues \eqn{d_i \le 0} are clamped: the corresponding entries in
+#' \eqn{1/d_i} and \eqn{1/\sqrt{d_i}} are set to zero (pseudoinverse),
+#' while the corresponding entries in \eqn{\sqrt{d_i}} are also set to
+#' zero.
+#'
+#' @return A list with components:
+#' \describe{
+#'   \item{G}{List of \eqn{G_k} matrices by partition (if
+#'     \code{keep_G = TRUE}; \code{NULL} entries otherwise).}
+#'   \item{Ghalf}{List of \eqn{G_k^{1/2}} matrices by partition.}
+#'   \item{GhalfInv}{List of \eqn{G_k^{-1/2}} matrices by partition
+#'     (only for non-Gaussian families or non-identity links).}
 #' }
 #'
 #' @keywords internal
@@ -5371,167 +5484,114 @@ compute_G_eigen <- function(X_gram,
                             unique_penalty_per_partition,
                             L_partition_list,
                             keep_G = TRUE,
-                            shur_corrections) {
+                            schur_corrections) {
+
+  ## Determine once whether GhalfInv is needed. For Gaussian identity,
+  #  the Lagrangian projection uses Ghalf directly and GhalfInv is not
+  #  required. For all other families/links, the projection transforms
+  #  unconstrained estimates via G^{-1/2} and GhalfInv must be returned.
+  need_GhalfInv <- (paste0(family)[2] != 'identity') |
+    (paste0(family)[1] != 'gaussian')
+
+  ## Core computation for a single partition k. Shared by the sequential,
+  #  parallel, and remainder code paths to avoid logic duplication.
+  compute_one <- function(k) {
+    ## Form G_k^{-1} = X^T W X + Lambda [+ L_k] + S_k
+    if(unique_penalty_per_partition){
+      eig <- tryCatch({
+        eigen(X_gram[[k]] +
+                Lambda +
+                L_partition_list[[k]] +
+                schur_corrections[[k]],
+              symmetric = TRUE)
+      }, error = function(e) NULL)
+    } else {
+      eig <- tryCatch({
+        eigen(X_gram[[k]] +
+                Lambda +
+                schur_corrections[[k]],
+              symmetric = TRUE)
+      }, error = function(e) NULL)
+    }
+    if(is.null(eig)) {
+      return(list(G = NULL, Ghalf = NULL, GhalfInv = NULL))
+    }
+
+    ## Clamp non-positive eigenvalues for pseudoinverse treatment:
+    #  set 1/d_i = 0 for d_i <= 0, so those directions are projected out
+    eigen_values <- eig$values
+    eigen_values[eig$values <= 0] <- 1
+    inv_eigen_values <- 1/eigen_values
+    inv_eigen_values[eig$values <= 0] <- 0
+    sqrt_inv_eigen_values <- sqrt(inv_eigen_values)
+
+    ## G^{1/2} = V diag(1/sqrt(d_i)) V^T
+    Ghalf <- eig$vectors %**% (t(eig$vectors) * sqrt_inv_eigen_values)
+
+    ## G = V diag(1/d_i) V^T (only if requested)
+    if(keep_G){
+      G <- eig$vectors %**% (t(eig$vectors) * inv_eigen_values)
+    } else {
+      G <- NULL
+    }
+
+    ## G^{-1/2} = V diag(sqrt(d_i)) V^T (only for non-Gaussian/non-identity)
+    #  [Change 2026-02-15] Replaced division by sqrt_inv_eigen_values with
+    #  multiplication by sqrt_eigen_values, with explicit zero-clamping.
+    #  The previous formulation divided by zero when eigenvalues were <= 0,
+    #  producing Inf entries and triggering warnings.
+    if(need_GhalfInv){
+      sqrt_eigen_values <- sqrt(pmax(eig$values, 0))
+      GhalfInv <- eig$vectors %**% (t(eig$vectors) * sqrt_eigen_values)
+      return(list(G = G,
+                  Ghalf = Ghalf,
+                  GhalfInv = GhalfInv))
+    } else {
+      return(list(G = G,
+                  Ghalf = Ghalf))
+    }
+  }
+
+  ## [Change 2026-02-15] Consolidated three near-identical code paths
+  # (sequential, parallel main chunks, parallel remainder chunks) into
+  #  a single compute_one() helper. The previous implementation had an
+  #  inconsistent family check in the remainder path: it tested only
+  #  the link (paste0(family)[2] != 'identity') whereas the parallel
+  #  and sequential paths tested both family and link. For non-Gaussian
+  #  families with identity link, remainder chunks would omit GhalfInv
+  #  while main chunks included it, causing downstream extraction to fail
+  #  when (K+1) mod chunk_size != 0.
+
   if(parallel & !is.null(cl)) {
-    # Handle remainder chunks first
+    ## Handle remainder partitions that don't fill a full chunk
     if(rem_chunks > 0) {
-      rem_indices <- num_chunks * chunk_size + 1: rem_chunks
-      rem <- lapply(rem_indices, function(k) {
-        ## Add partition-specific penalties if enabled
-        if(unique_penalty_per_partition){
-          eig <- tryCatch({
-            eigen(X_gram[[k]] +
-                    Lambda +
-                    L_partition_list[[k]] +
-                    shur_corrections[[k]],
-                  symmetric = TRUE)
-          }, error = function(e) NULL)
-        } else {
-          eig <- tryCatch({
-            eigen(X_gram[[k]] +
-                    Lambda +
-                    shur_corrections[[k]],
-                  symmetric = TRUE)
-          }, error = function(e) NULL)
-        }
-        if(is.null(eig)) {
-          return(list(G = NULL, Ghalf = NULL))
-        }
-
-        ## Handle numerical stability for eigenvalues
-        eigen_values <- eig$values
-        eigen_values[eig$values <= 0] <- 1
-        inv_eigen_values <- 1/eigen_values
-        inv_eigen_values[eig$values <= 0] <- 0
-        sqrt_inv_eigen_values <- sqrt(inv_eigen_values)
-
-        ## Compute matrix powers via eigendecomposition
-        Ghalf <- eig$vectors %**% (t(eig$vectors) * sqrt_inv_eigen_values)
-        if(keep_G){
-          G <- eig$vectors %**% (t(eig$vectors) * inv_eigen_values)
-        } else {
-          G <- NULL
-        }
-        if((paste0(family)[2] != 'identity')){
-          GhalfInv <- eig$vectors %**% (t(eig$vectors) / sqrt_inv_eigen_values)
-          return(list(G = G,
-                      Ghalf = Ghalf,
-                      GhalfInv = GhalfInv))
-        } else {
-          return(list(G = G,
-                      Ghalf = Ghalf))
-        }
-      })
+      rem_indices <- num_chunks * chunk_size + 1:rem_chunks
+      rem <- lapply(rem_indices, compute_one)
     } else {
       rem <- list()
     }
 
-    ## Process main chunks in parallel with same logic
+    ## Process main chunks in parallel
     result <- c(
-      Reduce("c",parallel::parLapply(cl, 1:num_chunks, function(chunk) {
+      Reduce("c", parallel::parLapply(cl, 1:num_chunks, function(chunk) {
         inds <- (chunk - 1)*chunk_size + 1:chunk_size
-        lapply(inds, function(k) {
-          if(unique_penalty_per_partition){
-            eig <- tryCatch({
-              eigen(X_gram[[k]] + Lambda +
-                      L_partition_list[[k]] +
-                      shur_corrections[[k]],
-                    symmetric = TRUE)
-            }, error = function(e) NULL)
-          } else {
-            eig <- tryCatch({
-              eigen(X_gram[[k]] +
-                      Lambda +
-                      shur_corrections[[k]],
-                    symmetric = TRUE)
-            }, error = function(e) NULL)
-          }
-          if(is.null(eig)) {
-            return(list(G = NULL, Ghalf = NULL))
-          }
-          eigen_values <- eig$values
-          eigen_values[eig$values <= 0] <- 1
-          inv_eigen_values <- 1/eigen_values
-          inv_eigen_values[eig$values <= 0] <- 0
-          sqrt_inv_eigen_values <- sqrt(inv_eigen_values)
-          Ghalf <- eig$vectors %**% (t(eig$vectors) * sqrt_inv_eigen_values)
-          if(keep_G){
-            G <- eig$vectors %**% (t(eig$vectors) * inv_eigen_values)
-          } else {
-            G <- NULL
-          }
-          if((paste0(family)[2] != 'identity' |
-              paste0(family)[1] != 'gaussian')){
-            GhalfInv <- eig$vectors %**% (t(eig$vectors) /
-                                            sqrt_inv_eigen_values)
-            return(list(G = G,
-                        Ghalf = Ghalf,
-                        GhalfInv = GhalfInv))
-          } else {
-            return(list(G = G,
-                        Ghalf = Ghalf))
-          }
-        })
+        lapply(inds, compute_one)
       })),
       rem
     )
   } else {
-    ## Sequential computation follows same logic as well
-    result <- lapply(1:(K+1),function(k) {
-      if(unique_penalty_per_partition){
-        eig <- tryCatch({
-          eigen(X_gram[[k]] +
-                  Lambda +
-                  L_partition_list[[k]] +
-                  shur_corrections[[k]],
-                symmetric = TRUE)
-        }, error = function(e) NULL)
-      } else {
-        eig <- tryCatch({
-          eigen(X_gram[[k]] +
-                  Lambda +
-                  shur_corrections[[k]],
-                symmetric = TRUE)
-        }, error = function(e) NULL)
-      }
-      if(is.null(eig)) {
-        return(list(G = NULL, Ghalf = NULL))
-      }
-      eigen_values <- eig$values
-      eigen_values[eig$values <= 0] <- 1
-      inv_eigen_values <- 1/eigen_values
-      inv_eigen_values[eig$values <= 0] <- 0
-      sqrt_inv_eigen_values <- sqrt(inv_eigen_values)
-      Ghalf <- eig$vectors %**% (t(eig$vectors) * sqrt_inv_eigen_values)
-      if(keep_G){
-        G <- eig$vectors %**% (t(eig$vectors) * inv_eigen_values)
-      } else {
-        G <- NULL
-      }
-      if((paste0(family)[2] != 'identity') |
-         (paste0(family)[1] != 'gaussian')){
-        GhalfInv <- eig$vectors %**% (t(eig$vectors) / sqrt_inv_eigen_values)
-        return(list(G = G,
-                    Ghalf = Ghalf,
-                    GhalfInv = GhalfInv))
-      } else {
-        return(list(G = G,
-                    Ghalf = Ghalf))
-      }
-    })
+    ## Sequential computation
+    result <- lapply(1:(K+1), compute_one)
   }
 
-  ## Reorganize results by matrix type (G, Ghalf, GhalfInv)
-  if((paste0(family)[2] != 'identity') |
-     (paste0(family)[1] != 'gaussian')){
-    ## Case with GhalfInv
+  ## Reorganize from list-of-partitions to list-of-matrix-types
+  if(need_GhalfInv){
     result_processed <- list(
       G = lapply(result, `[[`, "G"),
       Ghalf = lapply(result, `[[`, "Ghalf"),
       GhalfInv = lapply(result, `[[`, "GhalfInv")
     )
   } else {
-    ## Case without GhalfInv
     result_processed <- list(
       G = lapply(result, `[[`, "G"),
       Ghalf = lapply(result, `[[`, "Ghalf")
@@ -6404,6 +6464,8 @@ get_2ndDerivPenalty_wrapper <- function(K,
 #'   full survival time is unknown, typically because the study ended or the
 #'   subject was lost to follow-up before the event of interest occurred.
 #' @param scale Numeric scalar representing the Weibull scale parameter
+#'   (sigma), equivalent to \code{survreg$scale}. This is the square root of
+#'   the dispersion stored in \code{lgspline$sigmasq_tilde}.
 #' @param weights Optional numeric vector of observation weights (default = 1)
 #'
 #' @return
@@ -6443,7 +6505,7 @@ get_2ndDerivPenalty_wrapper <- function(K,
 #'                       need_dispersion_for_estimation = TRUE,
 #'                       dispersion_function = weibull_dispersion_function,
 #'                       glm_weight_function = weibull_glm_weight_function,
-#'                       shur_correction_function = weibull_shur_correction,
+#'                       schur_correction_function = weibull_schur_correction,
 #'                       status = status,
 #'                       opt = FALSE,
 #'                       K = 1)
@@ -6455,7 +6517,8 @@ get_2ndDerivPenalty_wrapper <- function(K,
 loglik_weibull <- function(log_y, log_mu, status, scale, weights = 1) {
 
   ## Log-likelihood contributions
-  z <- (log_y-log_mu)/scale
+  ## scale = sigma (Weibull scale), NOT sigma^2 (dispersion)
+  z <- (log_y - log_mu) / scale
   logL <- status * (-log(scale) +
                       z -
                       log_y) -
@@ -6466,7 +6529,7 @@ loglik_weibull <- function(log_y, log_mu, status, scale, weights = 1) {
 }
 
 
-#' Compute gradient of log-likelihood of Weibull accelerated failure model without penalization
+#' Compute Gradient of Log-Likelihood of Weibull Accelerated Failure Model
 #'
 #' @description
 #' Calculates the gradient of log-likelihood for a Weibull accelerated failure
@@ -6476,7 +6539,9 @@ loglik_weibull <- function(log_y, log_mu, status, scale, weights = 1) {
 #' @param y Response vector
 #' @param mu Predicted mean vector
 #' @param order_list List of observation indices per partition
-#' @param dispersion Dispersion parameter (scale^2)
+#' @param dispersion Dispersion parameter (sigma^2 = scale^2). The lgspline
+#'   framework stores and passes dispersion (sigma^2); the Weibull scale
+#'   (sigma) matching \code{survreg$scale} is \code{sqrt(dispersion)}.
 #' @param VhalfInv Inverse square root of correlation matrix (if applicable)
 #' @param observation_weights Observation weights
 #' @param status Censoring indicator (1 = event, 0 = censored)
@@ -6487,6 +6552,13 @@ loglik_weibull <- function(log_y, log_mu, status, scale, weights = 1) {
 #' @details
 #' Needed if using "blockfit", correlation structures, or quadratic programming
 #' with Weibull AFT models.
+#'
+#' The gradient is computed on a scale that omits the 1/sigma prefactor.
+#' Specifically, the true score is (1/sigma) * X^T diag(w) (exp(z) - status),
+#' but both this function and the corresponding information matrix used
+#' internally omit 1/sigma and 1/sigma^2 respectively, so the Newton-Raphson
+#' step G*u remains correct. This matches the convention in
+#' \code{\link{unconstrained_fit_weibull}}.
 #'
 #' @examples
 #'
@@ -6512,7 +6584,7 @@ loglik_weibull <- function(log_y, log_mu, status, scale, weights = 1) {
 #'                       qp_score_function = weibull_qp_score_function,
 #'                       dispersion_function = weibull_dispersion_function,
 #'                       glm_weight_function = weibull_glm_weight_function,
-#'                       shur_correction_function = weibull_shur_correction,
+#'                       schur_correction_function = weibull_schur_correction,
 #'                       K = 1,
 #'                       blockfit = TRUE,
 #'                       opt = FALSE,
@@ -6530,29 +6602,41 @@ weibull_qp_score_function = function(X,
                                      VhalfInv,
                                      observation_weights,
                                      status){
+  ## dispersion = sigma^2; scale = sigma = sqrt(dispersion)
   scale <- sqrt(dispersion)
   order_indices <- unlist(order_list)
-  t(X) %**% cbind(exp((log(y) - log(mu))/scale) -
-                    cbind(scale *
-                            status[order_indices]) *
-                    observation_weights)
+  ## Score of beta (scaled by sigma^2 for numerical convenience).
+  # True score: (1/sigma) * X^T diag(w) (exp(z) - status)
+  #  Scaled score (x sigma^2): sigma * X^T diag(w) (exp(z) - status)
+  #  This matches the convention in unconstrained_fit_weibull, where
+  #  the information is also unscaled (missing 1/sigma^2), so the
+  #  Newton-Raphson step G*u remains correct.
+  crossprod(X , cbind(
+    observation_weights *
+    (exp((log(y) - log(mu)) / scale) - status[order_indices]) *
+    scale)
+  )
 }
 
 #' Correction for the Variance-Covariance Matrix for Uncertainty in Scale
 #'
 #' @description
-#' Computes the shur complement \eqn{\textbf{S}} such that \eqn{\textbf{G}^* = (\textbf{G}^{-1} + \textbf{S})^{-1}} properly
-#' accounts for uncertainty in estimating dispersion when estimating
-#' variance-covariance. Otherwise, the variance-covariance matrix is optimistic
-#' and assumes the scale is known, when it was in fact estimated. Note that the
-#' parameterization adds the output of this function elementwise (not subtract)
-#' so for most cases, the output of this function will be negative or a
-#' negative definite/semi-definite matrix.
+#' Computes the Schur complement \eqn{\textbf{S}} such that
+#' \eqn{\textbf{G}^* = (\textbf{G}^{-1} + \textbf{S})^{-1}} properly
+#' accounts for uncertainty in estimating the Weibull scale parameter when
+#' estimating the variance-covariance matrix. Otherwise, the
+#' variance-covariance matrix is optimistic and assumes the scale is known,
+#' when it was in fact estimated. Note that the parameterization adds the
+#' output of this function elementwise (not subtract) so for most cases, the
+#' output of this function will be negative or a negative
+#' definite/semi-definite matrix.
 #'
 #' @param X Block-diagonal matrices of spline expansions
 #' @param y Block-vector of response
 #' @param B Block-vector of coefficient estimates
-#' @param dispersion Scalar, estimate of dispersion, \eqn{ = \text{Weibull scale}^2}
+#' @param dispersion Scalar, estimate of dispersion (sigma^2 = scale^2). The
+#'   lgspline framework stores and passes dispersion (sigma^2); the Weibull
+#'   scale (sigma) matching \code{survreg$scale} is \code{sqrt(dispersion)}.
 #' @param order_list List of partition orders
 #' @param K Number of partitions minus 1 (\eqn{K})
 #' @param family Distribution family
@@ -6564,16 +6648,18 @@ weibull_qp_score_function = function(X,
 #'   subject was lost to follow-up before the event of interest occurred.
 #'
 #' @return
-#' List of \eqn{p \times p} matrices representing the shur-complement corrections \eqn{\textbf{S}_k} to be
-#' elementwise added to each block of the information matrix, before inversion.
+#' List of \eqn{p \times p} matrices representing the Schur-complement
+#' corrections \eqn{\textbf{S}_k} to be elementwise added to each block of the
+#' information matrix, before inversion.
 #'
 #' @details
 #' Adjusts the variance-covariance matrix unscaled for coefficients to account
 #' for uncertainty in estimating the Weibull scale parameter, that otherwise
-#' would be lost if simply using \eqn{\textbf{G}=(\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}}. This is accomplished
-#' using a correction based on the Shur complement so we avoid having to
-#' construct the entire variance-covariance matrix, or modifying the procedure
-#' for \code{\link{lgspline}} substantially.
+#' would be lost if simply using
+#' \eqn{\textbf{G}=(\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}}.
+#' This is accomplished using a correction based on the Schur complement so we
+#' avoid having to construct the entire variance-covariance matrix, or
+#' modifying the procedure for \code{\link{lgspline}} substantially.
 #' For any model with nuisance parameters that must have uncertainty accounted
 #' for, this tool will be helpful.
 #'
@@ -6598,7 +6684,7 @@ weibull_qp_score_function = function(X,
 #'   t2 = t2
 #' )
 #'
-#' ## Fit model using lgspline with Weibull shur correction
+#' ## Fit model using lgspline with Weibull Schur correction
 #' model_fit <- lgspline(y ~ spl(t1) + t2,
 #'                       df,
 #'                       unconstrained_fit_fxn = unconstrained_fit_weibull,
@@ -6606,14 +6692,14 @@ weibull_qp_score_function = function(X,
 #'                       need_dispersion_for_estimation = TRUE,
 #'                       dispersion_function = weibull_dispersion_function,
 #'                       glm_weight_function = weibull_glm_weight_function,
-#'                       shur_correction_function = weibull_shur_correction,
+#'                       schur_correction_function = weibull_schur_correction,
 #'                       status = status,
 #'                       opt = FALSE,
 #'                       K = 1)
 #'
 #' print(summary(model_fit))
 #'
-#' ## Fit model using lgspline without Weibull shur correction
+#' ## Fit model using lgspline without Weibull Schur correction
 #' naive_fit <- lgspline(y ~ spl(t1) + t2,
 #'                       df,
 #'                       unconstrained_fit_fxn = unconstrained_fit_weibull,
@@ -6628,7 +6714,7 @@ weibull_qp_score_function = function(X,
 #' print(summary(naive_fit))
 #'
 #' @export
-weibull_shur_correction <- function(X,
+weibull_schur_correction <- function(X,
                                     y,
                                     B,
                                     dispersion,
@@ -6637,6 +6723,8 @@ weibull_shur_correction <- function(X,
                                     family,
                                     observation_weights,
                                     status){
+  ## dispersion = sigma^2; scale = sigma = sqrt(dispersion)
+  scale <- sqrt(dispersion)
   lapply(1:(K+1), function(k){
     if(nrow(X[[k]]) < 1){
       return(0)
@@ -6644,20 +6732,20 @@ weibull_shur_correction <- function(X,
       mu <- family$linkinv(c(X[[k]] %**% B[[k]]))
       s <- status[order_list[[k]]]
       obs <- y[[k]]
-      z <- (log(obs) - log(mu))/sqrt(dispersion)
+      z <- (log(obs) - log(mu)) / scale
       exp_z <- exp(z)
-      zexp_z <- z*exp_z
+      zexp_z <- z * exp_z
       weights <- c(observation_weights[[k]])
 
-      ## Correction via Shur complement
+      ## Correction via Schur complement
       # Extract true conditional variance-covariance of beta coefficients
-      # conditional upon estimate of scale.
+      # conditional upon estimate of scale (sigma).
       # I = ( I_bb I_bs^{T} )
       #     ( I_bs I_ss     )
-      # \eqn{\textbf{I} = \begin{pmatrix} \textbf{I}_{bb} & \textbf{I}_{bs}^{T} \\ \textbf{I}_{bs} & I_{ss} \end{pmatrix}}
-      # for b = beta, s = dispersion (scale)
-      # Note that: I_bb = invert(G[[k]]) is incorrect, I_bb is part of Fisher info
-      I_bs <- t(X[[k]]) %**% cbind(weights * zexp_z * sqrt(dispersion))
+      # for b = beta, s = scale (sigma)
+      # Note that: I_bb = invert(G[[k]]) is incorrect, I_bb is part of
+      # Fisher info
+      I_bs <- t(X[[k]]) %**% cbind(weights * zexp_z * scale)
       I_ss <- -sum(
         weights * (
           (s + 2*s*z + zexp_z + exp_z * z^2)
@@ -6665,17 +6753,21 @@ weibull_shur_correction <- function(X,
       )
       # compl gets elementwise added to G[[k]] for all k = 1...K+1
       compl <- I_bs %**% matrix(-1/I_ss) %**% t(I_bs)
-      # Shur complement correction to pass on to compute_G_eigen()
+      # Schur complement correction to pass on to compute_G_eigen()
       return(compl)
     }
   })
 }
 
+#' @rdname weibull_schur_correction
+#' @export
+weibull_shur_correction <- weibull_schur_correction
+
 #' Estimate Scale for Weibull Accelerated Failure Time Model
 #'
 #' @description
-#' Computes maximum log-likelihood scale estimate of Weibull accelerated failure
-#' time (AFT) survival model.
+#' Computes maximum log-likelihood scale estimate (sigma) for a Weibull
+#' accelerated failure time (AFT) survival model.
 #'
 #' This both provides a tool for actually fitting Weibull AFT Models, and
 #' boilerplate code for users who wish to incorporate Lagrangian multiplier
@@ -6691,11 +6783,13 @@ weibull_shur_correction <- function(X,
 #' @param weights Optional observation weights (default = 1)
 #'
 #' @return
-#' Scalar representing the estimated scale
+#' Scalar representing the estimated Weibull scale (sigma), equivalent to
+#' \code{survreg$scale}. The dispersion (as stored in
+#' \code{lgspline$sigmasq_tilde}) is sigma^2.
 #'
 #' @details
-#' Calculates maximum log-likelihood estimate of scale for Weibull AFT model
-#' accounting for right-censored observations using Brent's method for
+#' Calculates maximum log-likelihood estimate of scale (sigma) for Weibull AFT
+#' model accounting for right-censored observations using Brent's method for
 #' optimization.
 #'
 #' @examples
@@ -6725,6 +6819,7 @@ weibull_scale <- function(log_y, log_mu, status, weights = 1){
   optim(
     1,
     fn = function(par){
+      ## par is scale (sigma), passed directly to loglik_weibull
       -loglik_weibull(log_y, log_mu, status, par, weights)
     },
     method = 'Brent',
@@ -6732,6 +6827,9 @@ weibull_scale <- function(log_y, log_mu, status, weights = 1){
     upper = 100
   )$par
 }
+
+## [Change 2026-02-14]: weibull_family -- add $aic, $loglik, $dev.resids methods
+# for logLik.lgspline compatibility
 
 #' Weibull Family for Survival Model Specification
 #'
@@ -6747,10 +6845,18 @@ weibull_scale <- function(log_y, log_mu, status, weights = 1){
 #' A list containing family-specific components for survival model estimation
 #'
 #' @details
-#' Provides a comprehensive family specification for Weibull AFT models, including Family
-#' name, link function, inverse link function, and custom loss function for model tuning
+#' Provides a comprehensive family specification for Weibull AFT models,
+#' including family name, link function, inverse link function, custom loss
+#' function for model tuning, and methods for AIC and log-likelihood
+#' computation compatible with \code{logLik.lgspline}.
 #'
 #' Supports right-censored survival data with flexible parameter estimation.
+#'
+#' Note on scale vs. dispersion: throughout this package, the lgspline object
+#' stores \code{sigmasq_tilde} which equals sigma^2 (dispersion), where
+#' sigma is the Weibull scale parameter matching \code{survreg$scale}.
+#' Functions that accept a \code{dispersion} argument receive sigma^2;
+#' functions that accept a \code{scale} argument receive sigma.
 #'
 #' @examples
 #'
@@ -6779,68 +6885,128 @@ weibull_scale <- function(log_y, log_mu, status, weights = 1){
 #'                       need_dispersion_for_estimation = TRUE,
 #'                       dispersion_function = weibull_dispersion_function,
 #'                       glm_weight_function = weibull_glm_weight_function,
-#'                       shur_correction_function = weibull_shur_correction,
+#'                       schur_correction_function = weibull_schur_correction,
 #'                       status = status,
 #'                       opt = FALSE,
 #'                       K = 1)
 #'
 #' summary(model_fit)
 #'
+#' ## Log-likelihood now works via logLik.lgspline:
+#' # logLik(model_fit)
+#'
 #' @export
-weibull_family <- function()list(family = "weibull",
-                                 link = "log",
-                                 linkfun = log,
-                                 linkinv = exp,
-                                 ## Custom loss used in place of MSE for computing GCV
-                                 custom_dev.resids =
-                                   function(y,
-                                            mu,
-                                            order_indices,
-                                            family,
-                                            observation_weights,
-                                            status){
-                                     log_mu <- log(mu)
-                                     log_y <- log(y)
-                                     status <- status[order_indices]
+weibull_family <- function() list(
+  family = "weibull",
+  link = "log",
+  linkfun = log,
+  linkinv = exp,
 
-                                     ## Initialize scale
-                                     init_scale <-
-                                       weibull_scale(log_y,
-                                                     mean(log_y),
-                                                     status[order_indices],
-                                                     observation_weights)
-                                     ## Find scale
-                                     scale <- optim(
-                                       init_scale,
-                                       fn = function(par){
-                                         -loglik_weibull(log_y,
-                                                         log_mu,
-                                                         status,
-                                                         par,
-                                                         observation_weights)
-                                       },
-                                       lower = init_scale/5,
-                                       upper = init_scale*5,
-                                       method = 'Brent'
-                                     )$par
+  ## [Change 2026-02-12] Added dev.resids for base R
+  #  compatibility when logLik.lgspline checks for family$dev.resids
+  dev.resids = function(y, mu, wt) {
+    ## Deviance residuals for Weibull AFT: -2 * log-likelihood
+    #  This is a simplified version; full version uses status via
+    #  custom_dev.resids below
+    wt * (y/mu - log(y/mu) - 1) * 2
+  },
 
-                                     ## -2 * log-likelihood
-                                     dev <- -2*(
-                                       ## Log-likelihood contributions
-                                       status * (-log(scale) +
-                                                   (1/scale - 1)*log_y -
-                                                   log_mu/scale) -
-                                         (exp((log_y - log_mu)/scale))
-                                     )
-                                     return(dev * observation_weights)
-                                   })
+  ## Custom loss used in place of MSE for computing GCV
+  custom_dev.resids =
+    function(y, mu, order_indices, family, observation_weights, status){
+      log_mu <- log(mu)
+      log_y <- log(y)
+      status <- status[order_indices]
+
+      ## Initialize scale (sigma) using null model
+      init_scale <-
+        weibull_scale(log_y, mean(log_y), status,
+                      observation_weights)
+      ## Find scale (sigma) given current mu
+      scale <- optim(
+        init_scale,
+        fn = function(par){
+          ## par is scale (sigma)
+          -loglik_weibull(log_y, log_mu, status, par, observation_weights)
+        },
+        lower = init_scale/10, # [Change 2026-02-17] Increased from 5-10
+        upper = init_scale*10,
+        method = 'Brent'
+      )$par
+
+      ## -2 * log-likelihood
+      dev <- -2*(
+        status * (-log(scale) +
+                    (1/scale - 1)*log_y -
+                    log_mu/scale) -
+          (exp((log_y - log_mu)/scale))
+      )
+      return(dev * observation_weights)
+    },
+
+  ## [Change 2026-02-12] Added $loglik method for
+  #  logLik.lgspline compatibility
+  #  Accepts a fitted lgspline model object and returns the scalar
+  #  log-likelihood value
+  loglik = function(model_fit) {
+    ## Extract necessary components from the fitted model
+    log_y <- log(model_fit$y)
+    log_mu <- log(model_fit$ytilde)
+    ## sigmasq_tilde is dispersion (sigma^2); take sqrt to get scale (sigma)
+    scale <- sqrt(model_fit$sigmasq_tilde)
+
+    ## Status must be stored in model_fit$extra or model_fit$call_args
+    #  Try common locations
+    status <- NULL
+    if(!is.null(model_fit$status)) {
+      status <- model_fit$status
+    } else if(!is.null(model_fit$extra_args$status)) {
+      status <- model_fit$extra_args$status
+    } else {
+      ## If status not found, assume all events observed
+      warning("Censoring status not found in model object; ",
+              "assuming all events observed (status = 1).")
+      status <- rep(1, length(log_y))
+    }
+
+    weights <- if(!is.null(model_fit$observation_weights)){
+      model_fit$observation_weights
+    } else {
+      rep(1, length(log_y))
+    }
+
+    loglik_weibull(log_y, log_mu, status, scale, weights)
+  },
+
+  ##  [Change 2026-02-12] Added $aic method for
+  #  logLik.lgspline compatibility
+  #  Returns AIC = -2*loglik + 2*edf
+  #  edf = effective degrees of freedom (trace of hat matrix + 1 for scale)
+  aic = function(model_fit) {
+    ll <- weibull_family()$loglik(model_fit)
+    ## edf: trace of smoother matrix + 1 for scale parameter
+    edf <- model_fit$edf
+    if(is.null(edf)){
+      ## Fallback: use trace_XUGX if available
+      edf <- model_fit$trace_XUGX
+    }
+    if(is.null(edf)){
+      warning("Cannot compute AIC: effective degrees of freedom not found.")
+      return(NA)
+    }
+    ## +1 for the scale parameter
+    -2 * ll + 2 * (edf + 1)
+  }
+)
 
 
 #' Estimate Weibull Dispersion for Accelerated Failure Time Model
 #'
 #' @description
-#' Computes the scale parameter for a Weibull accelerated failure time (AFT)
-#' model, supporting right-censored survival data.
+#' Computes the dispersion parameter (sigma^2 = scale^2) for a Weibull
+#' accelerated failure time (AFT) model, supporting right-censored survival
+#' data. The returned value is sigma^2, where sigma is the Weibull scale
+#' parameter matching \code{survreg$scale}.
 #'
 #' This both provides a tool for actually fitting Weibull AFT Models, and
 #' boilerplate code for users who wish to incorporate Lagrangian multiplier
@@ -6858,9 +7024,12 @@ weibull_family <- function()list(family = "weibull",
 #'   subject was lost to follow-up before the event of interest occurred.
 #'
 #' @return
-#' Squared scale estimate for the Weibull AFT model (dispersion)
+#' Dispersion estimate (sigma^2) for the Weibull AFT model, i.e., the squared
+#' scale parameter. The Weibull scale (sigma) matching \code{survreg$scale} is
+#' \code{sqrt()} of this value.
 #'
-#' @seealso \code{\link{weibull_scale}} for the underlying scale estimation function
+#' @seealso \code{\link{weibull_scale}} for the underlying scale estimation
+#'   function
 #'
 #' @examples
 #'
@@ -6883,17 +7052,19 @@ weibull_family <- function()list(family = "weibull",
 #' order_indices <- seq_along(y)
 #' weights <- rep(1, n)
 #'
-#' ## Estimate dispersion
+#' ## Estimate dispersion (= scale^2 = sigma^2)
 #' dispersion_est <- weibull_dispersion_function(
 #'   mu = mu,
 #'   y = y,
 #'   order_indices = order_indices,
 #'   family = weibull_family(),
 #'   observation_weights = weights,
+#'   VhalfInv = NULL,
 #'   status = status
 #' )
 #'
-#' print(dispersion_est)
+#' print(dispersion_est)          # sigma^2
+#' print(sqrt(dispersion_est))    # sigma (comparable to survreg$scale)
 #'
 #' @export
 weibull_dispersion_function <- function(mu,
@@ -6901,6 +7072,7 @@ weibull_dispersion_function <- function(mu,
                                         order_indices,
                                         family,
                                         observation_weights,
+                                        VhalfInv,
                                         status){
 
   ## Maximizes log-likelihood of right-censored data
@@ -6909,27 +7081,29 @@ weibull_dispersion_function <- function(mu,
   observation_weights <- c(observation_weights)
   status <- status[order_indices]
 
-  ## Initialize scale
+  ## Initialize scale (sigma) using null model
   init_scale <-
     weibull_scale(log_y,
                   mean(log_y),
-                  status[order_indices],
+                  status,
                   observation_weights)
-  ## Find scale
+  ## Find scale (sigma) given current mu
   scale <- optim(
     init_scale,
     fn = function(par){
+      ## par is scale (sigma)
       -loglik_weibull(log_y,
                       log_mu,
                       status,
                       par,
                       observation_weights)
     },
-    lower = init_scale/5,
-    upper = init_scale*5,
+    lower = init_scale/10, # [Change 2026-02-17] Increased from 5 to 10
+    upper = init_scale*10,
     method = 'Brent'
   )$par
 
+  ## Return dispersion = sigma^2 = scale^2
   return(scale^2)
 }
 
@@ -6937,13 +7111,17 @@ weibull_dispersion_function <- function(mu,
 #'
 #' @description
 #' Computes diagonal weight matrix \eqn{\textbf{W}} for the information matrix
-#' \eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}} in Weibull accelerated failure time (AFT) models.
+#' \eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}}
+#' in Weibull accelerated failure time (AFT) models.
 #'
 #' @param mu Predicted survival times
 #' @param y Observed response/survival times
-#' @param order_indices Order of observations when partitioned to match "status" to "response"
+#' @param order_indices Order of observations when partitioned to match
+#'   "status" to "response"
 #' @param family Weibull AFT family
-#' @param dispersion Estimated dispersion parameter (\eqn{s^2})
+#' @param dispersion Estimated dispersion parameter (sigma^2 = scale^2). The
+#'   lgspline framework stores and passes dispersion (sigma^2); the Weibull
+#'   scale (sigma) matching \code{survreg$scale} is \code{sqrt(dispersion)}.
 #' @param observation_weights Weights of observations submitted to function
 #' @param status Censoring indicator (1 = event, 0 = censored)
 #'   Indicates whether an event of interest occurred (1) or the observation was
@@ -6952,19 +7130,21 @@ weibull_dispersion_function <- function(mu,
 #'   subject was lost to follow-up before the event of interest occurred.
 #'
 #' @return
-#' Vector of weights for constructing the diagonal weight matrix \eqn{\textbf{W}}
-#' in the information matrix \eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}}.
+#' Vector of weights for constructing the diagonal weight matrix
+#' \eqn{\textbf{W}} in the information matrix
+#' \eqn{\textbf{G} = (\textbf{X}^{T}\textbf{W}\textbf{X} + \textbf{L})^{-1}}.
 #'
 #' @details
 #' This function generates weights used in constructing the information matrix
 #' after unconstrained estimates have been found. Specifically, it is used in
-#' the construction of the \eqn{\textbf{U}} and \eqn{\textbf{G}} matrices following initial unconstrained
-#' parameter estimation.
+#' the construction of the \eqn{\textbf{U}} and \eqn{\textbf{G}} matrices
+#' following initial unconstrained parameter estimation.
 #'
 #' These weights are analogous to the variance terms in generalized linear
-#' models (GLMs). Like logistic regression uses \eqn{\mu(1-\mu)}, Poisson regression uses
-#' \eqn{e^{\mu}}, and Linear regression uses constant weights, Weibull AFT models use
-#' \eqn{\exp((\log y - \log \mu)/s)} where \eqn{s} is the scale (= \eqn{\sqrt{\text{dispersion}}}) parameter.
+#' models (GLMs). Like logistic regression uses \eqn{\mu(1-\mu)}, Poisson
+#' regression uses \eqn{e^{\mu}}, and Linear regression uses constant weights,
+#' Weibull AFT models use \eqn{\exp((\log y - \log \mu)/\sigma)} where
+#' \eqn{\sigma = \sqrt{\text{dispersion}}} is the scale parameter.
 #'
 #' @examples
 #'
@@ -6990,7 +7170,7 @@ weibull_dispersion_function <- function(mu,
 #'                       need_dispersion_for_estimation = TRUE,
 #'                       dispersion_function = weibull_dispersion_function,
 #'                       glm_weight_function = weibull_glm_weight_function,
-#'                       shur_correction_function = weibull_shur_correction,
+#'                       schur_correction_function = weibull_schur_correction,
 #'                       status = status,
 #'                       opt = FALSE,
 #'                       K = 1)
@@ -7006,12 +7186,412 @@ weibull_glm_weight_function <- function(mu,
                                         dispersion,
                                         observation_weights,
                                         status){
-  val <- exp((log(y) - log(mu))/sqrt(dispersion))
+  ## dispersion = sigma^2; scale = sigma = sqrt(dispersion)
+  scale <- sqrt(dispersion)
+  val <- exp((log(y) - log(mu)) / scale)
   if(any(!is.finite(val))){
     return(rep(1, length(val)))
   }
   newval <- val * c(observation_weights)
   return(newval)
+}
+
+#' Unconstrained Weibull Accelerated Failure Time Model Estimation
+#'
+#' @description
+#' Estimates parameters for an unconstrained Weibull accelerated failure time
+#' (AFT) model supporting right-censored survival data.
+#'
+#' This both provides a tool for actually fitting Weibull AFT Models, and
+#' boilerplate code for users who wish to incorporate Lagrangian multiplier
+#' smoothing splines into their own custom models.
+#'
+#' @param X Design matrix of predictors
+#' @param y Survival/response times
+#' @param LambdaHalf Square root of penalty matrix
+#'   (\eqn{\boldsymbol{\Lambda}^{1/2}})
+#' @param Lambda Penalty matrix (\eqn{\boldsymbol{\Lambda}})
+#' @param keep_weighted_Lambda Flag to retain weighted penalties
+#' @param family Distribution family specification
+#' @param tol Convergence tolerance (default 1e-8)
+#' @param K Number of partitions minus one (\eqn{K})
+#' @param parallel Flag for parallel processing
+#' @param cl Cluster object for parallel computation
+#' @param chunk_size Processing chunk size
+#' @param num_chunks Number of computational chunks
+#' @param rem_chunks Remaining chunks
+#' @param order_indices Observation ordering indices
+#' @param weights Optional observation weights
+#' @param status Censoring status indicator (1 = event, 0 = censored)
+#'   Indicates whether an event of interest occurred (1) or the observation was
+#'   right-censored (0). In survival analysis, right-censoring occurs when the
+#'   full survival time is unknown, typically because the study ended or the
+#'   subject was lost to follow-up before the event of interest occurred.
+#'
+#' @return
+#' Optimized beta parameter estimates (\eqn{\boldsymbol{\beta}}) for Weibull
+#' AFT model
+#'
+#' @details
+#' Estimation Approach:
+#' The function employs a two-stage optimization strategy for fitting
+#' accelerated failure time models via maximum likelihood:
+#'
+#' 1. Outer Loop: Estimate Scale Parameter (sigma) using Brent's method
+#'
+#' 2. Inner Loop: Estimate Regression Coefficients (given sigma) using
+#'    damped Newton-Raphson.
+#'
+#' Note: the score and information inside the Newton-Raphson are both scaled
+#' by sigma^2 (i.e., both omit the 1/sigma and 1/sigma^2 prefactors
+#' respectively). Since the Newton-Raphson step is
+#' G*u = (X^T W X)^{-1} X^T v, the sigma^2 factors cancel and the step
+#' remains correct.
+#'
+#' @examples
+#'
+#' ## Simulate survival data with covariates
+#' set.seed(1234)
+#' n <- 1000
+#' t1 <- rnorm(n)
+#' t2 <- rbinom(n, 1, 0.5)
+#'
+#' ## Generate survival times with Weibull-like structure
+#' lambda <- exp(0.5 * t1 + 0.3 * t2)
+#' yraw <- rexp(n, rate = 1/lambda)
+#'
+#' ## Introduce right-censoring
+#' status <- rbinom(n, 1, 0.75)
+#' y <- ifelse(status, yraw, runif(1, 0, yraw))
+#' df <- data.frame(y = y, t1 = t1, t2 = t2)
+#'
+#' ## Fit model using lgspline with Weibull AFT unconstrained estimation
+#' model_fit <- lgspline(y ~ spl(t1) + t2,
+#'                       df,
+#'                       unconstrained_fit_fxn = unconstrained_fit_weibull,
+#'                       family = weibull_family(),
+#'                       need_dispersion_for_estimation = TRUE,
+#'                       dispersion_function = weibull_dispersion_function,
+#'                       glm_weight_function = weibull_glm_weight_function,
+#'                       schur_correction_function = weibull_schur_correction,
+#'                       status = status,
+#'                       opt = FALSE,
+#'                       K = 1)
+#'
+#' ## Print model summary
+#' summary(model_fit)
+#'
+#' @keywords internal
+#' @export
+unconstrained_fit_weibull <- function(X,
+                                      y,
+                                      LambdaHalf,
+                                      Lambda,
+                                      keep_weighted_Lambda,
+                                      family,
+                                      tol = 1e-8,
+                                      K,
+                                      parallel,
+                                      cl,
+                                      chunk_size,
+                                      num_chunks,
+                                      rem_chunks,
+                                      order_indices,
+                                      weights,
+                                      status # status goes in the ellipsis arg
+) {
+
+  ## Weight if non-null
+  if(any(!is.null(weights))){
+    if(length(weights) > 0){
+      weights <- c(weights)
+    }
+  } else {
+    weights <- rep(1, length(y))
+  }
+
+  log_y <- log(y)
+
+  ## Initialize scale (sigma)
+  init_scale <- weibull_scale(log_y,
+                              mean(log_y),
+                              status[order_indices],
+                              weights)
+
+  ## First, use outer-loop to optimize scale (sigma)
+  #  Then given scale, optimize beta.
+  #  Note: the score and information inside damped_newton_r are both
+  #  scaled by sigma^2 (omitting 1/sigma and 1/sigma^2 prefactors),
+  #  so the Newton-Raphson step remains correct.
+  scale <- optim(init_scale,
+                 fn = function(par){
+                   ## par is scale (sigma)
+                   scale <- par
+                   beta <- cbind(damped_newton_r(
+                     c(mean(log_y), rep(0, ncol(X)-1)),
+                     function(par){
+                       beta <- cbind(par)
+                       log_mu <- c(X %**% beta)
+                       loglik_weibull(log_y,
+                                      log_mu,
+                                      status[order_indices],
+                                      scale,
+                                      weights) +
+                         -0.5*c(crossprod(beta, Lambda) %**% beta)
+                     },
+                     function(par){
+                       beta <- cbind(par)
+                       eta <- c(X %**% beta)
+                       z <- (log_y - eta) / scale
+                       zeta <- exp(z)
+                       ## Scaled score (x sigma^2): true score is
+                       #  (1/sigma) * X^T diag(w)(exp(z) - status),
+                       #  multiplied through by sigma^2 gives
+                       #  sigma * X^T diag(w)(exp(z) - status)
+                       grad_beta_sc <- crossprod(
+                            X,
+                            (weights*(zeta - status[order_indices])) * scale
+                          ) +
+                          Lambda %**% beta
+                       cbind(grad_beta_sc)
+                     },
+                     function(par){
+                       beta <- cbind(par)
+                       eta <- X %**% beta
+                       z <- (log_y - eta) / scale
+                       zeta <- c(exp(z))
+                       ## Scaled information (x sigma^2): true info is
+                       #  (1/sigma^2) * X^T diag(w*exp(z)) X,
+                       #  multiplied through by sigma^2 gives
+                       #  X^T diag(w*exp(z)) X
+                       info_sc <- crossprod(X, weights * zeta * X) + Lambda
+                       info_sc
+                     },
+                     tol
+                   ))
+                   ## Return negated penalized log-likelihood
+                   #  as the objective to minimize
+                   log_mu <- X %**% beta
+                   -loglik_weibull(log_y,
+                                   log_mu,
+                                   status[order_indices],
+                                   par,
+                                   weights) +
+                     0.5*c(crossprod(beta, Lambda) %**% beta)
+                 },
+                 lower = init_scale/10, # [Change 2026-02-17] Increased to 10
+                 upper = init_scale*10, # (was 5)
+                 method = 'Brent')$par
+
+  ## Now optimize beta, given optimal scale (sigma)
+  beta <- cbind(damped_newton_r(
+    c(mean(log_y), rep(0, ncol(X)-1)),
+    function(par){
+      beta <- cbind(par)
+      log_mu <- c(X %**% beta)
+      loglik_weibull(log_y,
+                     log_mu,
+                     status[order_indices],
+                     scale,
+                     weights) +
+        -0.5*c(crossprod(beta, Lambda) %**% beta)
+    },
+    function(par){
+      beta <- cbind(par)
+      eta <- c(X %**% beta)
+      z <- (log_y - eta) / scale
+      zeta <- exp(z)
+      ## Scaled score (x sigma^2); see note above
+      grad_beta_sc <- crossprod(
+          X,
+          (weights*(zeta - status[order_indices])) * scale
+         ) +
+        Lambda %**% beta
+      cbind(grad_beta_sc)
+    },
+    function(par){
+      beta <- cbind(par)
+      eta <- X %**% beta
+      z <- (log_y - eta) / scale
+      zeta <- c(exp(z))
+      ## Scaled information (x sigma^2); see note above
+      info_sc <- crossprod(X, weights * zeta * X) + Lambda
+      info_sc
+    },
+    tol
+  ))
+
+  return(beta)
+}
+
+#' Unconstrained Generalized Linear Model Estimation
+#'
+#' @description
+#' Fits generalized linear models without smoothing constraints
+#' using penalized maximum likelihood estimation. This is applied to each
+#' partition to obtain the unconstrained estimates, prior to imposing the
+#' smoothing constraints.
+#'
+#' @param X Design matrix of predictors
+#' @param y Response variable vector
+#' @param LambdaHalf Square root of penalty matrix
+#'   (\eqn{\boldsymbol{\Lambda}^{1/2}})
+#' @param Lambda Penalty matrix (\eqn{\boldsymbol{\Lambda}})
+#' @param keep_weighted_Lambda Logical flag to control penalty matrix handling:
+#'   - \code{TRUE}: Return coefficients directly from weighted penalty fitting
+#'   - \code{FALSE}: Apply damped Newton-Raphson optimization to refine
+#'     estimates
+#' @param family Distribution family specification
+#' @param tol Convergence tolerance
+#' @param K Number of partitions minus one (\eqn{K})
+#' @param parallel Flag for parallel processing
+#' @param cl Cluster object for parallel computation
+#' @param chunk_size Processing chunk size
+#' @param num_chunks Number of computational chunks
+#' @param rem_chunks Remaining chunks
+#' @param order_indices Observation ordering indices
+#' @param weights Optional observation weights
+#' @param ... Additional arguments passed to \code{glm.fit}
+#'
+#' @return
+#' Optimized parameter estimates for canonical generalized linear models.
+#'
+#' For fitting non-canonical GLMs, use \code{keep_weighted_Lambda = TRUE}
+#' since the score and hessian equations below are no longer valid.
+#'
+#' For Gamma(link='log') using \code{keep_weighted_Lambda = TRUE} is
+#' misleading. The information is weighted by a constant (shape parameter)
+#' rather than some mean-variance relationship. So
+#' \code{keep_weighted_Lambda = TRUE} is highly recommended for log-link Gamma
+#' models. This constant flushes into the penalty terms, and so the
+#' formulation of the information matrix is valid.
+#'
+#' For other scenarios, like probit regression, there will be diagonal weights
+#' incorporated into the penalty matrix for providing initial MLE estimates,
+#' which technically imposes a prior distribution on beta coefficients that
+#' isn't by intent.
+#'
+#' Heuristically, it shouldn't affect much, as these will be updated to their
+#' proper form when providing estimates under constraint; lgspline otherwise
+#' does use the correct form of score and information afterwards,
+#' regardless of canonical/non-canonical status,
+#' as long as 'glm_weight_function' and 'qp_score_function' are properly
+#' specified.
+#'
+#'
+#' @keywords internal
+#' @export
+unconstrained_fit_default <- function(X,
+                                      y,
+                                      LambdaHalf,
+                                      Lambda,
+                                      keep_weighted_Lambda,
+                                      family,
+                                      tol,
+                                      K,
+                                      parallel,
+                                      cl,
+                                      chunk_size,
+                                      num_chunks,
+                                      rem_chunks,
+                                      order_indices,
+                                      weights,
+                                      ...){
+
+
+  if(nrow(X) == 0){
+    return(cbind(rep(0, ncol(X))))
+  }
+
+  ## Weight if non-null
+  # Yields first NR updated as
+  # = (X^{T}V^{-1}X + Lambda)^{-1}X^{T}V^{-1}y for V^{-1} = diag(weights)
+  if(any(!is.null(weights))){
+    if(length(weights) == length(y)){
+      weights <- c(weights)
+    } else {
+      weights <- rep(1, length(y))
+    }
+  } else {
+    weights <- rep(1, length(y))
+  }
+
+  ## Ordinary fit using Tikhinov parameterization
+  mod <- try({glm.fit(x = rbind(X, LambdaHalf),
+                      y = cbind(c(y, rep(family$linkinv(0),
+                                         nrow(LambdaHalf)))),
+                      family = family,
+                      weights = c(weights, rep(mean(weights),
+                                               nrow(LambdaHalf))),
+                      ...)}, silent = TRUE)
+  if(keep_weighted_Lambda & any(!(inherits(mod, 'try-error')))){
+    return(cbind(mod$coefficients))
+  }
+
+  if(any(inherits(mod, 'try-error'))){
+    init <- c(family$linkfun(mean(y)), rep(0, ncol(X)-1))
+  } else {
+    init <- c(coef(mod))
+  }
+  if(any(is.na(init))){
+    init <- rep(0, length(init))
+  }
+  if(any(!is.finite(init))){
+    init <- rep(0, length(init))
+  }
+
+  ## Remove weights from Tikhinov penalties using damped nr
+  res <- cbind(damped_newton_r(
+    ## initial guess
+    init,
+    ## proportional to log-likelihood
+    function(par){
+      -sum(weights*family$dev.resids(
+        y,
+        family$linkinv(c(X %**% cbind(par))),
+        wt = 1))*0.5 -
+        0.5*c(crossprod(par, Lambda) %**% cbind(par))
+    },
+    ## score
+    function(par){
+      c(crossprod(X, weights*cbind(y - family$linkinv(X %**% cbind(par)))) -
+           Lambda %**% cbind(par))
+    },
+    ## information
+    function(par){
+      crossprod(X, weights*c(family$variance(X %**% cbind(par))) * X) +
+        Lambda
+    },
+    tol))
+  return(res)
+}
+
+#' Collapse Matrix List into a Single Block-Diagonal Matrix
+#'
+#' @description
+#' Transforms a list of matrices into a single block-diagonal matrix. This is
+#' useful for quadratic programming problems especially, where the
+#' block-diagonal operations may not be plausible.
+#'
+#' @param matlist List of input matrices
+#'
+#' @return
+#' Block-diagonal matrix combining input matrices
+#'
+#' @keywords internal
+#' @export
+collapse_block_diagonal <- function(matlist){
+  nrows <- sapply(matlist, nrow)
+  ncols <- sapply(matlist, ncol)
+  Reduce('rbind', lapply(1:length(matlist), function(k){
+    mat <- matrix(0,
+                  nrow = nrows[k],
+                  ncol = sum(ncols))
+    mat[,sum(ncols[-c(k:length(nrows))]) +
+          1:ncols[k]] <-
+      matlist[[k]]
+    mat
+  }))
 }
 
 #' Compute Newton-Raphson Parameter Update with Numerical Stabilization
@@ -7022,16 +7602,19 @@ weibull_glm_weight_function <- function(mu,
 #' Called by \code{\link{damped_newton_r}} in the update step
 #'
 #' @param gradient_val Numeric vector of gradient values (\eqn{\textbf{u}})
-#' @param neghessian_val Negative Hessian matrix (\eqn{\textbf{G}^{-1}} approximately)
+#' @param neghessian_val Negative Hessian matrix (\eqn{\textbf{G}^{-1}}
+#'   approximately)
 #'
 #' @return
 #' Numeric vector of parameter updates (\eqn{\textbf{G}\textbf{u}})
 #'
 #' @details
 #' This helper function is a core component of Newton-Raphson optimization.
-#' It provides a computationally-stable approach to computing \eqn{\textbf{G}\textbf{u}}, for
-#' information matrix \eqn{\textbf{G}} and score vector \eqn{\textbf{u}}, where the Newton-Raphson update
-#' can be expressed as \eqn{\boldsymbol{\beta}^{(m+1)} = \boldsymbol{\beta}^{(m)} + \textbf{G}\textbf{u}}.
+#' It provides a computationally-stable approach to computing
+#' \eqn{\textbf{G}\textbf{u}}, for information matrix \eqn{\textbf{G}} and
+#' score vector \eqn{\textbf{u}}, where the Newton-Raphson update can be
+#' expressed as
+#' \eqn{\boldsymbol{\beta}^{(m+1)} = \boldsymbol{\beta}^{(m)} + \textbf{G}\textbf{u}}.
 #'
 #' @seealso \code{\link{damped_newton_r}} for the full optimization routine
 #'
@@ -7039,8 +7622,10 @@ weibull_glm_weight_function <- function(mu,
 #' @export
 nr_iterate <- function(gradient_val, neghessian_val){
   sc <- sqrt(mean(abs(neghessian_val))) # for computational stability
-  invert(neghessian_val / sc) %**% cbind(gradient_val / sc)
+  ## [Change 2026-02-14] used crossprod instead of %**% here
+  crossprod(t(invert(neghessian_val / sc)), cbind(gradient_val / sc))
 }
+
 
 #' Damped Newton-Raphson Parameter Optimization
 #'
@@ -7098,18 +7683,21 @@ damped_newton_r <- function(parameters,
     if(is.na(prev_objective) |
        is.nan(prev_objective) |
        !is.finite(prev_objective)){
-      cat('\n \t Error Encountered, Number of N.R. steps so far: ', master_count, '\n')
-      stop('\n \t NA/NaN/non-finite value detected when running unconstrained damped',
-           ' Newton-Raphson.',
-           ' \n \t Try re-fitting a simpler model, using greater/smaller penalties, ',
+      cat('\n \t Error Encountered, Number of N.R. steps so far: ',
+          master_count, '\n')
+      stop('\n \t NA/NaN/non-finite value detected when running',
+           ' unconstrained damped Newton-Raphson.',
+           ' \n \t Try re-fitting a simpler model, using',
+           ' greater/smaller penalties, ',
            ' experimenting with different knot locations, or reducing the',
            ' number of knots.')
     }
 
     ## Damp iterations, only updates if performance improves
     while((new_objective <= prev_objective) & count < max_dmp_steps){
-      new_param <- old_param + (2^(-count))*nr_iterate(gradient(old_param),
-                                                       neghessian(old_param))
+      new_param <- old_param +
+        (2^(-count)) * nr_iterate(gradient(old_param),
+                                  neghessian(old_param))
       new_objective <- loglikelihood(new_param)
       if(is.na(new_objective) |
          is.nan(new_objective) |
@@ -7121,7 +7709,7 @@ damped_newton_r <- function(parameters,
 
     ## Check for change in old vs. new parameters
     eps <- max(abs(old_param - new_param))
-    # Break if Nas/NaNs/Infs occur
+    # Break if NAs/NaNs/Infs occur
     if(any(is.na(eps) | is.nan(eps) | !is.finite(eps))){
       new_param <- old_param
       eps <- 0
@@ -7131,370 +7719,6 @@ damped_newton_r <- function(parameters,
   return(new_param)
 }
 
-#' Unconstrained Weibull Accelerated Failure Time Model Estimation
-#'
-#' @description
-#' Estimates parameters for an unconstrained Weibull accelerated failure time
-#' (AFT) model supporting right-censored survival data.
-#'
-#' This both provides a tool for actually fitting Weibull AFT Models, and
-#' boilerplate code for users who wish to incorporate Lagrangian multiplier
-#' smoothing splines into their own custom models.
-#'
-#' @param X Design matrix of predictors
-#' @param y Survival/response times
-#' @param LambdaHalf Square root of penalty matrix (\eqn{\boldsymbol{\Lambda}^{1/2}})
-#' @param Lambda Penalty matrix (\eqn{\boldsymbol{\Lambda}})
-#' @param keep_weighted_Lambda Flag to retain weighted penalties
-#' @param family Distribution family specification
-#' @param tol Convergence tolerance (default 1e-8)
-#' @param K Number of partitions minus one (\eqn{K})
-#' @param parallel Flag for parallel processing
-#' @param cl Cluster object for parallel computation
-#' @param chunk_size Processing chunk size
-#' @param num_chunks Number of computational chunks
-#' @param rem_chunks Remaining chunks
-#' @param order_indices Observation ordering indices
-#' @param weights Optional observation weights
-#' @param status Censoring status indicator (1 = event, 0 = censored)
-#'   Indicates whether an event of interest occurred (1) or the observation was
-#'   right-censored (0). In survival analysis, right-censoring occurs when the
-#'   full survival time is unknown, typically because the study ended or the
-#'   subject was lost to follow-up before the event of interest occurred.
-#'
-#' @return
-#' Optimized beta parameter estimates (\eqn{\boldsymbol{\beta}}) for Weibull AFT model
-#'
-#' @details
-#' Estimation Approach:
-#' The function employs a two-stage optimization strategy for fitting
-#' accelerated failure time models via maximum likelihood:
-#'
-#' 1. Outer Loop: Estimate Scale Parameter using Brent's method
-#'
-#' 2. Inner Loop: Estimate Regression Coefficients (given scale) using
-#'    damped Newton-Raphson.
-#'
-#' @examples
-#'
-#' ## Simulate survival data with covariates
-#' set.seed(1234)
-#' n <- 1000
-#' t1 <- rnorm(n)
-#' t2 <- rbinom(n, 1, 0.5)
-#'
-#' ## Generate survival times with Weibull-like structure
-#' lambda <- exp(0.5 * t1 + 0.3 * t2)
-#' yraw <- rexp(n, rate = 1/lambda)
-#'
-#' ## Introduce right-censoring
-#' status <- rbinom(n, 1, 0.75)
-#' y <- ifelse(status, yraw, runif(1, 0, yraw))
-#' df <- data.frame(y = y, t1 = t1, t2 = t2)
-#'
-#' ## Fit model using lgspline with Weibull AFT unconstrained estimation
-#' model_fit <- lgspline(y ~ spl(t1) + t2,
-#'                       df,
-#'                       unconstrained_fit_fxn = unconstrained_fit_weibull,
-#'                       family = weibull_family(),
-#'                       need_dispersion_for_estimation = TRUE,
-#'                       dispersion_function = weibull_dispersion_function,
-#'                       glm_weight_function = weibull_glm_weight_function,
-#'                       shur_correction_function = weibull_shur_correction,
-#'                       status = status,
-#'                       opt = FALSE,
-#'                       K = 1)
-#'
-#' ## Print model summary
-#' summary(model_fit)
-#'
-#' @keywords internal
-#' @export
-unconstrained_fit_weibull <- function(X,
-                                      y,
-                                      LambdaHalf,
-                                      Lambda,
-                                      keep_weighted_Lambda,
-                                      family,
-                                      tol = 1e-8,
-                                      K,
-                                      parallel,
-                                      cl,
-                                      chunk_size,
-                                      num_chunks,
-                                      rem_chunks,
-                                      order_indices,
-                                      weights,
-                                      status # status goes in the ellipse arg
-) {
-
-  ## Weight if non-null
-  if(any(!is.null(weights))){
-    if(length(weights) > 0){
-      weights <- c(weights)
-    }
-  } else {
-    weights <- rep(1, length(y))
-  }
-
-  log_y <- log(y)
-
-  ## Initialize scale
-  init_scale <- weibull_scale(log_y,
-                              mean(log_y),
-                              status[order_indices],
-                              weights)
-
-  ## First, use outer-loop to optimize scale
-  # Then given scale, optimize beta
-  scale <- optim(init_scale,
-                 fn = function(par){
-                   scale <- par
-                   beta <- cbind(damped_newton_r(
-                     c(mean(log_y), rep(0, ncol(X)-1)),
-                     function(par){
-                       beta <- cbind(par)
-                       log_mu <- c(X %**% beta)
-                       loglik_weibull(log_y,
-                                      log_mu,
-                                      status[order_indices],
-                                      scale,
-                                      weights) +
-                         -0.5*c(t(beta) %**% Lambda %**% beta)
-                     },
-                     function(par){
-                       beta <- cbind(par)
-                       eta <- c(X %**% beta)
-                       z <- (log_y - eta)/scale
-                       zeta <- exp(z)
-                       grad_beta <- t(X) %**%
-                         (weights*(zeta - status[order_indices]))*scale +
-                         Lambda %**% beta
-                       cbind(grad_beta)
-                     },
-                     function(par){
-                       beta <- cbind(par)
-                       eta <- X %**% beta
-                       z <- (log_y - eta)/scale
-                       zeta <- c(exp(z))
-                       info <- (t(X) %**% (weights * zeta * X) + Lambda)
-                       info
-                     },
-                     tol
-                   ))
-                   log_mu <- X %**% beta
-                   -loglik_weibull(log_y,
-                                   log_mu,
-                                   status[order_indices],
-                                   par,
-                                   weights) +
-                     0.5*c(t(beta) %**% Lambda %**% beta)
-                 },
-                 lower = init_scale/5,
-                 upper = init_scale*5,
-                 method = 'Brent')$par
-
-  ## Now optimize beta, given optimal scale
-  beta <- cbind(damped_newton_r(
-    c(mean(log_y), rep(0, ncol(X)-1)),
-    function(par){
-      beta <- cbind(par)
-      log_mu <- c(X %**% beta)
-      loglik_weibull(log_y,
-                     log_mu,
-                     status[order_indices],
-                     scale,
-                     weights) +
-        -0.5*c(t(beta) %**% Lambda %**% beta)
-    },
-    function(par){
-      beta <- cbind(par)
-      eta <- c(X %**% beta)
-      z <- (log_y - eta)/scale
-      zeta <- exp(z)
-      grad_beta <- t(X) %**%
-        (weights*(zeta - status[order_indices]))*scale +
-        Lambda %**% beta
-      cbind(grad_beta)
-    },
-    function(par){
-      beta <- cbind(par)
-      eta <- X %**% beta
-      z <- (log_y - eta)/scale
-      zeta <- c(exp(z))
-      info <- (t(X) %**% (weights * zeta * X) + Lambda)
-      info
-    },
-    tol
-  ))
-
-  return(beta)
-}
-
-#' Unconstrained Generalized Linear Model Estimation
-#'
-#' @description
-#' Fits generalized linear models without smoothing constraints
-#' using penalized maximum likelihood estimation. This is applied to each
-#' partition to obtain the unconstrained estimates, prior to imposing the
-#' smoothing constraints.
-#'
-#' @param X Design matrix of predictors
-#' @param y Response variable vector
-#' @param LambdaHalf Square root of penalty matrix (\eqn{\boldsymbol{\Lambda}^{1/2}})
-#' @param Lambda Penalty matrix (\eqn{\boldsymbol{\Lambda}})
-#' @param keep_weighted_Lambda Logical flag to control penalty matrix handling:
-#'   - `TRUE`: Return coefficients directly from weighted penalty fitting
-#'   - `FALSE`: Apply damped Newton-Raphson optimization to refine estimates
-#' @param family Distribution family specification
-#' @param tol Convergence tolerance
-#' @param K Number of partitions minus one (\eqn{K})
-#' @param parallel Flag for parallel processing
-#' @param cl Cluster object for parallel computation
-#' @param chunk_size Processing chunk size
-#' @param num_chunks Number of computational chunks
-#' @param rem_chunks Remaining chunks
-#' @param order_indices Observation ordering indices
-#' @param weights Optional observation weights
-#' @param ... Additional arguments passed to \code{glm.fit}
-#'
-#' @return
-#' Optimized parameter estimates for canonical generalized linear models.
-#'
-#' For fitting non-canonical GLMs, use \code{keep_weighted_Lambda = TRUE} since the
-#' score and hessian equations below are no longer valid.
-#'
-#' For Gamma(link='log') using \code{keep_weighted_Lambda = TRUE} is misleading.
-#' The information is weighted by a constant (shape parameter) rather than some
-#' mean-variance relationship. So \code{keep_weighted_Lambda = TRUE} is highly
-#' recommended for log-link Gamma models. This constant flushes into the
-#' penalty terms, and so the formulation of the information matrix is valid.
-#'
-#' For other scenarios, like probit regression, there will be diagonal weights
-#' incorporated into the penalty matrix for providing initial MLE estimates,
-#' which technically imposes a prior distribution on beta coefficients that
-#' isn't by intent.
-#'
-#' Heuristically, it shouldn't affect much, as these will be updated to their
-#' proper form when providing estimates under constraint; lgspline otherwise
-#' does use the correct form of score and information afterwards,
-#' regardless of canonical/non-canonical status,
-#' as long as 'glm_weight_function' and 'qp_score_function' are properly specified.
-#'
-#'
-#' @keywords internal
-#' @export
-unconstrained_fit_default <- function(X,
-                                      y,
-                                      LambdaHalf,
-                                      Lambda,
-                                      keep_weighted_Lambda,
-                                      family,
-                                      tol,
-                                      K,
-                                      parallel,
-                                      cl,
-                                      chunk_size,
-                                      num_chunks,
-                                      rem_chunks,
-                                      order_indices,
-                                      weights,
-                                      ...){
-
-
-  if(nrow(X) == 0){
-    return(cbind(rep(0, ncol(X))))
-  }
-
-  ## Weight if non-null
-  # Yields first NR updated as
-  # = (X^{T}V^{-1}X + Lambda)^{-1}X^{T}V^{-1}y for V^{-1} = diag(weights)
-  if(any(!is.null(weights))){
-    if(length(weights) == length(y)){
-      weights <- c(weights)
-    } else {
-      weights <- rep(1, length(y))
-    }
-  } else {
-    weights <- rep(1, length(y))
-  }
-
-  ## Ordinary fit using Tikhinov parameterization
-  mod <- try({glm.fit(x = rbind(X, LambdaHalf),
-                      y = cbind(c(y, rep(family$linkinv(0), nrow(LambdaHalf)))),
-                      family = family,
-                      weights = c(weights, rep(mean(weights), nrow(LambdaHalf))),
-                      ...)}, silent = TRUE)
-  if(keep_weighted_Lambda & any(!(inherits(mod, 'try-error')))){
-    return(cbind(mod$coefficients))
-  }
-
-  if(any(inherits(mod, 'try-error'))){
-    init <- c(family$linkfun(mean(y)), rep(0, ncol(X)-1))
-  } else {
-    init <- c(coef(mod))
-  }
-  if(any(is.na(init))){
-    init <- rep(0, length(init))
-  }
-  if(any(!is.finite(init))){
-    init <- rep(0, length(init))
-  }
-
-  ## Remove weights from Tikhinov penalties using damped nr
-  tX <- t(X)
-  res <- cbind(damped_newton_r(
-    ## initial guess
-    init,
-    ## proportional to log-likelihood
-    function(par){
-      -sum(weights*family$dev.resids(
-        y,
-        family$linkinv(c(X %**% cbind(par))),
-        wt = 1))*0.5 -
-        0.5*c(t(par) %**% Lambda %**% cbind(par))
-    },
-    ## score
-    function(par){
-      c(tX %**% (weights*cbind(y - family$linkinv(X %**% cbind(par)))) -
-          Lambda %**% cbind(par))
-    },
-    ## information
-    function(par){
-      tX %**% (weights*c(family$variance(X %**% cbind(par))) * X) +
-        Lambda
-    },
-    tol))
-  return(res)
-}
-
-#' Collapse Matrix List into a Single Block-Diagonal Matrix
-#'
-#' @description
-#' Transforms a list of matrices into a single block-diagonal matrix. This is
-#' useful for quadratic programming problems especially, where the
-#' block-diagonal operations may not be plausible.
-#'
-#' @param matlist List of input matrices
-#'
-#' @return
-#' Block-diagonal matrix combining input matrices
-#'
-#' @keywords internal
-#' @export
-collapse_block_diagonal <- function(matlist){
-  nrows <- sapply(matlist, nrow)
-  ncols <- sapply(matlist, ncol)
-  Reduce('rbind', lapply(1:length(matlist), function(k){
-    mat <- matrix(0,
-                  nrow = nrows[k],
-                  ncol = sum(ncols))
-    mat[,sum(ncols[-c(k:length(nrows))]) +
-          1:ncols[k]] <-
-      matlist[[k]]
-    mat
-  }))
-}
 
 #' Generate Interaction Variable Patterns
 #'
@@ -7532,6 +7756,7 @@ get_interaction_patterns <- function(vars) {
              paste0(vars[3], "x", vars[2], "x", vars[1])))
   }
 }
+
 
 #' BFGS Implementation for REML Parameter Estimation
 #'
@@ -7592,7 +7817,6 @@ get_interaction_patterns <- function(vars) {
 #' @keywords internal
 #' @export
 efficient_bfgs <- function(par, fn, control = list()) {
-  ## Basic control parameters shared from stats::optim
   ctrl <- list(
     maxit = 50,
     abstol = sqrt(.Machine$double.eps),
@@ -7603,7 +7827,6 @@ efficient_bfgs <- function(par, fn, control = list()) {
   )
   ctrl[names(control)] <- control
 
-  ## Setup
   n_params <- length(par)
   x <- par
   Inv <- diag(n_params)
@@ -7612,40 +7835,34 @@ efficient_bfgs <- function(par, fn, control = list()) {
   best_f <- Inf
   best_Inv <- Inv
 
-  ## Objective and gradient both evaluated by fn is key difference here
   result <- fn(c(x))
   if(length(result) != 2) stop("fn must return list of (objective, gradient)")
   f <- result[[1]]
   grad <- result[[2]]
-  ## Use finite-difference automatically if grad is NULL or NA
-  if(is.null(grad) |
-     any(is.na(grad))) grad <- approx_grad(x, fn)
+  if(is.null(grad) | any(is.na(grad))) grad <- approx_grad(x, fn)
   if(length(grad) != n_params) stop("gradient must match parameter length")
 
-  ## Iterate through, running damped BFGS
+  ## [Change 2026-02-12] Replaced %**% with crossprod/tcrossprod
   for(iter in 1:ctrl$maxit) {
     prev_x <- x
     prev_f <- f
     prev_grad <- grad
 
-    p <- -Inv %**% cbind(grad)
+    p <- -crossprod(t(Inv), cbind(grad))
     x_new <- x + damp * p
 
     result <- fn(c(x_new))
     f_new <- result[[1]]
     grad_new <- result[[2]]
-    ## Use finite-difference automatically if grad is NULL or NA
-    if(is.null(grad_new) |
-       any(is.na(grad_new))) grad_new <- approx_grad(x_new, fn)
+    if(is.null(grad_new) | any(is.na(grad_new))) grad_new <-
+      approx_grad(x_new, fn)
 
-    ## Error checking
     if(is.na(f_new) || is.nan(f_new) || !is.finite(f_new)) {
       damp <- damp/2
       if(damp < ctrl$min_damp) break
       next
     }
 
-    ## If new objective is better or less than 3 iterations have occurred
     if(f_new < f || iter <= 2) {
       if(f_new < best_f) {
         best_f <- f_new
@@ -7653,17 +7870,16 @@ efficient_bfgs <- function(par, fn, control = list()) {
         best_Inv <- Inv
       }
 
-      ## Classic BFGS - notation is NOT the same as general lgspline
-      # i.e. y is NOT our response here
       s0 <- cbind(x_new - x)
       y0 <- cbind(grad_new - grad)
       denom <- sum(y0 * s0)
 
       if(abs(denom) > 1e-16) {
         rho0 <- 1/denom
-        term1 <- diag(n_params) - rho0 * (s0 %**% t(y0))
-        term2 <- diag(n_params) - rho0 * (y0 %**% t(s0))
-        Inv <- term1 %**% Inv %**% term2 + rho0 * (s0 %**% t(s0))
+        term1 <- diag(n_params) - rho0 * tcrossprod(s0, y0)
+        term2 <- diag(n_params) - rho0 * tcrossprod(y0, s0)
+        Inv <- crossprod(t(term1), crossprod(t(Inv), term2)) +
+          rho0 * tcrossprod(s0)
       }
 
       x <- x_new
@@ -7676,7 +7892,6 @@ efficient_bfgs <- function(par, fn, control = list()) {
         if(max(abs(x - prev_x)) < ctrl$abstol) break
       }
 
-      ## Otherwise, damp-step and try again
     } else {
       x <- best_x*(1-damp) + x*damp
       f <- best_f*(1-damp) + f*damp
@@ -7685,14 +7900,12 @@ efficient_bfgs <- function(par, fn, control = list()) {
       if(damp < ctrl$min_damp) break
     }
 
-    ## Optional printout
     if(ctrl$trace) {
       cat(sprintf("Iter %d: f = %f, |grad| = %f, damp = %f\n",
                   iter, f, sqrt(sum(grad^2)), damp))
     }
   }
 
-  ## Return output analogoous to stats::optim
   list(
     par = c(best_x),
     value = best_f,
@@ -7750,7 +7963,7 @@ approx_grad <- function(x, fn, eps = sqrt(.Machine$double.eps)) {
   -grad
 }
 
-#' Calculate Matrix Square Root
+#' Calculate Matrix Square Root for Symmetric Matrices
 #'
 #' @param mat A symmetric, positive-definite matrix \eqn{\textbf{M}}
 #'
@@ -7797,12 +8010,22 @@ approx_grad <- function(x, fn, eps = sqrt(.Machine$double.eps)) {
 #'
 #' @export
 matsqrt <- function(mat) {
-  eig <- eigen(mat)
-  sqrtv <- suppressWarnings(suppressMessages(sqrt(eig$values)))
-  eig$vectors %**% (t(eig$vectors) * sqrtv)
+  ## [Change 2026-02-18] use symmetric = TRUE
+  eig <- eigen(mat, symmetric = TRUE)
+  sqrtv <- suppressWarnings(
+    suppressMessages(
+      sqrt(
+        pmax(
+          eig$values, .Machine$double.eps
+          )
+        )
+      )
+    )
+  ## [Change 2026-02-12]: replaced %**% with tcrossprod
+  tcrossprod(eig$vectors * rep(sqrtv, each = nrow(eig$vectors)), eig$vectors)
 }
 
-#' Calculate Matrix Inverse Square Root
+#' Calculate Matrix Inverse Square Root for Symmetric Matrices
 #'
 #' @param mat A symmetric, positive-definite matrix \eqn{\textbf{M}}
 #'
@@ -7863,8 +8086,266 @@ matsqrt <- function(mat) {
 #'
 #' @export
 matinvsqrt <- function(mat) {
-  eig <- eigen(mat)
-  sqrtv <- suppressWarnings(suppressMessages(sqrt(eig$values)))
-  eig$vectors %**% (t(eig$vectors) / sqrtv)
+  ## [Change 2026-02-18] use symmetric = TRUE
+  eig <- eigen(mat, symmetric = TRUE)
+  sqrtv <- suppressWarnings(
+    suppressMessages(
+      sqrt(
+        pmax(
+          eig$values, .Machine$double.eps
+          )
+        )
+      )
+    )
+  ## [Change 2026-02-12]: replaced %**% with tcrossprod
+  tcrossprod(eig$vectors / rep(sqrtv, each = nrow(eig$vectors)), eig$vectors)
 }
 
+## ====================================================================== ##
+## [Change 2026-02-14] Include internal helpers for correlation str fitting
+## ====================================================================== ##
+
+#' Compute Euclidean distance matrix for a cluster block
+#' @keywords internal
+.compute_dist_block <- function(spacetime, inds) {
+  spacetime <- cbind(spacetime)
+  diffs <- outer(spacetime[inds, 1], spacetime[inds, 1],
+                 function(x, y) (x - y)^2)
+  if(ncol(spacetime) > 1){
+    diffs <- diffs + Reduce("+", lapply(
+      2:ncol(spacetime),
+      function(v) outer(spacetime[inds, v], spacetime[inds, v],
+                        function(x, y) (x - y)^2)
+    ))
+  }
+  sqrt(diffs / ncol(spacetime))
+}
+
+#' Compute rank-based distance matrix for AR(1) structures
+#' @keywords internal
+.rank_dists <- function(spacetime, inds) {
+  diffs <- .compute_dist_block(spacetime, inds)
+  block_size <- length(inds)
+  unique_diffs <- unique(as.vector(diffs))
+  matrix(match(diffs, sort(unique_diffs)) - 1, block_size, block_size)
+}
+
+#' Evaluate the REML gradient with respect to a single correlation parameter
+#'
+#' Computes the derivative of the negative REML objective with respect to a
+#' scalar correlation parameter, given the matrix derivative
+#' \eqn{\partial \mathbf{V}/\partial \rho}.
+#'
+#' @details
+#' \subsection{Notation}{
+#' \eqn{\mathbf{D} = \mathrm{diag}(d_1,\ldots,d_N)} is the diagonal matrix of
+#' observation weights (\code{observation_weights}), and
+#' \eqn{\mathbf{W} = \mathrm{diag}(w_1,\ldots,w_N)} is the diagonal matrix of
+#' GLM working weights evaluated at the current fitted values via
+#' \code{glm_weight_function}.  For a GLM with canonical link,
+#' \eqn{w_i = \mathrm{Var}(Y_i \mid \mu_i) \cdot d_i} encodes the curvature
+#' of the log-likelihood with respect to the linear predictor; for example,
+#' for logistic regression \eqn{w_i = \mu_i(1-\mu_i)}.  In Gaussian identity
+#' models both reduce to scalar multiples of the identity.
+#'
+#' \eqn{\mathbf{V}} is the \eqn{N \times N} correlation matrix implied by
+#' \code{VhalfInv}, with
+#' \eqn{\mathbf{V}^{-1} = (\mathbf{V}^{-1/2})^\top \mathbf{V}^{-1/2}}.
+#'
+#' The penalized observed information at the current iterate is
+#' \deqn{\mathbf{M} = (\mathbf{X}^*)^\top
+#'   \mathbf{V}^{-1}\mathbf{W}\mathbf{D}\,\mathbf{X}^*
+#'   + \mathbf{U}^\top\boldsymbol{\Lambda}\mathbf{U},}
+#' where \eqn{\mathbf{X}^* = \mathbf{X}\mathbf{U}} is the constrained design
+#' (\eqn{N \times P}) and the first term is the quadratic approximation to the
+#' penalized log-likelihood Hessian at the current \eqn{\boldsymbol{\mu}}.
+#' For non-Gaussian families this is a local approximation (the IRWLS/Fisher
+#' scoring Hessian), not an exact GLS information matrix.
+#'
+#' The constraint projection is
+#' \eqn{\mathbf{U} = \mathbf{I} -
+#'   \mathbf{G}\mathbf{A}(\mathbf{A}^\top\mathbf{G}\mathbf{A})^{-1}
+#'   \mathbf{A}^\top}
+#' with \eqn{\mathbf{G} = \mathbf{M}^{-1}}.
+#' \eqn{\mathbf{U}} is idempotent (\eqn{\mathbf{U}^2 = \mathbf{U}}) but
+#' \emph{not} symmetric, so
+#' \eqn{\mathbf{U}^\top\boldsymbol{\Lambda}\mathbf{U} \neq
+#'   \mathbf{U}\boldsymbol{\Lambda}\mathbf{U}^\top}.
+#'
+#' The \code{U} stored in \code{model_fit$U} is on the expansion- and
+#' response-standardised scale.  The rescaled version used here is
+#' \deqn{\tilde{\mathbf{U}} =
+#'   \mathbf{U} \cdot \mathrm{diag}(1, s_1, \ldots, s_{p-1},
+#'     1, s_1, \ldots) / \hat{\sigma}_y,}
+#' where \eqn{s_j} are the expansion scales and \eqn{\hat{\sigma}_y}
+#' standardises the response.  All quantities below use
+#' \eqn{\tilde{\mathbf{U}}} in place of \eqn{\mathbf{U}}.
+#' }
+#'
+#' \subsection{REML objective and its gradient}{
+#' The REML objective is constructed by integrating out the fixed effects from
+#' the penalized log-likelihood, using a Laplace approximation to the
+#' marginal likelihood for non-Gaussian families.  This approximation is exact
+#' for Gaussian identity models and is the standard extension used in
+#' restricted maximum likelihood estimation for GLMMs.
+#'
+#' The REML correction term is
+#' \eqn{-\tfrac{1}{2}\log|\mathbf{M}|}, where \eqn{\mathbf{M}} is the
+#' penalized observed information defined above.  Differentiating with respect
+#' to \eqn{\rho} (noting only \eqn{\mathbf{V}} depends on \eqn{\rho})
+#' gives the REML correction gradient
+#' \deqn{-\frac{1}{2}\mathrm{tr}\!\Bigl(
+#'   \mathbf{M}^{-1}
+#'   (\mathbf{X}^*)^\top\mathbf{V}^{-1}
+#'   \frac{\partial\mathbf{V}}{\partial\rho}
+#'   \mathbf{V}^{-1}\mathbf{W}\mathbf{D}\,\mathbf{X}^*
+#'   \Bigr).}
+#' }
+#'
+#' \subsection{Full gradient}{
+#' \deqn{\frac{\partial(-\ell_R)}{\partial\rho}
+#'   = \frac{1}{N}\Biggl[
+#'     \underbrace{
+#'       \frac{1}{2}\mathrm{tr}\!\Bigl(
+#'         \mathbf{V}^{-1}\frac{\partial\mathbf{V}}{\partial\rho}
+#'       \Bigr)
+#'     }_{\text{(i) log-det of }\mathbf{V}}
+#'     \underbrace{
+#'       -\frac{1}{2\tilde{\sigma}^2}
+#'       \mathbf{r}^\top\frac{\partial\mathbf{V}}{\partial\rho}\mathbf{r}
+#'     }_{\text{(ii) residual quadratic form}}
+#'     \underbrace{
+#'       -\frac{1}{2}\mathrm{tr}\!\Bigl(
+#'         \mathbf{M}^{-1}(\mathbf{X}^*)^\top\mathbf{V}^{-1}
+#'         \frac{\partial\mathbf{V}}{\partial\rho}
+#'         \mathbf{V}^{-1}\mathbf{W}\mathbf{D}\,\mathbf{X}^*
+#'       \Bigr)
+#'     }_{\text{(iii) REML correction}}
+#'   \Biggr],}
+#' where the whitened residual is
+#' \deqn{\mathbf{r} =
+#'   \mathbf{V}^{-1/2}\mathbf{D}^{1/2}\mathbf{W}^{-1/2}
+#'   (\mathbf{y} - \boldsymbol{\mu}),}
+#'   and \eqn{r_i =
+#'   [\mathbf{V}^{-1/2}(\mathbf{y}-\boldsymbol{\mu})]_i
+#'   \sqrt{d_i}/\sqrt{w_i}}.
+#'
+#' Term (i) does not involve \eqn{\mathbf{D}} or \eqn{\mathbf{W}}; the
+#' log-determinant of \eqn{\mathbf{V}} depends only on the correlation
+#' structure.  For non-Gaussian families terms (ii) and (iii) are evaluated
+#' at the current IRWLS iterate and constitute a local approximation.
+#' }
+#'
+#' @param dV \eqn{N \times N} numeric matrix giving
+#'   \eqn{\partial\mathbf{V}/\partial\rho} for one scalar parameter
+#'   \eqn{\rho}, with the chain rule through any reparameterization already
+#'   applied.
+#' @param model_fit A fitted \code{lgspline} object; see
+#'   \code{\link{lgspline}}.
+#' @param glm_weight_function The GLM weight function used during model
+#'   fitting; see the \code{glm_weight_function} argument of
+#'   \code{\link{lgspline}}.
+#' @param ... Additional arguments forwarded to \code{glm_weight_function}.
+#' @return A scalar: the gradient of the negative REML objective with respect
+#'   to \eqn{\rho}, divided by \eqn{N}.
+#' @seealso \code{\link{lgspline}}, \code{\link{lgspline.fit}}
+#' @keywords internal
+reml_grad_from_dV <- function(dV, model_fit, glm_weight_function, ...) {
+
+  ## (ii) Residual quadratic form  -0.5 * r' (dV) r / sigma^2
+  #
+  #  r_i = [V^{-1/2} (y - mu)]_i * sqrt(d_i) / sqrt(w_i)
+  #
+  #  rep(1, N) is passed for observation_weights inside glm_weight_function
+  #  to avoid double-counting D; D enters via sqrt(model_fit$weights) instead.
+  #  For logistic: w_i = mu_i(1-mu_i), so r downweights residuals in regions
+  #  of high curvature and upweights by observation weight d_i.
+  glm_wt_inv <- sqrt(c(glm_weight_function(model_fit$ytilde,
+                                           model_fit$y,
+                                           1:model_fit$N,
+                                           model_fit$family,
+                                           model_fit$sigmasq_tilde,
+                                           rep(1, model_fit$N),
+                                           ...))) /
+    sqrt(unlist(model_fit$weights)[model_fit$og_order])
+
+  resid     <- model_fit$y - model_fit$ytilde
+  VinvResid <- model_fit$VhalfInv %**% cbind(resid) / glm_wt_inv
+
+  quad_term <- -0.5 * ((t(VinvResid) %**% dV) %**% VinvResid) /
+    model_fit$sigmasq_tilde
+
+  ## (i) Log-determinant trace  0.5 * tr(V^{-1} dV/dtheta)
+  #
+  #  tr(V^{-1} dV) = sum(VhalfInv * (VhalfInv %*% dV))  element-wise
+  #  no D or W involvement -- log|V| depends only on the correlation structure
+  trace_term <- 0.5 * sum((model_fit$VhalfInv %**% dV) * model_fit$VhalfInv)
+
+  ## (iii) REML correction  -0.5 * tr( M^{-1} (X*)' V^{-1} dV V^{-1} W D X* )
+  #
+  #  Rescale U to match the unstandardised X in model_fit$X:
+  #    U_tilde = U * diag(1, s_1,...,s_{p-1}, 1, s_1,...) / sd_y
+  #
+  #  VhalfInvX = V^{-1/2} X* = V^{-1/2} X U_tilde   (N x P)
+  U <- t(t(model_fit$U) *
+           rep(c(1, model_fit$expansion_scales), model_fit$K + 1)) /
+    model_fit$sd_y
+
+  VhalfInvX <- model_fit$VhalfInv %**%
+    collapse_block_diagonal(model_fit$X)[unlist(model_fit$og_order), ] %**%
+    U
+
+  ## Raw block-diagonal penalty on the standardised scale
+  if (length(model_fit$penalties$L_partition_list) != (model_fit$K + 1)) {
+    model_fit$penalties$L_partition_list <-
+      lapply(1:(model_fit$K + 1), function(k) 0)
+  }
+
+  Lambda_raw <- collapse_block_diagonal(
+    lapply(1:(model_fit$K + 1), function(k)
+      c(1, model_fit$expansion_scales) *
+        (model_fit$penalties$L_partition_list[[k]] +
+           model_fit$penalties$Lambda) %**%
+        diag(c(1, model_fit$expansion_scales)) /
+        model_fit$sd_y^2
+    )
+  )
+
+  ## Penalty projected onto constrained subspace: U' Lambda_raw U
+  #  U is NOT symmetric so  U' L U  !=  U L U'
+  ULambdaU <- t(U) %**% Lambda_raw %**% U
+
+  ## Gram block of M:  (X*)' V^{-1} W D X*
+  #    = VhalfInvX' diag(w_i * d_i) VhalfInvX
+  #
+  #  glm_wt_i = sqrt(w_i * d_i); for logistic sqrt(mu_i(1-mu_i) * d_i).
+  #  Scaling rows of VhalfInvX by glm_wt then taking crossprod gives
+  #  VhalfInvX' diag(w_i d_i) VhalfInvX = (X*)' V^{-1} W D X* exactly.
+  #  rep(1, N) passed again to avoid double-counting D.
+  glm_wt <- sqrt(c(glm_weight_function(model_fit$ytilde,
+                                       model_fit$y,
+                                       1:model_fit$N,
+                                       model_fit$family,
+                                       model_fit$sigmasq_tilde,
+                                       rep(1, model_fit$N),
+                                       ...))) *
+    sqrt(unlist(model_fit$weights)[model_fit$og_order])
+
+  XVinvX_inv <- invert(crossprod(t(t(VhalfInvX) * c(glm_wt))) + ULambdaU)
+
+  ## Trace computation, numerically stabilised by spectral norm of VInvX
+  #
+  #  VInvX    = V^{-1} X* = V^{-1/2} VhalfInvX   (N x P)
+  #  VInvX_sc = VInvX / sc,  sc = ||VInvX||_2
+  #
+  #  tr( M^{-1} VInvX' dV VInvX )
+  #    = sc^2 * sum( diag( (M^{-1} VInvX_sc') (dV VInvX_sc) ) )
+  VInvX <- model_fit$VhalfInv %**% VhalfInvX
+  sc    <- sqrt(norm(VInvX, "2"))
+  VInvX <- VInvX / sc
+
+  dXVinvX     <- (XVinvX_inv %**% t(VInvX)) %**% (dV %**% VInvX)
+  XVinvX_term <- -0.5 * colSums(cbind(c(diag(dXVinvX) * sc))) * sc
+
+  as.numeric(quad_term + trace_term + XVinvX_term) / model_fit$N
+}
