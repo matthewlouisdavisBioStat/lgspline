@@ -17,8 +17,7 @@ generate_posterior_correlation(
   draw_dispersion = TRUE,
   include_posterior_predictive = FALSE,
   num_draws = 1,
-  enforce_constraints = FALSE,
-  max_rejection_draws = 50L,
+  enforce_qp_constraints = TRUE,
   correlation_param_mean = NULL,
   correlation_param_vcov_sc = NULL,
   correlation_VhalfInv_fxn = NULL,
@@ -28,183 +27,153 @@ generate_posterior_correlation(
 )
 }
 \arguments{
-\item{object}{A fitted \code{lgspline} model object that was fit with a
-correlation structure (i.e., \code{VhalfInv_fxn} and
-\code{VhalfInv_params_estimates} are present, or user supplies
-them via the override arguments below).}
+\item{object}{A fitted \code{lgspline} object with a correlation structure
+(i.e., \code{VhalfInv_fxn} and \code{VhalfInv_params_estimates}
+present, or supplied via override arguments).}
 
-\item{new_sigmasq_tilde}{Numeric scalar; dispersion parameter
-\eqn{\tilde{\sigma}^{2}} used for the coefficient posterior.
-Default: \code{object$sigmasq_tilde}. Note that for each
-re-estimation a new dispersion is obtained; this argument
-serves as the starting value / override when
-\code{draw_dispersion = FALSE}.}
+\item{new_sigmasq_tilde}{Numeric; dispersion starting value when
+\code{draw_dispersion = FALSE}. Default \code{object$sigmasq_tilde}.}
 
-\item{new_predictors}{Matrix or \code{NULL}; predictor matrix for
-posterior predictive sampling. Default: in-sample predictors.}
+\item{new_predictors}{Matrix or NULL; predictor matrix for posterior
+predictive sampling. Default uses in-sample predictors.}
 
-\item{theta_1}{Numeric scalar; shape increment for the inverse-gamma
-prior on \eqn{\sigma^{2}}. Default 0.}
+\item{theta_1}{Numeric; shape increment for the inverse-gamma prior.
+Default 0.}
 
-\item{theta_2}{Numeric scalar; rate increment for the inverse-gamma
-prior on \eqn{\sigma^{2}}. Default 0.}
+\item{theta_2}{Numeric; rate increment for the inverse-gamma prior.
+Default 0.}
 
-\item{posterior_predictive_draw}{Function; sampler for posterior
-predictive realisations. Default: \code{rnorm}.}
+\item{posterior_predictive_draw}{Function; sampler for posterior predictive
+realisations. Default \code{rnorm}.}
 
-\item{draw_dispersion}{Logical; if \code{TRUE} (default),
-\eqn{\sigma^{2}} is drawn from its inverse-gamma posterior
-within each re-estimated model.}
+\item{draw_dispersion}{Logical; sample \eqn{\sigma^2} within each
+draw. Default TRUE.}
 
-\item{include_posterior_predictive}{Logical; if \code{TRUE}, posterior
-predictive realisations are generated for each draw.
-Default \code{FALSE}.}
+\item{include_posterior_predictive}{Logical; generate posterior predictive
+draws. Default FALSE.}
 
-\item{num_draws}{Positive integer; number of posterior draws. Each
-draw involves one correlation parameter sample and one
-coefficient re-estimation. Default 1.}
+\item{num_draws}{Positive integer; number of draws (each requires one
+correlation parameter sample and one covariance rebuild).
+Default 1.}
 
-\item{enforce_constraints}{Logical; passed to the coefficient
-posterior sampler within each re-estimated model.
-Default \code{FALSE}.}
+\item{enforce_qp_constraints}{Logical; if TRUE, enforce active QP
+inequality constraints during each coefficient draw via the
+stored elliptical-slice constrained sampler. Default TRUE.}
 
-\item{max_rejection_draws}{Positive integer; passed to the coefficient
-posterior sampler. Default \code{50L}.}
+\item{correlation_param_mean}{Numeric vector or NULL; mean of the
+approximate normal posterior on the working scale. Default:
+\code{object$VhalfInv_params_estimates}. Supplying this allows
+correlation draws for models fit with a fixed (non-optimised)
+correlation structure.}
 
-\item{correlation_param_mean}{Numeric vector or \code{NULL}; mean of
-the approximate normal posterior for the correlation parameters
-on the working (unbounded) scale. Default: point estimates from
-the fitted model (\code{object$VhalfInv_params_estimates}).
-When supplied, overrides the model's stored estimates. This
-allows the user to provide external estimates or to enable
-correlation draws for a model that was fit with a fixed (not
-optimised) correlation structure.}
+\item{correlation_param_vcov_sc}{Matrix or NULL; variance-covariance
+on the working scale. Default:
+\code{object$VhalfInv_params_vcov}. No further scaling is
+applied within this function.}
 
-\item{correlation_param_vcov_sc}{\code{NULL}; when NULL, will default to
-scaling the \code{correlation_param_vcov} by 1/(N-trace(H)).}
+\item{correlation_VhalfInv_fxn}{Function or NULL; maps parameter vector
+to \eqn{\mathbf{V}^{-1/2}}. Default \code{object$VhalfInv_fxn}.}
 
-\item{correlation_VhalfInv_fxn}{Function or \code{NULL}; maps the
-correlation parameter vector to \eqn{\mathbf{V}^{-1/2}}.
-Default: \code{object$VhalfInv_fxn}. Required for
-constructing the correlation matrix from drawn parameters.}
+\item{correlation_Vhalf_fxn}{Function or NULL; maps to
+\eqn{\mathbf{V}^{1/2}}. Not consumed in the current method body
+but resolved for interface consistency and potential future use.}
 
-\item{correlation_Vhalf_fxn}{Function or \code{NULL}; maps the
-correlation parameter vector to \eqn{\mathbf{V}^{1/2}}.
-Default: \code{object$Vhalf_fxn}. When \code{NULL}, the
-inverse of \code{VhalfInv_fxn(par)} is computed internally
-(expensive for large \eqn{N}).}
+\item{include_warnings}{Logical; emit warnings. Default TRUE.}
 
-\item{include_warnings}{Logical; whether to emit warnings.
-Default \code{TRUE}.}
-
-\item{...}{Additional arguments forwarded to downstream functions
-(GLM weight function, dispersion function, posterior
-predictive draw, etc.).}
+\item{...}{Additional arguments forwarded to the GLM weight function,
+dispersion function, and \code{posterior_predictive_draw}.}
 }
 \value{
-When \code{num_draws = 1}, a named list with elements:
+When \code{num_draws = 1}, a named list:
 \describe{
-  \item{post_draw_coefficients}{List of length \eqn{K+1}; each element
-        is a named coefficient vector for one partition on the original
-        scale.}
-  \item{post_draw_sigmasq}{Numeric scalar; the drawn dispersion.}
-  \item{post_pred_draw}{Numeric vector; posterior predictive
-        realisations (only when
+  \item{post_draw_coefficients}{List of length K+1; per-partition
+        coefficient vectors on the original scale.}
+  \item{post_draw_sigmasq}{Drawn dispersion.}
+  \item{post_pred_draw}{Posterior predictive vector (only when
         \code{include_posterior_predictive = TRUE}).}
-  \item{post_draw_correlation_params}{Numeric vector; the drawn
-        correlation parameters on the working scale.}
+  \item{post_draw_correlation_params}{Drawn correlation parameters
+        on the working scale.}
 }
 When \code{num_draws > 1}:
 \describe{
-  \item{post_draw_coefficients}{List of \code{num_draws} lists, each
-        containing \eqn{K+1} coefficient vectors.}
-  \item{post_draw_sigmasq}{List of \code{num_draws} numeric scalars.}
-  \item{post_pred_draw}{\eqn{N_{\mathrm{new}} \times \code{num_draws}}
-        matrix (only when \code{include_posterior_predictive = TRUE}).}
-  \item{post_draw_correlation_params}{List of \code{num_draws} numeric
-        vectors.}
+  \item{post_draw_coefficients}{List of \code{num_draws} lists of K+1
+        coefficient vectors.}
+  \item{post_draw_sigmasq}{List of \code{num_draws} scalars.}
+  \item{post_pred_draw}{\eqn{N_{\mathrm{new}} \times M} matrix, where
+        \eqn{M = \mathrm{num\_draws}} (only when
+        \code{include_posterior_predictive = TRUE}).}
+  \item{post_draw_correlation_params}{List of \code{num_draws} vectors.}
 }
 }
 \description{
-Performs a full Bayesian routine that accounts for uncertainty in
-correlation structure parameters. For each Monte Carlo draw, the
-correlation parameter vector is sampled from its approximate normal
-posterior, the coefficient estimates are recomputed with the drawn
-correlation held fixed (reusing all pre-computed design matrices,
-constraints, and penalties from the original fit), and then a single
-coefficient (and optionally posterior predictive) draw is obtained.
+Called internally by \code{\link{generate_posterior}} when
+\code{draw_correlation = TRUE}, but can be used directly for finer control.
+For each draw, samples the correlation parameter vector from its approximate
+normal posterior, rebuilds the posterior covariance under that drawn
+correlation structure without re-solving for a new coefficient mode, then
+draws coefficients from the updated posterior.
 }
 \details{
-This function is called internally by \code{\link{generate_posterior}}
-when \code{draw_correlation = TRUE}, but can also be used directly for
-finer control over the correlation sampling step.
-
-
-The algorithm proceeds as follows for each of the \code{num_draws}
-iterations:
-
+Each draw proceeds in three steps:
 \enumerate{
   \item \strong{Draw correlation parameters.}
     \eqn{\boldsymbol{\rho}^{(m)} \sim
-    \mathcal{N}(\hat{\boldsymbol{\rho}},\,
-    \mathbf{H}^{-1}_{\mathrm{BFGS}})} on the unbounded working
-    scale. If the draw produces a non-positive-definite correlation
-    matrix (i.e., \code{VhalfInv_fxn} fails), the draw is rejected
-    and redrawn up to 50 times. If all attempts fail, the point
-    estimate is used with a warning.
+    \mathcal{N}(\hat{\boldsymbol{\rho}}_{\mathrm{REML}},
+              \mathbf{H}^{-1}_{\mathrm{BFGS}})}
+    on the unbounded working scale. Draws producing a non-PD correlation
+    matrix are rejected and redrawn (up to 50 attempts); if all fail, the
+    point estimate is used with a warning.
 
-  \item \strong{Re-estimate coefficients.}
-    Using the already-expanded design matrices
-    \eqn{\mathbf{X}_k}, constraint matrix \eqn{\mathbf{A}}, and
-    tuned penalty matrices \eqn{\boldsymbol{\Lambda}} from the
-    original fit, recompute the whitened Gram matrices with the
-    drawn \eqn{\mathbf{V}^{-1/2}(\boldsymbol{\rho}^{(m)})}, solve
-    for new MAP coefficients via constrained GLS, and update the
-    post-fit inference quantities (\eqn{\mathbf{G}},
-    \eqn{\mathbf{U}}, trace, dispersion, variance-covariance).
-    This avoids repeating knot placement, partitioning, polynomial
-    expansion, or penalty tuning. Specifically, the whitened
-    penalised Gram matrix is formed as
-
+  \item \strong{Rebuild posterior covariance.}
+    Using the already-expanded \eqn{\mathbf{X}_k}, \eqn{\mathbf{A}}, and
+    \eqn{\boldsymbol{\Lambda}} from the original fit, recompute only the
+    covariance-side quantities implied by the drawn correlation structure:
     \deqn{
-      \mathbf{X}^{\top}\mathbf{V}^{-1}(\boldsymbol{\rho}^{(m)})
-      \mathbf{X} + \boldsymbol{\Lambda},
+      \mathbf{G}_{\mathrm{correct}}^{(m)} =
+      \left(\mathbf{X}^{\top} \mathbf{W}\mathbf{D}
+      \mathbf{V}^{-1}(\boldsymbol{\rho}^{(m)}) \mathbf{X}
+      + \boldsymbol{\Lambda}\right)^{-1},
     }
+    and from this the updated constraint projection
+    \eqn{\mathbf{U}^{(m)}} and effective degrees of freedom
+    \eqn{\mathrm{trace}(\mathbf{H}^{(m)})}.
 
-    the corrected covariance is
-    \eqn{\mathbf{G}_{\mathrm{correct}} =
-    (\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X} +
-    \boldsymbol{\Lambda})^{-1}},
-    and the constraint projection is
-    \eqn{\mathbf{U} = \mathbf{I} - \mathbf{G}_{\mathrm{correct}}
-    \mathbf{A}
-    (\mathbf{A}^{\top}\mathbf{G}_{\mathrm{correct}}\mathbf{A})^{-1}
-    \mathbf{A}^{\top}}.
+    The coefficient mode \eqn{\hat{\boldsymbol{\beta}}_{\mathrm{raw}}}
+    and fitted mean \eqn{\tilde{\mathbf{y}}} are held fixed at the
+    original fit values. Knot placement, partitioning, polynomial
+    expansion, penalty tuning, and coefficient re-estimation are all
+    skipped entirely.
 
   \item \strong{Draw coefficients.}
-    From the re-estimated model, draw a single set of coefficients
-    (and optionally dispersion and posterior predictive values)
-    using the standard \code{generate_posterior} machinery with
-    \code{draw_correlation = FALSE}.
+    Updated quantities (\code{U}, \code{Ghalf_correct}, \code{VhalfInv},
+    \code{sigmasq_tilde}, \code{trace_XUGX}) are passed to the stored
+    closure via \code{override_*} arguments so that the draw is centred
+    at the original mode but uses the covariance implied by the drawn
+    correlation structure. The stored mode \code{object$B_raw} is passed
+    as \code{override_B_raw} so it is not recomputed.
 }
 
-\strong{Normal approximation quality.}
-The normal approximation for \eqn{\boldsymbol{\rho}} is based on
-the BFGS inverse Hessian at the REML optimum. This is sometimes
-asymptotically valid but may be poor for small samples, near
-boundary estimates (e.g., correlation near 0 or 1), or when the
-REML surface is multimodal. The BFGS hessian is not gauranteed to converge to
-true Hessian and thus, the true observed information. Users should inspect
-\code{VhalfInv_params_vcov} and consider whether the
-approximation is reasonable for their application.
+\strong{Why the mode is held fixed.}
+Re-solving for a new MAP estimate under each drawn correlation structure
+is expensive, requires iterative solvers, and risks convergence failures
+on draws far from the REML estimate. The posterior draw is centred at the
+original mode, which remains a reasonable approximation when the REML
+surface is not sharply peaked. The covariance update captures the primary
+effect of correlation uncertainty on posterior width and shape.
+
+\strong{BFGS inverse Hessian caveat.}
+The BFGS inverse Hessian approximation for the correlation parameter
+covariance is asymptotically valid but may be poor for small samples,
+near-boundary estimates, or multimodal REML surfaces. It is not guaranteed
+to converge to the observed information matrix. Users should inspect
+\code{object$VhalfInv_params_vcov} before relying on these draws.
 }
 \examples{
-## See ?generate_posterior for a complete example with
-## draw_correlation = TRUE, which calls this function internally.
+## See ?generate_posterior for a complete worked example.
 
 }
 \seealso{
-\code{\link{generate_posterior}} for the unified interface,
-\code{\link{lgspline}} for model fitting,
-\code{\link{lgspline.fit}} for the low-level fitting interface
+\code{\link{generate_posterior}},
+\code{\link{lgspline}},
+\code{\link{lgspline.fit}}
 }

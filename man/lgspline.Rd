@@ -4,304 +4,584 @@
 \alias{lgspline}
 \title{Fit Lagrangian Multiplier Smoothing Splines}
 \usage{
-lgspline(predictors = NULL, y = NULL, formula = NULL, response = NULL,
-                standardize_response = TRUE, standardize_predictors_for_knots = TRUE,
-                standardize_expansions_for_fitting = TRUE, family = gaussian(),
-                glm_weight_function = function(mu, y, order_indices, family, dispersion,
-                                               observation_weights, ...) {
-                  if(any(!is.null(observation_weights))){
-                    family$variance(mu) * observation_weights
-                  } else {
-                    family$variance(mu)
-                  }
-                }, schur_correction_function = function(X, y, B, dispersion, order_list, K,
-                                                       family, observation_weights, ...) {
-                  lapply(1:(K+1), function(k) 0)
-                }, need_dispersion_for_estimation = FALSE,
-                dispersion_function = function(mu, y, order_indices, family,
-                                               observation_weights, VhalfInv,
-                                               ...) { 1 },
-                K = NULL, custom_knots = NULL, cluster_on_indicators = FALSE,
-                make_partition_list = NULL, previously_tuned_penalties = NULL,
-                smoothing_spline_penalty = NULL, opt = TRUE, use_custom_bfgs = TRUE,
-                delta = NULL, tol = 10*sqrt(.Machine$double.eps),
-                initial_wiggle = exp(c(-25, -14, -3, -0.2, 1)),
-                initial_flat = c(0.1, 10), wiggle_penalty = 2e-07,
-                flat_ridge_penalty = 0.5, unique_penalty_per_partition = TRUE,
-                unique_penalty_per_predictor = TRUE, meta_penalty = 1e-08,
-                predictor_penalties = NULL, partition_penalties = NULL,
-                include_quadratic_terms = TRUE, include_cubic_terms = TRUE,
-                include_quartic_terms = NULL, include_2way_interactions = TRUE,
-                include_3way_interactions = TRUE, include_quadratic_interactions = FALSE,
-                offset = c(), just_linear_with_interactions = NULL,
-                just_linear_without_interactions = NULL, exclude_interactions_for = NULL,
-                exclude_these_expansions = NULL, custom_basis_fxn = NULL,
-                include_constrain_fitted = TRUE, include_constrain_first_deriv = TRUE,
-                include_constrain_second_deriv = TRUE,
-                include_constrain_interactions = TRUE, cl = NULL, chunk_size = NULL,
-                parallel_eigen = TRUE, parallel_trace = FALSE, parallel_aga = FALSE,
-                parallel_matmult = FALSE, parallel_unconstrained = TRUE,
-                parallel_find_neighbors = FALSE, parallel_penalty = FALSE,
-                parallel_make_constraint = FALSE,
-                unconstrained_fit_fxn = unconstrained_fit_default,
-                keep_weighted_Lambda = FALSE, iterate_tune = TRUE,
-                iterate_final_fit = TRUE, blockfit = FALSE,
-                qp_score_function = function(X, y, mu, order_list, dispersion,
-                                             VhalfInv, observation_weights, ...) {
-                  if(!is.null(observation_weights)) {
-                    crossprod(X, cbind((y - mu)*observation_weights))
-                  } else {
-                    crossprod(X, cbind(y - mu))
-                  }
-                }, qp_observations = NULL, qp_Amat = NULL, qp_bvec = NULL, qp_meq = 0,
-                qp_positive_derivative = FALSE, qp_negative_derivative = FALSE,
-                qp_positive_2ndderivative = FALSE, qp_negative_2ndderivative = FALSE,
-                qp_monotonic_increase = FALSE, qp_monotonic_decrease = FALSE,
-                qp_range_upper = NULL, qp_range_lower = NULL, qp_Amat_fxn = NULL,
-                qp_bvec_fxn = NULL, qp_meq_fxn = NULL, constraint_values = cbind(),
-                constraint_vectors = cbind(), return_G = TRUE, return_Ghalf = TRUE,
-                return_U = TRUE, estimate_dispersion = TRUE, unbias_dispersion = NULL,
-                return_varcovmat = TRUE, return_lagrange_multipliers = FALSE,
-                custom_penalty_mat = NULL,
-                cluster_args = c(custom_centers = NA, nstart = 10),
-                dummy_dividor = 1.2345672152894e-22,
-                dummy_adder = 2.234567210529e-18,
-                verbose = FALSE, verbose_tune = FALSE,
-                dummy_fit = FALSE, auto_encode_factors = TRUE,
-                observation_weights = NULL, do_not_cluster_on_these = c(),
-                neighbor_tolerance = 1 + 1e-08, null_constraint = NULL,
-                critical_value = qnorm(1 - 0.05/2), data = NULL, weights = NULL,
-                no_intercept = FALSE, correlation_id = NULL, spacetime = NULL,
-                correlation_structure = NULL, VhalfInv = NULL, Vhalf = NULL,
-                VhalfInv_fxn = NULL, Vhalf_fxn = NULL, VhalfInv_par_init = c(),
-                REML_grad = NULL, custom_VhalfInv_loss = NULL, VhalfInv_logdet = NULL,
-                include_warnings = TRUE, ...)
+lgspline(
+  predictors = NULL,
+  y = NULL,
+  formula = NULL,
+  response = NULL,
+  standardize_response = TRUE,
+  standardize_predictors_for_knots = TRUE,
+  standardize_expansions_for_fitting = TRUE,
+  family = gaussian(),
+  glm_weight_function = function(mu, y, order_indices, family, dispersion,
+    observation_weights, ...) {
+     if (any(!is.null(observation_weights))) {
+        
+    family$variance(mu) * observation_weights
+     }
+     else {
+        
+    family$variance(mu)
+     }
+ },
+  schur_correction_function = function(X, y, B, dispersion, order_list, K, family,
+    observation_weights, ...) {
+     lapply(1:(K + 1), function(k) 0)
+ },
+  need_dispersion_for_estimation = FALSE,
+  dispersion_function = function(mu, y, order_indices, family, observation_weights,
+    VhalfInv, ...) {
+     if (!is.null(VhalfInv)) {
+         VhalfInv <-
+    VhalfInv[order_indices, order_indices]
+         c(mean((tcrossprod(VhalfInv, t(y -
+    mu)))^2/family$variance(mu)))
+     }
+     else {
+         c(mean((y -
+    mu)^2/family$variance(mu)))
+     }
+ },
+  K = NULL,
+  custom_knots = NULL,
+  cluster_on_indicators = FALSE,
+  make_partition_list = NULL,
+  previously_tuned_penalties = NULL,
+  smoothing_spline_penalty = NULL,
+  opt = TRUE,
+  use_custom_bfgs = TRUE,
+  delta = NULL,
+  tol = 10 * sqrt(.Machine$double.eps),
+  initial_wiggle = c(1e-10, 1e-05, 0.1),
+  initial_flat = c(0.1, 10),
+  wiggle_penalty = 2e-07,
+  flat_ridge_penalty = 0.5,
+  unique_penalty_per_partition = TRUE,
+  unique_penalty_per_predictor = TRUE,
+  meta_penalty = 1e-08,
+  predictor_penalties = NULL,
+  partition_penalties = NULL,
+  include_quadratic_terms = TRUE,
+  include_cubic_terms = TRUE,
+  include_quartic_terms = NULL,
+  include_2way_interactions = TRUE,
+  include_3way_interactions = TRUE,
+  include_quadratic_interactions = FALSE,
+  offset = c(),
+  just_linear_with_interactions = NULL,
+  just_linear_without_interactions = NULL,
+  exclude_interactions_for = NULL,
+  exclude_these_expansions = NULL,
+  custom_basis_fxn = NULL,
+  include_constrain_fitted = TRUE,
+  include_constrain_first_deriv = TRUE,
+  include_constrain_second_deriv = TRUE,
+  include_constrain_interactions = TRUE,
+  cl = NULL,
+  chunk_size = NULL,
+  parallel_eigen = TRUE,
+  parallel_trace = FALSE,
+  parallel_aga = FALSE,
+  parallel_matmult = FALSE,
+  parallel_unconstrained = TRUE,
+  parallel_find_neighbors = FALSE,
+  parallel_penalty = FALSE,
+  parallel_make_constraint = FALSE,
+  unconstrained_fit_fxn = unconstrained_fit_default,
+  keep_weighted_Lambda = FALSE,
+  iterate_tune = TRUE,
+  iterate_final_fit = TRUE,
+  blockfit = TRUE,
+  qp_score_function = function(X, y, mu, order_list, dispersion, VhalfInv,
+    observation_weights, ...) {
+     if (!is.null(observation_weights)) {
+        
+    crossprod(X, cbind((y - mu) * observation_weights))
+     }
+     else {
+        
+    crossprod(X, cbind(y - mu))
+     }
+ },
+  qp_observations = NULL,
+  qp_Amat = NULL,
+  qp_bvec = NULL,
+  qp_meq = 0,
+  qp_positive_derivative = FALSE,
+  qp_negative_derivative = FALSE,
+  qp_positive_2ndderivative = FALSE,
+  qp_negative_2ndderivative = FALSE,
+  qp_monotonic_increase = FALSE,
+  qp_monotonic_decrease = FALSE,
+  qp_range_upper = NULL,
+  qp_range_lower = NULL,
+  qp_Amat_fxn = NULL,
+  qp_bvec_fxn = NULL,
+  qp_meq_fxn = NULL,
+  constraint_values = cbind(),
+  constraint_vectors = cbind(),
+  return_G = TRUE,
+  return_Ghalf = TRUE,
+  return_U = TRUE,
+  estimate_dispersion = TRUE,
+  unbias_dispersion = NULL,
+  return_varcovmat = TRUE,
+  exact_varcovmat = FALSE,
+  return_lagrange_multipliers = FALSE,
+  custom_penalty_mat = NULL,
+  cluster_args = c(custom_centers = NA, nstart = 10),
+  dummy_dividor = 1.2345672152894e-22,
+  dummy_adder = 2.234567210529e-18,
+  verbose = FALSE,
+  verbose_tune = FALSE,
+  dummy_fit = FALSE,
+  auto_encode_factors = TRUE,
+  observation_weights = NULL,
+  do_not_cluster_on_these = c(),
+  neighbor_tolerance = 1 + 1e-08,
+  null_constraint = NULL,
+  critical_value = qnorm(1 - 0.05/2),
+  data = NULL,
+  weights = NULL,
+  no_intercept = FALSE,
+  correlation_id = NULL,
+  spacetime = NULL,
+  correlation_structure = NULL,
+  VhalfInv = NULL,
+  Vhalf = NULL,
+  VhalfInv_fxn = NULL,
+  Vhalf_fxn = NULL,
+  VhalfInv_par_init = c(),
+  REML_grad = NULL,
+  custom_VhalfInv_loss = NULL,
+  VhalfInv_logdet = NULL,
+  include_warnings = TRUE,
+  penalty_args = NULL,
+  tuning_args = NULL,
+  expansion_args = NULL,
+  constraint_args = NULL,
+  qp_args = NULL,
+  parallel_args = NULL,
+  covariance_args = NULL,
+  return_args = NULL,
+  glm_args = NULL,
+  ...
+)
 }
 \arguments{
-\item{predictors}{Default: NULL. Numeric matrix or data frame of predictor variables. Supports direct matrix input or formula interface when used with \code{data} argument. Must contain numeric predictors, with categorical variables pre-converted to numeric indicators (or set \code{auto_encode_factors = TRUE} to encode them automatically when using the formula interface).}
+\item{predictors}{Default: NULL. Numeric matrix or data frame of predictor
+variables, or a formula when using the formula interface.}
 
-\item{y}{Default: NULL. Numeric response variable vector representing the target/outcome/dependent variable etc. to be modeled.}
+\item{y}{Default: NULL. Numeric response variable vector.}
 
-\item{formula}{Default: NULL. Optional statistical formula for model specification, serving as an alternative to direct matrix input. Supports standard R formula syntax with special \code{spl()} function for defining spline terms.}
+\item{formula}{Default: NULL. Optional statistical formula for model specification,
+supporting \code{spl()} (and the alias \code{s()}) for spline terms.}
 
-\item{response}{Default: NULL. Alternative name for response variable, providing compatibility with different naming conventions. Takes precedence only if \code{y} is not supplied.}
+\item{response}{Default: NULL. Alternative name for response variable.}
 
-\item{standardize_response}{Default: TRUE. Logical indicator controlling whether the response variable should be centered by mean and scaled by standard deviation before model fitting. When TRUE, tends to improve numerical stability. Only offered for identity link functions (when \code{family$link == 'identity'}).}
+\item{standardize_response}{Default: TRUE. Logical indicator controlling whether
+the response variable should be centered and scaled before model fitting. Only
+offered for identity link functions.}
 
-\item{standardize_predictors_for_knots}{Default: TRUE. Logical flag determining whether predictor variables should be standardized before knot placement. Ensures consistent knot selection across different predictor scales, and that no one predictor dominates in terms of influence on knot placement. For all expansions (x), standardization corresponds to dividing by the difference in 69th and 31st percentiles = x / (quantile(x, 0.69) - quantile(x, 0.31)).}
+\item{standardize_predictors_for_knots}{Default: TRUE. Logical flag controlling
+whether predictors are internally standardized for partitioning / knot
+placement. The exact transformation is handled inside
+\code{\link{make_partitions}} and depends on the effective clustering
+dimension.}
 
-\item{standardize_expansions_for_fitting}{Default: TRUE. Logical switch to standardize polynomial basis expansions during model fitting. Provides computational stability during penalty tuning without affecting statistical inference, as design matrices, variance-covariance matrices, and coefficient estimates are systematically backtransformed after fitting to account for the standardization. If TRUE, \eqn{\mathbf{U}} and \eqn{\mathbf{G}} will remain on the transformed scale, and \code{B_raw} as returned will correspond to the coefficients fitted on the expansion-standardized scale.}
+\item{standardize_expansions_for_fitting}{Default: TRUE. Logical switch to
+standardize polynomial basis expansions during model fitting. Design matrices,
+variance-covariance matrices, and coefficients are backtransformed after fitting.
+\eqn{\mathbf{U}} and \eqn{\mathbf{G}} remain on the transformed scale;
+\code{B_raw} corresponds to coefficients on the expansion-standardized scale.}
 
-\item{family}{Default: \code{gaussian()}. Generalized linear model (GLM) distribution family specifying the error distribution and link function for model fitting. Defaults to Gaussian distribution with identity link. Supports custom family specifications, including user-defined link functions and optional custom tuning loss criteria. Minimally requires 1) family name (family) 2) link name (link) 3) linkfun (link function) 4) linkinv (link function inverse) 5) variance (mean variance relationship function, \eqn{\mathrm{Var}(Y|\mu)}).}
+\item{family}{Default: \code{gaussian()}. GLM family specifying the error distribution
+and link function. Minimally requires: family name, link name, linkfun, linkinv,
+variance.}
 
-\item{glm_weight_function}{Default: function that returns \code{family$variance(mu) * observation_weights} if weights exist, \code{family$variance(mu)} otherwise. Codes the mean-variance relationship of a GLM or GLM-like model, the diagonal \eqn{\mathbf{W}} matrix of \eqn{\mathbf{X}^{\top}\mathbf{W}\mathbf{X}} that appears in the information. This can be replaced with a user-specified function. It is used for updating \eqn{\mathbf{G} = (\mathbf{X}^{\top}\mathbf{W}\mathbf{X} + \boldsymbol{\Lambda})^{-1}} after obtaining constrained estimates of coefficients. This is not used for fitting unconstrained models, but for iterating between updates of \eqn{\mathbf{U}}, \eqn{\mathbf{G}}, and beta coefficients afterwards.}
+\item{glm_weight_function}{Default: function returning \code{family$variance(mu)},
+optionally multiplied by \code{observation_weights}. Codes the mean-variance
+relationship (the diagonal \eqn{\mathbf{W}} matrix) used for updating
+\eqn{\mathbf{G}} after obtaining constrained estimates.}
 
-\item{schur_correction_function}{Default: function that returns list of zeros. Advanced function for computing Schur complements \eqn{\mathbf{S}} to add to \eqn{\mathbf{G}} to properly account for uncertainty in dispersion or other nuisance parameter estimation. The effective information becomes \eqn{\mathbf{G}^{*} = (\mathbf{G}^{-1} + \mathbf{S})^{-1}}. The incorrect spelling using "shur" is from a previous version (< 1.0), and will return a warning, and ignored.}
+\item{schur_correction_function}{Default: function returning list of zeros.
+Computes Schur complements \eqn{\mathbf{S}} added to \eqn{\mathbf{G}}:
+\eqn{\mathbf{G}^{*} = (\mathbf{G}^{-1} + \mathbf{S})^{-1}}.}
 
-\item{need_dispersion_for_estimation}{Default: FALSE. Logical indicator specifying whether a dispersion parameter is required for coefficient estimation. This is not needed for canonical regular exponential family models, but is often needed otherwise (such as fitting Weibull AFT models).}
+\item{need_dispersion_for_estimation}{Default: FALSE. Logical indicator specifying
+whether a dispersion parameter is required for coefficient estimation (e.g.
+Weibull AFT).}
 
-\item{dispersion_function}{Default: function that returns 1. Custom function for estimating the dispersion parameter. Unless \code{need_dispersion_for_estimation} is TRUE, this will not affect coefficient estimates.}
+\item{dispersion_function}{Default: function returning mean squared residuals.
+Custom function for estimating the exponential dispersion parameter.}
 
-\item{K}{Default: NULL. Integer specifying the number of knot locations for spline partitions. This can intuitively be considered the total number of partitions minus 1.}
+\item{K}{Default: NULL. Integer specifying the number of knot locations. Intuitively,
+total partitions minus 1.}
 
-\item{custom_knots}{Default: NULL. Optional matrix providing user-specified knot locations in 1-D.}
+\item{custom_knots}{Default: NULL. Optional matrix providing user-specified knot
+locations in 1-D.}
 
-\item{cluster_on_indicators}{Default: FALSE. Logical flag determining whether indicator variables should be used for clustering knot locations.}
+\item{cluster_on_indicators}{Default: FALSE. Logical flag for whether indicator
+variables should be used for clustering knot locations.}
 
-\item{make_partition_list}{Default: NULL. Optional list allowing direct specification of custom partition assignments. The intent is that the \code{make_partition_list} returned by one model can be supplied here to keep the same knot locations for another.}
+\item{make_partition_list}{Default: NULL. Optional list allowing direct specification
+of custom partition assignments. The \code{make_partition_list} returned by one
+model can be supplied here to reuse knot locations.}
 
-\item{previously_tuned_penalties}{Default: NULL. Optional list of pre-computed penalty components from previous model fits.}
+\item{previously_tuned_penalties}{Default: NULL. Optional list of pre-computed penalty
+components from a previous model fit.}
 
-\item{smoothing_spline_penalty}{Default: NULL. Optional custom smoothing spline penalty matrix for fine-tuned complexity control.}
+\item{smoothing_spline_penalty}{Default: NULL. Optional custom smoothing spline penalty
+matrix.}
 
-\item{opt}{Default: TRUE. Logical switch controlling whether model penalties should be automatically optimized via generalized cross-validation. Turn this off if \code{previously_tuned_penalties} are supplied AND desired, otherwise, the \code{previously_tuned_penalties} will be ignored.}
+\item{opt}{Default: TRUE. Logical switch controlling automatic penalty optimization via
+generalized cross-validation.}
 
-\item{use_custom_bfgs}{Default: TRUE. Logical indicator selecting between a native implementation of damped-BFGS optimization method with closed-form gradients or base R's BFGS implementation with finite-difference approximation of gradients. The custom implementation is more efficient when gradients are available, since function output and gradients are returned simultaneously, instead of separately, effectively cutting the number of large matrix operations in half.}
+\item{use_custom_bfgs}{Default: TRUE. Selects between a native damped-BFGS
+implementation with closed-form gradients or base R's BFGS with finite-difference
+gradients.}
 
-\item{delta}{Default: NULL. Numeric pseudocount used for stabilizing optimization in non-identity link function scenarios.}
+\item{delta}{Default: NULL. Numeric pseudocount for stabilizing optimization in
+non-identity link function scenarios.}
 
-\item{tol}{Default: \code{10*sqrt(.Machine$double.eps)}. Numeric convergence tolerance controlling the precision of optimization algorithms.}
+\item{tol}{Default: \code{10*sqrt(.Machine$double.eps)}. Numeric convergence tolerance.}
 
-\item{initial_wiggle}{Default: \code{exp(c(-25, -14, -3, -0.2, 1))}. Numeric vector of initial grid points for wiggle penalty optimization, specified on the raw (non-negative) scale. Conversion to log scale for the internal optimizer is handled automatically.}
+\item{initial_wiggle}{Default: \code{c(1e-10, 1e-5, 1e-1)}. Numeric vector of
+initial grid points for wiggle penalty optimization, on the raw (non-negative) scale.}
 
-\item{initial_flat}{Default: \code{c(0.1, 10)}. Numeric vector of initial grid points for ridge penalty optimization, specified on the raw scale; multiply by wiggle penalty to get the total ridge penalty (this parameter is a ratio of ridge to wiggle).}
+\item{initial_flat}{Default: \code{c(0.1, 10)}. Numeric vector of initial grid points
+for ridge penalty optimization, on the raw scale (ratio of ridge to wiggle).}
 
-\item{wiggle_penalty}{Default: 2e-7. Numeric penalty controlling the integrated squared second derivative, governing function smoothness. Applied to both smoothing spline penalty (alone) and is multiplied by \code{flat_ridge_penalty} for penalizing linear terms.}
+\item{wiggle_penalty}{Default: 2e-7. Numeric penalty on the integrated squared second
+derivative, governing function smoothness.}
 
-\item{flat_ridge_penalty}{Default: 0.5. Numeric flat ridge penalty for additional regularization on only intercepts and linear terms (will not affect interactions or quadratic/cubic/quartic terms by default). If \code{custom_penalty_mat} is supplied, the penalty will be for the custom penalty matrix instead. This penalty is multiplied with \code{wiggle_penalty} to obtain the total ridge penalty — hence, by default, the ridge penalization on linear terms is half of the magnitude of non-linear terms.}
+\item{flat_ridge_penalty}{Default: 0.5. Numeric flat ridge penalty for intercepts and
+linear terms only. Multiplied by \code{wiggle_penalty} to obtain total ridge penalty.}
 
-\item{unique_penalty_per_partition}{Default: TRUE. Logical flag allowing the magnitude of the smoothing spline penalty to differ across partitions.}
+\item{unique_penalty_per_partition}{Default: TRUE. Logical flag allowing penalty
+magnitude to differ across partitions.}
 
-\item{unique_penalty_per_predictor}{Default: TRUE. Logical flag allowing the magnitude of the smoothing spline penalty to differ between predictors.}
+\item{unique_penalty_per_predictor}{Default: TRUE. Logical flag allowing penalty
+magnitude to differ between predictors.}
 
-\item{meta_penalty}{Default: 1e-8. Numeric "meta-penalty" applied to predictor and partition penalties during tuning. The minimization of GCV is modified to be a penalized minimization problem, with penalty \eqn{0.5 \times \mathrm{meta\_penalty} \times (\sum \log(\mathrm{penalty}))^{2}}, such that penalties are pulled towards 1 on the absolute scale and thus, no multiplicative effect.}
+\item{meta_penalty}{Default: 1e-8. Numeric regularization coefficient for
+predictor- and partition-specific penalties during tuning. On the raw scale,
+the implemented meta-penalty shrinks these penalty multipliers toward 1; the
+wiggle penalty receives only a tiny stabilizing penalty by default.}
 
-\item{predictor_penalties}{Default: NULL. Optional vector of custom penalties specified per predictor, on the raw (positive) scale.}
+\item{predictor_penalties}{Default: NULL. Optional vector of custom penalties per
+predictor, on the raw (positive) scale.}
 
-\item{partition_penalties}{Default: NULL. Optional vector of custom penalties specified per partition, on the raw (positive) scale.}
+\item{partition_penalties}{Default: NULL. Optional vector of custom penalties per
+partition, on the raw (positive) scale.}
 
-\item{include_quadratic_terms}{Default: TRUE. Logical switch to include squared predictor terms in basis expansions.}
+\item{include_quadratic_terms}{Default: TRUE. Logical switch to include squared
+predictor terms.}
 
-\item{include_cubic_terms}{Default: TRUE. Logical switch to include cubic predictor terms in basis expansions.}
+\item{include_cubic_terms}{Default: TRUE. Logical switch to include cubic predictor
+terms.}
 
-\item{include_quartic_terms}{Default: NULL. Logical switch to include quartic predictor terms in basis expansions. This is highly recommended for fitting models with multiple predictors to avoid over-specified constraints. When NULL (by default), will internally set to FALSE if only one predictor is present, and TRUE otherwise.}
+\item{include_quartic_terms}{Default: NULL. Includes quartic terms; when NULL, set to
+FALSE for single predictor and TRUE otherwise. Highly recommended for multi-predictor
+models to avoid over-specified constraints.}
 
-\item{include_2way_interactions}{Default: TRUE. Logical switch to include linear two-way interactions between predictors.}
+\item{include_2way_interactions}{Default: TRUE. Logical switch for linear two-way
+interactions.}
 
-\item{include_3way_interactions}{Default: TRUE. Logical switch to include three-way interactions between predictors.}
+\item{include_3way_interactions}{Default: TRUE. Logical switch for three-way
+interactions.}
 
-\item{include_quadratic_interactions}{Default: FALSE. Logical switch to include linear-quadratic interaction terms.}
+\item{include_quadratic_interactions}{Default: FALSE. Logical switch for
+linear-quadratic interaction terms.}
 
-\item{offset}{Default: Empty vector. When non-missing, this is a vector of column indices/names to include as offsets. \code{lgspline} will automatically introduce constraints such that the coefficient for offset terms are 1.}
+\item{offset}{Default: Empty vector. Column indices/names to include as offsets.
+Coefficients for offset terms are automatically constrained to 1.}
 
-\item{just_linear_with_interactions}{Default: NULL. Integer vector specifying columns to retain linear terms with interactions.}
+\item{just_linear_with_interactions}{Default: NULL. Integer or character vector
+specifying predictors to retain as linear terms while still allowing
+interactions.}
 
-\item{just_linear_without_interactions}{Default: NULL. Integer vector specifying columns to retain only linear terms without interactions. These columns are eligible for blockfitting when \code{blockfit = TRUE}; their coefficients are pooled across partitions via backfitting rather than the Lagrangian projection.}
+\item{just_linear_without_interactions}{Default: NULL. Integer or character
+vector specifying predictors to retain only as linear terms without
+interactions. Eligible for blockfitting.}
 
-\item{exclude_interactions_for}{Default: NULL. Integer vector indicating columns to exclude from all interaction terms.}
+\item{exclude_interactions_for}{Default: NULL. Integer or character vector of
+predictors to exclude from all interaction terms.}
 
-\item{exclude_these_expansions}{Default: NULL. Character vector specifying basis expansions to be excluded from the model. These must be named columns of the data, or in the form \code{"_1_"}, \code{"_2_"}, \code{"_1_x_2_"}, \code{"_2_^2"} etc. where \code{"1"} and \code{"2"} indicate column indices of predictor matrix input.}
+\item{exclude_these_expansions}{Default: NULL. Character vector of basis expansions to
+exclude. Named columns of data, or in the form \code{"_1_"}, \code{"_2_"},
+\code{"_1_x_2_"}, \code{"_2_^2"} etc.}
 
-\item{custom_basis_fxn}{Default: NULL. Optional user-defined function for generating custom basis expansions. See \code{\link{get_polynomial_expansions}}.}
+\item{custom_basis_fxn}{Default: NULL. Optional user-defined function for custom basis
+expansions. See \code{\link{get_polynomial_expansions}}.}
 
-\item{include_constrain_fitted}{Default: TRUE. Logical switch to constrain fitted values at knot points.}
+\item{include_constrain_fitted}{Default: TRUE. Logical switch to constrain fitted
+values at knot points.}
 
-\item{include_constrain_first_deriv}{Default: TRUE. Logical switch to constrain first derivatives at knot points.}
+\item{include_constrain_first_deriv}{Default: TRUE. Logical switch to constrain first
+derivatives at knot points.}
 
-\item{include_constrain_second_deriv}{Default: TRUE. Logical switch to constrain second derivatives at knot points.}
+\item{include_constrain_second_deriv}{Default: TRUE. Logical switch to constrain second
+derivatives at knot points.}
 
-\item{include_constrain_interactions}{Default: TRUE. Logical switch to constrain interaction terms at knot points.}
+\item{include_constrain_interactions}{Default: TRUE. Logical switch to constrain
+interaction terms at knot points.}
 
-\item{cl}{Default: NULL. Parallel processing cluster object for distributed computation (use \code{parallel::makeCluster()}).}
+\item{cl}{Default: NULL. Parallel processing cluster object
+(use \code{parallel::makeCluster()}).}
 
-\item{chunk_size}{Default: NULL. Integer specifying custom fixed chunk size for parallel processing.}
+\item{chunk_size}{Default: NULL. Integer specifying custom chunk size for parallel
+processing.}
 
-\item{parallel_eigen}{Default: TRUE. Logical flag to enable parallel processing for eigenvalue decomposition computations.}
+\item{parallel_eigen}{Default: TRUE. Logical flag for parallel eigenvalue decomposition.}
 
-\item{parallel_trace}{Default: FALSE. Logical flag to enable parallel processing for trace computation.}
+\item{parallel_trace}{Default: FALSE. Logical flag for parallel trace computation.}
 
-\item{parallel_aga}{Default: FALSE. Logical flag to enable parallel processing for specific matrix operations involving \eqn{\mathbf{G}} and \eqn{\mathbf{A}}.}
+\item{parallel_aga}{Default: FALSE. Logical flag for parallel \eqn{\mathbf{G}} and
+\eqn{\mathbf{A}} matrix operations.}
 
-\item{parallel_matmult}{Default: FALSE. Logical flag to enable parallel processing for block-diagonal matrix multiplication.}
+\item{parallel_matmult}{Default: FALSE. Logical flag for parallel block-diagonal matrix
+multiplication.}
 
-\item{parallel_unconstrained}{Default: TRUE. Logical flag to enable parallel processing for unconstrained maximum likelihood estimation for models other than identity-link Gaussian. Ignored for identity link Gaussian, as the step of obtaining unconstrained estimates is not explicitly performed. Users can set \code{parallel_matmult = TRUE} to ensure parallel processing for fitting identity link Gaussian models.}
+\item{parallel_unconstrained}{Default: TRUE. Logical flag for parallel unconstrained
+MLE for non-identity-link-Gaussian models.}
 
-\item{parallel_find_neighbors}{Default: FALSE. Logical flag to enable parallel processing for neighbor identification (which partitions are neighbors).}
+\item{parallel_find_neighbors}{Default: FALSE. Logical flag for parallel neighbor
+identification.}
 
-\item{parallel_penalty}{Default: FALSE. Logical flag to enable parallel processing for penalty matrix construction.}
+\item{parallel_penalty}{Default: FALSE. Logical flag for parallel penalty matrix
+construction.}
 
-\item{parallel_make_constraint}{Default: FALSE. Logical flag to enable parallel processing for constraint matrix generation.}
+\item{parallel_make_constraint}{Default: FALSE. Logical flag for parallel constraint
+matrix generation.}
 
-\item{unconstrained_fit_fxn}{Default: \code{\link{unconstrained_fit_default}}. Custom function for fitting unconstrained models per partition.}
+\item{unconstrained_fit_fxn}{Default: \code{\link{unconstrained_fit_default}}.
+Custom function for fitting unconstrained models per partition.}
 
-\item{keep_weighted_Lambda}{Default: FALSE. Logical flag to retain generalized linear model weights in penalty constraints using Tikhonov parameterization. It is advised to turn this to TRUE when fitting non-canonical GLMs. The default \code{\link{unconstrained_fit_default}} by default assumes canonical GLMs for setting up estimating equations; this is not valid with non-canonical GLMs. With \code{keep_weighted_Lambda = TRUE}, the Tikhonov parameterization binds \eqn{\boldsymbol{\Lambda}^{1/2}}, the square-root penalty matrix, to the design matrix \eqn{\mathbf{X}_{k}} for each partition k, and \code{family$linkinv(0)} to the response vector \eqn{\mathbf{y}_{k}} for each partition before finding unconstrained estimates using base R's \code{glm.fit} function. The potential issue is that the weights of the information matrix will appear in the penalty, such that the effective penalty is \eqn{\boldsymbol{\Lambda}_{\mathrm{eff}} = \mathbf{L}^{1/2}\mathbf{W}\mathbf{L}^{1/2}} rather than just \eqn{\mathbf{L}^{1/2}\mathbf{L}^{1/2}}. If FALSE, this approach will only be used to supply initial values to a native implementation of damped Newton-Raphson for fitting GLM models (see \code{\link{damped_newton_r}} and \code{\link{unconstrained_fit_default}}). For Gamma with log-link, this is fortunately a non-issue since the mean-variance relationship is essentially stabilized, so \code{keep_weighted_Lambda = TRUE} is strongly advised.}
+\item{keep_weighted_Lambda}{Default: FALSE. Logical flag to retain GLM weights in
+penalty constraints using Tikhonov parameterization. Advised for non-canonical GLMs.}
 
-\item{iterate_tune}{Default: TRUE. Logical switch to use iterative optimization during penalty tuning. If FALSE, \eqn{\mathbf{G}} and \eqn{\mathbf{U}} are constructed from unconstrained \eqn{\boldsymbol{\beta}} estimates when tuning.}
+\item{iterate_tune}{Default: TRUE. Logical switch for iterative optimization during
+penalty tuning.}
 
-\item{iterate_final_fit}{Default: TRUE. Logical switch to use iterative optimization for final model fitting. If FALSE, \eqn{\mathbf{G}} and \eqn{\mathbf{U}} are constructed from unconstrained \eqn{\boldsymbol{\beta}} estimates when fitting the final model after tuning.}
+\item{iterate_final_fit}{Default: TRUE. Logical switch for iterative optimization in
+final model fitting.}
 
-\item{blockfit}{Default: FALSE. Logical switch to use backfitting for models with mixed spline and non-interactive linear ("flat") terms. When \code{TRUE} and the model contains columns identified by \code{just_linear_without_interactions}, the fitting is routed through \code{blockfit_solve}, which splits the design matrix into a spline block (spline and interaction effects) and a flat block (non-interactive linear terms). Coefficients for the flat block are pooled (shared identically) across all \eqn{K+1} partitions via backfitting, while spline-block coefficients are estimated per partition via the Lagrangian projection. This is more efficient and numerically stable when there are many non-spline effects without interactions relative to the number of spline effects. Blockfit option requires all four conditions: (1) \code{blockfit = TRUE}, (2) flat columns are non-empty, (3) \code{K > 0}, and (4) no correlation structure is active (\code{Vhalf} and \code{VhalfInv} both \code{NULL}). QP inequality constraints are supported within \code{blockfit_solve} via a post-backfitting SQP refinement loop. If any condition fails or \code{blockfit_solve} throws an error, the standard \code{get_B} path executes as a fallback.}
+\item{blockfit}{Default: TRUE. Logical switch for backfitting with mixed spline and
+non-interactive linear terms. Requires flat columns, \code{K > 0}, and no active
+correlation structure. Falls back to \code{get_B} on failure.}
 
-\item{qp_score_function}{Default: \eqn{\mathbf{X}^{\top}(\mathbf{y} - \mathrm{E}[\mathbf{y}])}, where \eqn{\mathrm{E}[\mathbf{y}] = \boldsymbol{\mu}}. A function returning the score of the log-likelihood for optimization (excluding penalization/priors involving \eqn{\boldsymbol{\Lambda}}), which is needed for the formulation of quadratic programming problems, when \code{blockfit = TRUE}, and correlation-structure fitting for GLMs, all relying on \code{\link[quadprog]{solve.QP}}. Accepts arguments \code{"X, y, mu, order_list, dispersion, VhalfInv, observation_weights, ..."} in order.}
+\item{qp_score_function}{Default: \eqn{\mathbf{X}^{\top}(\mathbf{y} - \boldsymbol{\mu})}.
+Score function for quadratic programming, blockfit, and GEE formulations.
+Accepts arguments \code{"X, y, mu, order_list, dispersion, VhalfInv,
+observation_weights, ..."}.}
 
-\item{qp_observations}{Default: NULL. Numeric vector of observations to apply constraints to for monotonic and range quadratic programming constraints. Useful for saving computational resources.}
+\item{qp_observations}{Default: NULL. Numeric vector of observation indices
+at which built-in QP constraints are evaluated. Useful for reducing the
+size of the constrained system.}
 
-\item{qp_Amat}{Default: NULL. Constraint matrix for quadratic programming formulation. The \code{Amat} argument of \code{\link[quadprog]{solve.QP}}.}
+\item{qp_Amat}{Default: NULL. Optional pre-built QP constraint matrix.
+In the current pipeline its presence marks QP handling as active, but the
+built-in constructor does not merge it into the assembled constraint set;
+use \code{qp_Amat_fxn} for custom assembled constraints.}
 
-\item{qp_bvec}{Default: NULL. Constraint vector for quadratic programming formulation. The \code{bvec} argument of \code{\link[quadprog]{solve.QP}}.}
+\item{qp_bvec}{Default: NULL. Optional pre-built QP right-hand side paired
+with \code{qp_Amat}. Like \code{qp_Amat}, it is currently treated as an
+advanced placeholder rather than merged into the built-in constructor.}
 
-\item{qp_meq}{Default: 0. Number of equality constraints in quadratic programming setup. The \code{meq} argument of \code{\link[quadprog]{solve.QP}}.}
+\item{qp_meq}{Default: 0. Optional number of equality constraints paired
+with \code{qp_Amat}. Like \code{qp_Amat}, it is currently treated as an
+advanced placeholder rather than merged into the built-in constructor.}
 
-\item{qp_positive_derivative, qp_positive_2ndderivative, qp_monotonic_increase}{Default: FALSE. Logical flags to constrain the function to have positive first derivatives/second derivatives/be monotonically increasing using quadratic programming with respect to the order (ascending rows) of the input data set.}
+\item{qp_positive_derivative}{Default: FALSE. Constrain function to have positive first derivatives. Accepts: \code{FALSE} (no constraint), \code{TRUE} (all predictors), or a character/integer vector naming specific predictor variables to constrain. For example, \code{qp_positive_derivative = "Dose"} constrains only the Dose variable, while \code{qp_positive_derivative = c(1, 3)} constrains columns 1 and 3 of the predictor matrix.}
 
-\item{qp_negative_derivative, qp_negative_2ndderivative, qp_monotonic_decrease}{Default: FALSE. Logical flags to constrain the function to have negative first derivatives/second derivatives/be monotonically decreasing using quadratic programming with respect to the order (ascending rows) of the input data set.}
+\item{qp_negative_derivative}{Default: FALSE. Constrain function to have negative first derivatives. Same input types as \code{qp_positive_derivative}. Can be used simultaneously with \code{qp_positive_derivative} on different variables.}
 
-\item{qp_range_upper}{Default: NULL. Numeric upper bound for constrained fitted values using quadratic programming.}
+\item{qp_positive_2ndderivative}{Default: FALSE. Constrain function to have positive (convex) second derivatives. Same input types as \code{qp_positive_derivative}.}
 
-\item{qp_range_lower}{Default: NULL. Numeric lower bound for constrained fitted values using quadratic programming.}
+\item{qp_negative_2ndderivative}{Default: FALSE. Constrain function to have negative (concave) second derivatives. Same input types as \code{qp_positive_derivative}.}
 
-\item{qp_Amat_fxn}{Default: NULL. Custom function for generating Amat matrix in quadratic programming.}
+\item{qp_monotonic_increase}{Default: FALSE. Logical only. Constrain fitted values to be monotonically increasing in observation order.}
 
-\item{qp_bvec_fxn}{Default: NULL. Custom function for generating bvec vector in quadratic programming.}
+\item{qp_monotonic_decrease}{Default: FALSE. Logical only. Constrain fitted values to be monotonically decreasing in observation order.}
 
-\item{qp_meq_fxn}{Default: NULL. Custom function for determining meq equality constraints in quadratic programming.}
+\item{qp_range_upper}{Default: NULL. Numeric upper bound for constrained fitted values.}
 
-\item{constraint_values}{Default: \code{cbind()}. Matrix of constraint values for sum constraints. The constraint enforces \eqn{\mathbf{C}^{\top}(\boldsymbol{\beta} - \mathbf{c}) = \mathbf{0}} in addition to smoothing constraints, where \eqn{\mathbf{C}} = \code{constraint_vectors} and \eqn{\mathbf{c}} = \code{constraint_values}.}
+\item{qp_range_lower}{Default: NULL. Numeric lower bound for constrained fitted values.}
 
-\item{constraint_vectors}{Default: \code{cbind()}. Matrix of vectors for sum constraints. The constraint enforces \eqn{\mathbf{C}^{\top}(\boldsymbol{\beta} - \mathbf{c}) = \mathbf{0}} in addition to smoothing constraints, where \eqn{\mathbf{C}} = \code{constraint_vectors} and \eqn{\mathbf{c}} = \code{constraint_values}.}
+\item{qp_Amat_fxn}{Default: NULL. Custom function generating Amat.}
 
-\item{return_G}{Default: TRUE. Logical switch to return the unscaled variance-covariance matrix without smoothing constraints (\eqn{\mathbf{G}}), which is block diagonal of p x p matrices for each of the K+1 partitions. When a correlation structure is present, the returned \eqn{\mathbf{G}_{\mathrm{correct}}} uses the full whitened Gram \eqn{\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X}} rather than the block-diagonal \eqn{\mathbf{X}^{\top}\mathbf{X}}.}
+\item{qp_bvec_fxn}{Default: NULL. Custom function generating bvec.}
 
-\item{return_Ghalf}{Default: TRUE. Logical switch to return the matrix square root of the unscaled variance-covariance matrix without smoothing constraints (\eqn{\mathbf{G}^{1/2}}). When a correlation structure is active, \eqn{\mathbf{G}^{1/2}} is computed from the full penalized GLS information \eqn{(\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X} + \boldsymbol{\Lambda})^{-1}}.}
+\item{qp_meq_fxn}{Default: NULL. Custom function generating meq.}
 
-\item{return_U}{Default: TRUE. Logical switch to return the constraint projection matrix \eqn{\mathbf{U}}.}
+\item{constraint_values}{Default: \code{cbind()}. Optional matrix encoding
+nonzero equality targets paired with \code{constraint_vectors}. When left
+empty, added equality constraints are treated as homogeneous.}
 
-\item{estimate_dispersion}{Default: TRUE. Logical flag to estimate the dispersion parameter after fitting.}
+\item{constraint_vectors}{Default: \code{cbind()}. Optional matrix of
+user-supplied equality-constraint vectors, appended to the internally
+generated smoothness constraints.}
 
-\item{unbias_dispersion}{Default: NULL. Logical switch to multiply final dispersion estimates by \eqn{N/(N - \mathrm{trace}(\mathbf{H}))} which, in the case of Gaussian-distributed errors with identity link function, provides unbiased estimates of variance. When NULL (by default), is set to TRUE for Gaussian + identity link and FALSE otherwise.}
+\item{return_G}{Default: TRUE. Logical switch to return the unscaled unconstrained
+variance-covariance matrix \eqn{\mathbf{G}}.}
 
-\item{return_varcovmat}{Default: TRUE. Logical switch to return the variance-covariance matrix of the estimated coefficients. This is needed for performing Wald inference. When a correlation structure is active, the variance-covariance matrix is computed as \eqn{\sigma^{2}(\mathbf{U}\mathbf{G}_{\mathrm{correct}}^{1/2})(\mathbf{U}\mathbf{G}_{\mathrm{correct}}^{1/2})^{\top}} where \eqn{\mathbf{G}_{\mathrm{correct}} = (\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X} + \boldsymbol{\Lambda})^{-1}}. This is the correct version, since the block-diagonal version constructed ignores off-block diagonal components, a computational convenience not available for generic correlation structures.}
+\item{return_Ghalf}{Default: TRUE. Logical switch to return
+\eqn{\mathbf{G}^{1/2}}.}
 
-\item{return_lagrange_multipliers}{Default: FALSE. Logical switch to return the Lagrangian multiplier vector associated with the smoothness constraints \eqn{ = (\mathbf{A}^{\top}\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^{\top}(\hat{\boldsymbol{\beta}} - \boldsymbol{\beta_0})}. Requires \code{return_G = TRUE} and \code{K > 0} or non-trivial constraints. For inequality constraints, the multipliers as returned by \code{\link{solve.QP}} are used.}
+\item{return_U}{Default: TRUE. Logical switch to return the constraint projection
+matrix \eqn{\mathbf{U}}.}
 
-\item{custom_penalty_mat}{Default: NULL. Optional \eqn{p \times p} custom penalty matrix for individual partitions to replace the default ridge penalty applied to linear-and-intercept terms only. This can be interpreted as proportional to the prior correlation matrix of coefficients for non-spline effects, and will appear in the penalty matrix for all partitions. It is recommended to first run the function using \code{dummy_fit = TRUE} so you have an idea of where the expansions appear in each partition, what "p" is, and you can carefully customize your penalty matrix after.}
+\item{estimate_dispersion}{Default: TRUE. Logical flag to estimate dispersion after
+fitting.}
 
-\item{cluster_args}{Default: \code{c(custom_centers = NA, nstart = 10)}. Named vector of arguments controlling clustering procedures. If the first argument is not NA, this will be treated as custom cluster centers and all other arguments ignored. Otherwise, default base R k-means clustering will be used with all other arguments supplied to \code{kmeans} (for example, by default, the "nstart" argument as provided). Custom centers must be a \eqn{K \times q} matrix with one column for each predictor in order of their appearance in input predictor/data, and one row for each center.}
+\item{unbias_dispersion}{Default: NULL. Logical switch to multiply dispersion by
+\eqn{N/(N - \mathrm{trace}(\mathbf{H}))}. When NULL, set to TRUE for Gaussian
+identity link and FALSE otherwise.}
 
-\item{dummy_dividor}{Default: 0.00000000000000000000012345672152894. Small numeric constant to prevent division by zero in computational routines.}
+\item{return_varcovmat}{Default: TRUE. Logical switch to return the variance-covariance
+matrix of estimated coefficients. Needed for Wald inference.}
 
-\item{dummy_adder}{Default: 0.000000000000000002234567210529. Small numeric constant to prevent division by zero in computational routines.}
+\item{exact_varcovmat}{Default: FALSE. Logical switch to replace the default
+asymptotic (Bayesian posterior) variance-covariance matrix with the exact
+frequentist variance-covariance matrix of the constrained estimator. The
+asymptotic version uses the Hessian of
+the penalized log-likelihood:
+\eqn{\tilde{\sigma}^{2}\mathbf{U}\mathbf{G}\mathbf{U}^{\top}}.
+The exact version additionally corrects for the penalty's contribution as a shrinkage
+prior, giving:
+\deqn{\tilde{\sigma}^{2}\mathbf{U}\mathbf{G}\mathbf{U}^{\top}
+      - \tilde{\sigma}^{2}\mathbf{U}\mathbf{G}\boldsymbol{\Lambda}\mathbf{G}\mathbf{U}^{\top}}
+When a correlation structure is present (\code{VhalfInv} non-NULL),
+\eqn{\mathbf{G}_{\mathrm{correct}}} replaces the block-diagonal \eqn{\mathbf{G}}.
+For Gaussian identity link (with or without correlation structure), the result is
+the exact variance-covariance matrix of the constrained estimate.
+The returned object still stores the result in \code{varcovmat}. Requires
+\code{return_varcovmat = TRUE}.}
 
-\item{verbose}{Default: FALSE. Logical flag to print general progress messages during model fitting (does not include during tuning).}
+\item{return_lagrange_multipliers}{Default: FALSE. Logical switch to return the
+Lagrangian multiplier vector.}
 
-\item{verbose_tune}{Default: FALSE. Logical flag to print detailed progress messages during penalty tuning specifically.}
+\item{custom_penalty_mat}{Default: NULL. Optional \eqn{p \times p} custom penalty
+matrix for individual partitions, replacing the default ridge on linear/intercept
+terms. Run with \code{dummy_fit = TRUE} first to inspect expansion structure.}
 
-\item{dummy_fit}{Default: FALSE. Logical switch to run the full pipeline (including penalty construction) but set coefficients to zero, allowing users to inspect the design matrix structure, penalty matrices, and partitioning information before fitting. Replaces the deprecated \code{expansions_only} argument. An early-return path in \code{lgspline.fit} skips the expensive fitting steps (\code{compute_G_eigen}, \code{get_B}, trace computation, variance-covariance matrix) while retaining penalty and partitioning information for downstream use such as setting up custom constraints.}
+\item{cluster_args}{Default: \code{c(custom_centers = NA, nstart = 10)}. Named
+vector of arguments controlling clustering. If the first argument is not
+\code{NA}, it is treated as custom cluster centers (typically an
+\eqn{(K+1) \times q} matrix). Otherwise, default k-means is used.}
 
-\item{auto_encode_factors}{Default: TRUE. Logical switch to automatically one-hot encode factor or character variables when using the formula interface. Encoded variables are appended to \code{just_linear_without_interactions} unless the original column appears in an interaction term. Interactions will be excluded for auto-encoded variables by default; users can manually one-hot encode their variables and include in formula to achieve interactions instead, or use the design matrix format and indicate the column indices of interactions. Dummy-intercept is avoided, since one-hot encoding is suitable for interpretation of penalized fixed effects as "random" effects.Turning off is useful for saving memory when working with datasets with many character variables that don't end up being used in the model.}
+\item{dummy_dividor}{Default: 0.00000000000000000000012345672152894. Small numeric
+constant to prevent division by zero.}
 
-\item{observation_weights}{Default: NULL. Numeric vector of observation-specific weights for generalized least squares estimation. The argument \code{weights} is an alias for this. This is the equivalent to the usual \code{weights} in \code{glm} and \code{lm}.}
+\item{dummy_adder}{Default: 0.000000000000000002234567210529. Small numeric constant
+to prevent division by zero.}
 
-\item{do_not_cluster_on_these}{Default: \code{c()}. Vector specifying predictor columns to exclude from clustering procedures, in addition to the non-spline effects by default. Accepts either numeric column indices or character column names; character entries are resolved to numeric indices via exact match (with \code{grep()} fallback) against predictor column names in both the formula and direct-matrix paths. If column names are unavailable in the direct-matrix path, a warning is issued and unresolvable character entries are dropped.}
+\item{verbose}{Default: FALSE. Logical flag to print general progress messages.}
 
-\item{neighbor_tolerance}{Default: \code{1 + 1e-8}. Numeric tolerance for determining neighboring partitions using k-means clustering. Greater values means more partitions are likely to be considered neighbors. Intended for internal use only (modify at your own risk!).}
+\item{verbose_tune}{Default: FALSE. Logical flag to print detailed progress during
+penalty tuning.}
 
-\item{null_constraint}{Default: NULL. Alternative parameterization of constraint values.}
+\item{dummy_fit}{Default: FALSE. Runs the full pipeline but sets coefficients to zero,
+allowing inspection of design matrix structure, penalty matrices, and partitioning.
+Replaces the deprecated \code{expansions_only} argument.}
 
-\item{critical_value}{Default: \code{qnorm(1-0.05/2)}. Numeric critical value used for constructing Wald confidence intervals of the form \eqn{\mathrm{estimate} \pm \mathrm{critical\_value} \times (\mathrm{standard\ error})}.}
+\item{auto_encode_factors}{Default: TRUE. Logical switch to automatically one-hot encode
+factor or character variables when using the formula interface.}
 
-\item{data}{Default: NULL. Optional data frame providing context for formula-based model specification.}
+\item{observation_weights}{Default: NULL. Numeric vector of observation-specific
+weights for generalized least squares estimation.}
 
-\item{weights}{Default: NULL. Alternative name for \code{observation_weights}, maintained for interface compatibility and R-user friendliness. This is the equivalent to the usual \code{weights} in \code{glm} and \code{lm}.}
+\item{do_not_cluster_on_these}{Default: \code{c()}. Predictor columns to exclude from
+clustering. Accepts numeric column indices or character column names.}
 
-\item{no_intercept}{Default: FALSE. Logical flag to remove intercept, constraining it to 0. The function automatically constructs \code{constraint_vectors} and \code{constraint_values} to achieve this. Calling formulas with a \code{"0+"} in it like \code{y ~ 0 + .} will set this option to TRUE.}
+\item{neighbor_tolerance}{Default: \code{1 + 1e-8}. Numeric tolerance for determining
+neighboring partitions using k-means clustering. Intended for internal use.}
 
-\item{correlation_id, spacetime}{Default: NULL. N-length vector and N-row matrix of cluster (or subject, group etc.) ids and longitudinal/spatial variables respectively, whereby observations within each grouping of \code{correlation_id} are correlated with respect to the variables submitted to \code{spacetime}.}
+\item{null_constraint}{Default: NULL. Alternative parameterization for a
+nonzero equality target when \code{constraint_vectors} is supplied and
+\code{constraint_values} is left empty.}
 
-\item{correlation_structure}{Default: NULL. Native implementations of popular variance-covariance structures. Offers options for \code{"exchangeable"}, \code{"spatial-exponential"}, \code{"squared-exponential"}, \code{"ar(1)"}, \code{"spherical"}, \code{"gaussian-cosine"}, \code{"gamma-cosine"}, and \code{"matern"}, along with their aliases. The eponymous correlation structure is fit along with coefficients and dispersion, with correlation estimated using a REML objective. All built-in structures use exponential parameterization. See section "Correlation Structure Estimation" for more details.}
+\item{critical_value}{Default: \code{qnorm(1-0.05/2)}. Numeric critical value for
+Wald confidence intervals.}
 
-\item{VhalfInv}{Default: NULL. Matrix representing a fixed, custom square-root-inverse covariance structure for the response variable for longitudinal and spatial modeling. Must be an \eqn{N \times N} matrix where N is number of observations. This matrix \eqn{\mathbf{V}^{-1/2}} serves as a fixed transformation matrix for the response, equivalent to GLS with known covariance \eqn{\mathbf{V}}. When provided, all post-fit inference quantities (\eqn{\mathbf{G}}, \eqn{\mathbf{U}}, trace, variance-covariance matrix, posterior draws) are recomputed from the whitened Gram matrices \eqn{\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X}} for correct calibration under correlated errors. This is known as "whitening" in some literature.}
+\item{data}{Default: NULL. Optional data frame for formula-based model specification.}
 
-\item{Vhalf}{Default: NULL. Matrix representing a fixed, custom square-root covariance structure for the response variable for longitudinal and spatial modeling. Must be an \eqn{N \times N} matrix where N is number of observations. This matrix \eqn{\mathbf{V}^{1/2}} is used when backtransforming coefficients for fitting GLMs with arbitrary correlation structure. When \code{VhalfInv} is supplied but \code{Vhalf} is not, \code{Vhalf} is computed as the inverse of \code{VhalfInv}.}
+\item{weights}{Default: NULL. Alias for \code{observation_weights}.}
 
-\item{VhalfInv_fxn}{Default: NULL. Function for parametric modeling of the covariance structure \eqn{\mathbf{V}^{-1/2}}. Must take a single numeric vector argument \code{"par"} and return an \eqn{N \times N} matrix. When provided with \code{VhalfInv_par_init}, this function is optimized via BFGS to find optimal covariance parameters that minimize the negative REML log-likelihood (or custom loss if \code{custom_VhalfInv_loss} is specified). The function must return a valid square root of the inverse covariance matrix — i.e., if \eqn{\mathbf{V}} is the true covariance, \code{VhalfInv_fxn} should return \eqn{\mathbf{V}^{-1/2}} such that \code{VhalfInv_fxn(par) \%*\% VhalfInv_fxn(par)} = \eqn{\mathbf{V}^{-1}}.}
+\item{no_intercept}{Default: FALSE. Logical flag to constrain intercept to 0.
+Formulas with \code{"0+"} set this to TRUE automatically.}
 
-\item{Vhalf_fxn}{Default: NULL. Function for efficient computation of \eqn{\mathbf{V}^{1/2}}, used only when optimizing correlation structures with non-canonical-Gaussian response.}
+\item{correlation_id, spacetime}{Default: NULL. N-length vector and N-row matrix of
+cluster ids and longitudinal/spatial variables, respectively.}
 
-\item{VhalfInv_par_init}{Default: \code{c()}. Numeric vector of initial parameter values for \code{VhalfInv_fxn} optimization, on unbounded transformed scale (not the natural scale). When provided with \code{VhalfInv_fxn}, triggers optimization of the covariance structure. Length determines the dimension of the parameter space. Defaults to 0 if not provided.}
+\item{correlation_structure}{Default: NULL. Native implementations: \code{"exchangeable"},
+\code{"spatial-exponential"}, \code{"squared-exponential"}, \code{"ar(1)"},
+\code{"spherical"}, \code{"gaussian-cosine"}, \code{"gamma-cosine"},
+\code{"matern"}, and aliases. Estimated via REML.}
 
-\item{REML_grad}{Default: NULL. Function for evaluating the gradient of the objective function (negative REML or custom loss) with respect to the parameters of \code{VhalfInv_fxn}. Must take the same \code{"par"} argument as \code{VhalfInv_fxn}, as well as second argument \code{"model_fit"} for the output of \code{lgspline.fit} and ellipses \code{"..."} as a third argument. It should return a vector of partial derivatives matching the length of par. When provided, enables more efficient optimization via closed-form gradients rather than numerical approximation. Optional — if NULL, BFGS uses numerical gradients.}
+\item{VhalfInv}{Default: NULL. Fixed custom \eqn{N \times N} square-root-inverse
+covariance matrix \eqn{\mathbf{V}^{-1/2}}. Triggers GLS with known covariance.
+Post-fit inference recomputed from whitened Gram matrices.}
 
-\item{custom_VhalfInv_loss}{Default: NULL. Alternative to negative REML for serving as the objective function for optimizing correlation parameters. Must take the same \code{"par"} argument as \code{VhalfInv_fxn}, as well as second argument \code{"model_fit"} for the output of \code{lgspline.fit} and ellipses \code{"..."} as a third argument. It should return a numeric scalar.}
+\item{Vhalf}{Default: NULL. Fixed custom \eqn{N \times N} square-root covariance
+\eqn{\mathbf{V}^{1/2}}. Computed as inverse of \code{VhalfInv} if not supplied.}
 
-\item{VhalfInv_logdet}{Default: NULL. Function for efficient computation of \eqn{\log|\mathbf{V}^{-1/2}|} that bypasses construction of the full \eqn{\mathbf{V}^{-1/2}} matrix. Must take the same parameter vector \code{'par'} as \code{VhalfInv_fxn} and return a scalar value equal to \eqn{\log(\det(\mathbf{V}^{-1/2}))}. When NULL, the determinant is computed directly from \code{VhalfInv}, which can be computationally expensive for large matrices.}
+\item{VhalfInv_fxn}{Default: NULL. Parametric function for \eqn{\mathbf{V}^{-1/2}};
+takes single numeric vector \code{"par"}, returns \eqn{N \times N} matrix.
+Optimized via BFGS when \code{VhalfInv_par_init} is provided.}
 
-\item{include_warnings}{Default: TRUE. Logical switch to control display of warning messages during model fitting.}
+\item{Vhalf_fxn}{Default: NULL. Optional function for efficient computation of
+\eqn{\mathbf{V}^{1/2}} from the same parameter vector used by
+\code{VhalfInv_fxn}. When omitted, \code{Vhalf} is obtained by explicit
+matrix inversion of \code{VhalfInv}.}
+
+\item{VhalfInv_par_init}{Default: \code{c()}. Initial parameter values for
+\code{VhalfInv_fxn} optimization, on unbounded transformed scale.}
+
+\item{REML_grad}{Default: NULL. Function for the gradient of the negative REML (or
+custom loss) with respect to the parameters of \code{VhalfInv_fxn}. Takes
+\code{"par"}, \code{"model_fit"}, and \code{"..."}.}
+
+\item{custom_VhalfInv_loss}{Default: NULL. Alternative to negative REML for the
+correlation parameter objective function. Takes \code{"par"}, \code{"model_fit"},
+and \code{"..."}.}
+
+\item{VhalfInv_logdet}{Default: NULL. Function for efficient \eqn{\log|\mathbf{V}^{-1/2}|}
+computation. Takes same \code{"par"} as \code{VhalfInv_fxn}.}
+
+\item{include_warnings}{Default: TRUE. Logical switch to control display of warnings.}
+
+\item{penalty_args}{Default: NULL. Optional named list grouping penalty-related
+arguments. See section "Grouped Argument Lists".}
+
+\item{tuning_args}{Default: NULL. Optional named list grouping tuning-related
+arguments.}
+
+\item{expansion_args}{Default: NULL. Optional named list grouping basis expansion
+arguments.}
+
+\item{constraint_args}{Default: NULL. Optional named list grouping constraint arguments.}
+
+\item{qp_args}{Default: NULL. Optional named list grouping quadratic programming
+arguments.}
+
+\item{parallel_args}{Default: NULL. Optional named list grouping parallel processing
+arguments.}
+
+\item{covariance_args}{Default: NULL. Optional named list grouping correlation
+structure arguments.}
+
+\item{return_args}{Default: NULL. Optional named list grouping return-control
+arguments.}
+
+\item{glm_args}{Default: NULL. Optional named list grouping GLM customization
+arguments.}
 
 \item{...}{Additional arguments passed to the unconstrained model fitting function.}
 }
 \value{
-A list of class \code{"lgspline"} containing the following components:
+A list of class \code{"lgspline"} containing model components:
 \describe{
   \item{y}{Original response vector.}
   \item{ytilde}{Fitted/predicted values on the scale of the response.}
@@ -329,7 +609,7 @@ A list of class \code{"lgspline"} containing the following components:
   \item{partition_codes}{Vector assigning observations to partitions.}
   \item{partition_bounds}{Vector or matrix specifying the boundaries between partitions.}
   \item{knot_expand_function}{Internal function for expanding data according to partition structure.}
-  \item{predict}{Function for generating predictions on new data. For multi-predictor models, \code{take_first_derivatives = TRUE, take_second_derivatives} returns derivatives as a named list of components per predictor variable, rather than a concatenated vector.}
+  \item{predict}{Function for generating predictions on new data. For multi-predictor models, \code{take_first_derivatives = TRUE, take_second_derivatives} returns derivatives as a named list of components per predictor variable, rather than a concatenated vector. When \code{new_predictors} contains columns not present in the data, extraneous columns are silently dropped before prediction.}
   \item{assign_partition}{Function for assigning new observations to partitions.}
   \item{family}{GLM family object specifying the error distribution and link function.}
   \item{estimate_dispersion}{Logical indicating whether dispersion parameter was estimated.}
@@ -354,25 +634,38 @@ A list of class \code{"lgspline"} containing the following components:
   \item{raw_expansion_names}{Names of basis expansion terms.}
   \item{std_X, unstd_X}{Functions for standardizing/unstandardizing design matrices.}
   \item{parallel_cluster_supplied}{Logical indicating whether a parallel cluster was supplied.}
-  \item{weights}{List of observation weights per partition.}
-  \item{G}{List of unscaled unconstrained variance-covariance matrices \eqn{\mathbf{G}_{k}} per partition k if \code{return_G = TRUE}. Computed as \eqn{(\mathbf{X}_{k}^{\top}\mathbf{X}_{k} + \boldsymbol{\Lambda}_{\mathrm{eff}})^{-1}} for partition k. When \code{VhalfInv} is non-\code{NULL}, recomputed from the whitened Gram matrices \eqn{\mathbf{X}_{k}^{\top}\mathbf{V}^{-1}\mathbf{X}_{k}}.}
-  \item{Ghalf}{List of \eqn{\mathbf{G}_{k}^{1/2}} matrices if \code{return_Ghalf = TRUE}. When \code{VhalfInv} is non-\code{NULL}, the full \eqn{\mathbf{G}_{\mathrm{correct}}^{1/2}} from the penalized GLS information is used for posterior draws and variance-covariance computation.}
+  \item{weights}{Original observation weights on the data scale. When no
+    weights were supplied, this is a vector of ones.}
+  \item{G}{List of unscaled partition-wise information inverses
+    \eqn{\mathbf{G}_{k}} if \code{return_G = TRUE}. These are the blockwise
+    quantities stored on the fitting scale; correlation-aware trace,
+    posterior, and variance calculations additionally use dense GLS analogues
+    internally when needed.}
+  \item{Ghalf}{List of \eqn{\mathbf{G}_{k}^{1/2}} matrices if
+    \code{return_Ghalf = TRUE}. As with \code{G}, dense GLS square-root
+    factors may also be constructed internally for correlation-aware
+    post-fit calculations.}
   \item{U}{Constraint projection matrix \eqn{\mathbf{U}} if \code{return_U = TRUE}. For K=0 and no constraints, returns identity. Otherwise, returns \eqn{\mathbf{U} = \mathbf{I} - \mathbf{G}\mathbf{A}(\mathbf{A}^{\top}\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^{\top}}. Used for computing the variance-covariance matrix \eqn{\sigma^{2}\mathbf{U}\mathbf{G}}.}
-  \item{sigmasq_tilde}{Estimated (or fixed) dispersion parameter \eqn{\tilde{\sigma}^{2}}. When \code{VhalfInv} is non-\code{NULL} and \code{family} is Gaussian with identity link, computed from whitened residuals as \eqn{\mathrm{mean}((\mathbf{V}^{-1/2}\mathbf{y} - \mathbf{V}^{-1/2}\hat{\mathbf{y}})^{2})} with optional bias correction by multiplying by \eqn{\frac{N}{N-\mathrm{trace}(\mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^{\top}}}.}
+  \item{sigmasq_tilde}{Estimated (or fixed) dispersion parameter
+    \eqn{\tilde{\sigma}^{2}}. For Gaussian identity fits without correlation,
+    this is the weighted mean squared residual with optional bias correction.
+    When \code{VhalfInv} is non-\code{NULL}, Gaussian-identity residuals are
+    whitened before this calculation.}
   \item{trace_XUGX}{Effective degrees of freedom (\eqn{\mathrm{trace}(\mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^{\top})}), where \eqn{\mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^{\top}} serves as the "hat" matrix. When \code{VhalfInv} is non-\code{NULL}, computed as \eqn{\|\mathbf{V}^{-1/2}\mathbf{X}\mathbf{U}\mathbf{G}_{\mathrm{correct}}^{1/2}\|_{F}^{2}} using the full penalized GLS information.}
   \item{varcovmat}{Variance-covariance matrix of coefficient estimates if \code{return_varcovmat = TRUE}. Computed as \eqn{\sigma^{2}(\mathbf{U}\mathbf{G}^{1/2})(\mathbf{U}\mathbf{G}^{1/2})^{\top}} for numerical stability. When \code{VhalfInv} is non-\code{NULL}, uses the full \eqn{\mathbf{G}_{\mathrm{correct}}^{1/2}} in place of the block-diagonal \eqn{\mathbf{G}^{1/2}}.}
-  \item{lagrange_multipliers}{Vector of Lagrangian multipliers. If \code{return_lagrange_multipliers = TRUE} and constraints are present. Each element corresponds to a column of \eqn{\mathbf{A}} and quantifies the sensitivity of the penalized objective to relaxing the associated constraint. \code{NULL} if no constraints are active (\eqn{\mathbf{A}} is \code{NULL} or \code{K == 0}).}
+  \item{lagrange_multipliers}{Vector of Lagrangian multipliers if \code{return_lagrange_multipliers = TRUE}. For equality-only fits these correspond to the active columns of \eqn{\mathbf{A}}; when quadratic-programming constraints are active they are taken directly from \code{solve.QP} and therefore refer to the combined equality/inequality constraint system. \code{NULL} if no constraints are active (\eqn{\mathbf{A}} is \code{NULL} or \code{K == 0}).}
   \item{VhalfInv}{The \eqn{\mathbf{V}^{-1/2}} matrix used for implementing correlation structures, if specified.}
   \item{VhalfInv_fxn, Vhalf_fxn, VhalfInv_logdet, REML_grad}{Functions for generating \eqn{\mathbf{V}^{-1/2}}, \eqn{\mathbf{V}^{1/2}}, \eqn{\log|\mathbf{V}^{-1/2}|}, and gradient of REML if provided.}
   \item{VhalfInv_params_estimates}{Vector of estimated correlation parameters when using \code{VhalfInv_fxn}.}
   \item{VhalfInv_params_vcov}{Approximate variance-covariance matrix of estimated correlation parameters from BFGS optimization.}
-  \item{wald_univariate}{Function for computing univariate Wald statistics and confidence intervals. Returns an S3 object of class \code{wald_lgspline} with dedicated \code{print}, \code{summary}, and \code{plot} methods.}
+  \item{wald_univariate}{Function for computing univariate Wald statistics and confidence intervals. Returns an S3 object of class \code{"wald_lgspline"} with dedicated \code{print}, \code{summary}, \code{plot}, \code{coef}, and \code{confint} methods. The \code{print} method uses \code{printCoefmat()} for standard R coefficient table formatting with significance stars.}
   \item{critical_value}{Critical value used for confidence interval construction.}
   \item{generate_posterior}{Function for drawing from the posterior distribution of coefficients. When \code{VhalfInv} is non-\code{NULL}, draws are from the correct joint posterior \eqn{\mathbf{U}\mathbf{G}_{\mathrm{correct}}^{1/2}\mathbf{z}} using the full penalized GLS information, reflecting cross-partition posterior covariance induced by off-diagonal blocks of \eqn{\mathbf{V}^{-1/2}}.}
   \item{find_extremum}{Function for optimizing the fitted function. Accepts both numeric column indices and character column names for \code{vars}. When \code{select_vars_fl = TRUE}, L-BFGS-B bounds are correctly subsetted to the optimized variables.}
   \item{plot}{Function for visualizing fitted curves.}
   \item{quadprog_list}{List containing quadratic programming components if applicable.}
-  \item{.fit_call_args}{List containing the arguments passed to \eqn{\code{\lgspline}}.}
+  \item{.fit_call_args}{List containing the arguments passed to
+    \code{\link{lgspline}}.}
 }
 
 The returned object has class \code{"lgspline"} and provides comprehensive tools for
@@ -394,9 +687,10 @@ interactions and non-spline effects to be included.
 
 \code{lgspline} fits piecewise polynomial regression splines constrained to be smooth where
 they meet, penalized by the squared, integrated, second-derivative of the
-estimated function with respect to predictors.
+estimated function with respect to predictors, using a monomial basis.
 
-The method of Lagrangian multipliers is used to enforce the following:
+The method of Lagrangian multipliers is used to derive a polynomial regression spline
+that enforces the following smoothing constraints:
 \itemize{
   \item Equivalent fitted values at knots
   \item Equivalent first derivatives at knots, with respect to predictors
@@ -407,9 +701,11 @@ The coefficients are penalized by a closed-form of the traditional
 cubic smoothing spline penalty, as well as tunable modifications that allow
 for unique penalization of multiple predictors and partitions.
 
-This package supports model fitting for multiple spline and non-spline effects, GLM families,
-Weibull accelerated failure time (AFT) models, correlation structures, quadratic
-programming constraints, and extensive customization for user-defined models.
+This package supports model fitting for multiple spline and non-spline effects,
+GLM families, Weibull accelerated failure time (AFT) models,
+Cox proportional-Hazards models, negative-binomial regression,
+arbitrary correlation structures, shape constraints, and extensive
+customization for user-defined models and constraints.
 
 In addition, parallel processing capabilities and comprehensive
 tools for visualization, frequentist, and Bayesian inference are provided.
@@ -425,6 +721,186 @@ A flexible and interpretable implementation of smoothing splines including:
   \item Comprehensive inference tools
 }
 }
+\section{Response and Predictor Setup}{
+
+These arguments control the primary data inputs and the initial
+standardization steps applied before knot placement and fitting.
+}
+
+\section{GLM Customization}{
+
+These options let you override the default GLM working-weight,
+dispersion, and partition-wise unconstrained fitting behavior.
+}
+
+\section{Knots and Partitioning}{
+
+These arguments determine how the predictor space is partitioned and how
+knot locations are chosen or reused.
+}
+
+\section{Penalty}{
+
+These arguments configure the smoothing penalty itself and the optional
+generalized cross-validation tuning procedure.
+}
+
+\section{Basis Expansions}{
+
+These arguments control which polynomial and interaction terms are included
+in the partition-specific design matrices.
+}
+
+\section{Constraints}{
+
+These arguments govern the smoothness equalities and any additional user
+supplied linear equality constraints.
+}
+
+\section{Quadratic Programming}{
+
+These arguments activate built-in or custom inequality constraints handled
+through quadratic programming.
+}
+
+\section{Parallel Processing}{
+
+These arguments control which computational subroutines may run in parallel
+and how work is chunked across cluster workers.
+}
+
+\section{Tuning Control}{
+
+These options control iterative updates during penalty tuning and the final
+constrained fit.
+}
+
+\section{Return Control}{
+
+These arguments determine which intermediate matrices and inferential
+quantities are retained in the returned fit object.
+}
+
+\section{Correlation Structures}{
+
+These arguments enable built-in or custom working-correlation structures for
+longitudinal, clustered, or spatially indexed responses.
+}
+
+\section{Grouped Argument Lists}{
+
+For convenience, related arguments can be bundled into named lists.
+When a grouped argument is non-NULL, its entries overwrite the corresponding
+individual arguments. Individual arguments remain available for backward compatibility.
+
+\describe{
+  \item{\code{penalty_args}}{Groups: \code{wiggle_penalty},
+    \code{flat_ridge_penalty}, \code{unique_penalty_per_partition},
+    \code{unique_penalty_per_predictor}, \code{meta_penalty},
+    \code{predictor_penalties}, \code{partition_penalties},
+    \code{custom_penalty_mat}, \code{previously_tuned_penalties},
+    \code{smoothing_spline_penalty}.}
+  \item{\code{tuning_args}}{Groups: \code{opt},
+    \code{use_custom_bfgs}, \code{delta}, \code{tol},
+    \code{initial_wiggle}, \code{initial_flat},
+    \code{iterate_tune}, \code{iterate_final_fit}.}
+  \item{\code{expansion_args}}{Groups: \code{include_quadratic_terms},
+    \code{include_cubic_terms}, \code{include_quartic_terms},
+    \code{include_2way_interactions}, \code{include_3way_interactions},
+    \code{include_quadratic_interactions},
+    \code{just_linear_with_interactions},
+    \code{just_linear_without_interactions},
+    \code{exclude_interactions_for}, \code{exclude_these_expansions},
+    \code{custom_basis_fxn}, \code{offset}.}
+  \item{\code{constraint_args}}{Groups:
+    \code{include_constrain_fitted},
+    \code{include_constrain_first_deriv},
+    \code{include_constrain_second_deriv},
+    \code{include_constrain_interactions},
+    \code{constraint_values}, \code{constraint_vectors},
+    \code{no_intercept}.}
+  \item{\code{qp_args}}{Groups all \code{qp_*} arguments.}
+  \item{\code{parallel_args}}{Groups: \code{cl},
+    \code{chunk_size}, and all \code{parallel_*} flags.}
+  \item{\code{covariance_args}}{Groups: \code{correlation_id},
+    \code{spacetime}, \code{correlation_structure},
+    \code{VhalfInv}, \code{Vhalf}, \code{VhalfInv_fxn},
+    \code{Vhalf_fxn}, \code{VhalfInv_par_init},
+    \code{REML_grad}, \code{custom_VhalfInv_loss},
+    \code{VhalfInv_logdet}.}
+  \item{\code{return_args}}{Groups: \code{return_G},
+    \code{return_Ghalf}, \code{return_U},
+    \code{estimate_dispersion}, \code{unbias_dispersion},
+    \code{return_varcovmat}, \code{exact_varcovmat},
+    \code{return_lagrange_multipliers}.}
+  \item{\code{glm_args}}{Groups: \code{glm_weight_function},
+    \code{schur_correction_function},
+    \code{need_dispersion_for_estimation},
+    \code{dispersion_function}, \code{unconstrained_fit_fxn},
+    \code{keep_weighted_Lambda}.}
+}
+}
+
+\section{Miscellaneous}{
+
+These remaining arguments affect inference defaults, numerical safeguards,
+verbosity, and developer-oriented diagnostics.
+}
+
+\section{Grouped Arguments}{
+
+For convenience, related arguments can be bundled into named lists.
+When a grouped argument is non-NULL, its entries overwrite the
+corresponding individual arguments. Individual arguments remain
+available for backward compatibility.
+
+\describe{
+  \item{\code{penalty_args}}{List. Groups: \code{wiggle_penalty},
+    \code{flat_ridge_penalty}, \code{unique_penalty_per_partition},
+    \code{unique_penalty_per_predictor}, \code{meta_penalty},
+    \code{predictor_penalties}, \code{partition_penalties},
+    \code{custom_penalty_mat}, \code{previously_tuned_penalties},
+    \code{smoothing_spline_penalty}.}
+  \item{\code{tuning_args}}{List. Groups: \code{opt},
+    \code{use_custom_bfgs}, \code{delta}, \code{tol},
+    \code{initial_wiggle}, \code{initial_flat},
+    \code{iterate_tune}, \code{iterate_final_fit}.}
+  \item{\code{expansion_args}}{List. Groups: \code{include_quadratic_terms},
+    \code{include_cubic_terms}, \code{include_quartic_terms},
+    \code{include_2way_interactions}, \code{include_3way_interactions},
+    \code{include_quadratic_interactions},
+    \code{just_linear_with_interactions},
+    \code{just_linear_without_interactions},
+    \code{exclude_interactions_for}, \code{exclude_these_expansions},
+    \code{custom_basis_fxn}, \code{offset}.}
+  \item{\code{constraint_args}}{List. Groups:
+    \code{include_constrain_fitted},
+    \code{include_constrain_first_deriv},
+    \code{include_constrain_second_deriv},
+    \code{include_constrain_interactions},
+    \code{constraint_values}, \code{constraint_vectors},
+    \code{no_intercept}.}
+  \item{\code{qp_args}}{List. Groups all \code{qp_*} arguments.}
+  \item{\code{parallel_args}}{List. Groups: \code{cl},
+    \code{chunk_size}, and all \code{parallel_*} flags.}
+  \item{\code{covariance_args}}{List. Groups: \code{correlation_id},
+    \code{spacetime}, \code{correlation_structure},
+    \code{VhalfInv}, \code{Vhalf}, \code{VhalfInv_fxn},
+    \code{Vhalf_fxn}, \code{VhalfInv_par_init},
+    \code{REML_grad}, \code{custom_VhalfInv_loss},
+    \code{VhalfInv_logdet}.}
+  \item{\code{return_args}}{List. Groups: \code{return_G},
+    \code{return_Ghalf}, \code{return_U},
+    \code{estimate_dispersion}, \code{unbias_dispersion},
+    \code{return_varcovmat}, \code{return_lagrange_multipliers}.}
+  \item{\code{glm_args}}{List. Groups: \code{glm_weight_function},
+    \code{schur_correction_function},
+    \code{need_dispersion_for_estimation},
+    \code{dispersion_function}, \code{unconstrained_fit_fxn},
+    \code{keep_weighted_Lambda}.}
+}
+}
+
 \examples{
 
 ## ## ## ## Simple Examples ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
@@ -436,12 +912,6 @@ model_fit <- lgspline(t, y)
 plot(t, y, main = 'Observed Data vs. Fitted Function, Colored by Partition',
      ylim = c(-10, 10))
 plot(model_fit, add = TRUE)
-points(t, antiderivative(model_fit)[[1]], cex = 0.5, col = 'grey')
-legend('topright',
-       col = c('grey'),
-       lty = 1,
-       cex = 0.5,
-       legend = c('Antiderivative (Up to a Constant of Integration)'))
 
 ## Repeat using logistic regression, with univariate inference shown
 # and alternative function call
@@ -449,8 +919,7 @@ y <- rbinom(length(y), 1, 1/(1+exp(-std(y))))
 df <- data.frame(t = t, y = y)
 model_fit <- lgspline(y ~ spl(t),
                       df,
-                      opt = FALSE, # no tuning penalties
-                      family = quasibinomial())
+                      family = binomial())
 plot(t, y, main = 'Observed Data vs Fitted Function with Formulas and Derivatives',
   ylim = c(-0.5, 1.05), cex.main = 0.8)
 plot(model_fit,
@@ -544,10 +1013,10 @@ x <- dat[,'t']
 y <- dat[,'y']
 
 ## Fit Model, 4 equivalent ways are shown below
-model_fit <- lgspline(t, y)
-model_fit <- lgspline(y ~ spl(t), as.data.frame(dat))
-model_fit <- lgspline(response = y, predictors = t)
-model_fit <- lgspline(data = as.data.frame(dat), formula = y ~ .)
+model_fit <- lgspline(t, y, opt = FALSE)
+model_fit <- lgspline(y ~ spl(t), as.data.frame(dat), opt = FALSE)
+model_fit <- lgspline(response = y, predictors = t, opt = FALSE)
+model_fit <- lgspline(data = as.data.frame(dat), formula = y ~ ., opt = FALSE)
 
 # This is not valid: lgspline(y ~ ., t)
 # This is not valid: lgspline(y, data = as.data.frame(dat))
@@ -555,7 +1024,8 @@ model_fit <- lgspline(data = as.data.frame(dat), formula = y ~ .)
 
 ## Basic Functionality
 predict(model_fit, new_predictors = rnorm(1)) # make prediction on new data
-suppressWarnings(head(leave_one_out(model_fit))) # leave-one-out cross-validated predictions will return NA if leverage is too high
+loo_vals <- suppressWarnings(head(leave_one_out(model_fit)))
+loo_vals # may contain NA when leverage is too high
 coef(model_fit) # extract coefficients
 summary(model_fit) # model information and Wald inference
 generate_posterior(model_fit) # generate draws of parameters from posterior distribution
@@ -599,6 +1069,11 @@ plot(model_fit,
      custom_predictor_lab = 't',
      custom_response_lab = 'y')
 
+## Posterior draws under constraint
+draw <- generate_posterior(model_fit, enforce_qp_constraints = TRUE)
+pr <- predict(model_fit, B_predict = draw$post_draw_coefficients)
+points(t, pr, col = 'grey')
+
 ## ## ## ## 2D Example using Volcano Dataset ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Prep
 data('volcano')
@@ -624,15 +1099,15 @@ model_fit <- lgspline(volcano_long[,c(1, 2)],
                       K = 49,
                       opt = FALSE,
                       return_U = FALSE,
-                      return_varcov = FALSE,
-                      estimate_variance = TRUE,
+                      return_varcovmat = FALSE,
+                      estimate_dispersion = TRUE,
                       return_Ghalf = FALSE,
                       return_G = FALSE,
                       include_constrain_second_deriv = FALSE,
                       unique_penalty_per_predictor = FALSE,
                       unique_penalty_per_partition = FALSE,
                       wiggle_penalty = 1e-10, # the fixed wiggle penalty
-                      flat_ridge_penalty = 0) # the ridge penalty / wiggle penalty
+                      flat_ridge_penalty = 1e-2) # the ridge penalty / wiggle penalty
 
 ## Plotting on new data with interactive visual + formulas
 new_input <- expand.grid(seq(min(volcano_long[,1]),
@@ -647,6 +1122,11 @@ plot(model_fit,
      custom_response_lab = "Height",
      custom_title = 'Volcano 3-D Map',
      digits = 2)
+
+## Get AUC
+area_under_volcano <- integrate(model_fit,
+                               lower = apply(volcano_long, 2, min)[1:2],
+                               upper = apply(volcano_long, 2, max)[1:2])
 
 ## ## ## ## Advanced Techniques using Trees Dataset ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Goal here is to introduce how lgspline works with non-canonical GLMs and
@@ -716,7 +1196,7 @@ model_fit <- lgspline(
      family,
      observation_weights,
      VhalfInv,
-   ...){
+     ...){
     mean(
       mu^2/((y-mu)^2)
     )
@@ -872,39 +1352,43 @@ abs(fit2$B[[1]][1]) < 1e-8
 # Typically the schur_correction_function would return a negative-definite
 # matrix, as its output is elementwise added to the information matrix prior
 # to inversion.
-require(survival)
-df <- data.frame(na.omit(
-  pbc[,c('time','trt','stage','hepato','bili','age','status')]
-))
+if (requireNamespace("survival", quietly = TRUE)) {
+  data("pbc", package = "survival")
+  df <- data.frame(na.omit(
+    pbc[, c("time", "trt", "stage", "hepato", "bili", "age", "status")]
+  ))
 
-## Weibull AFT using lgspline, showing how some custom options can be used to
-# fit more complicated models
-model_fit <- lgspline(time ~ trt + stage + hepato + bili + age,
-                      df,
-                      family = weibull_family(),
-                      need_dispersion_for_estimation = TRUE,
-                      dispersion_function = weibull_dispersion_function,
-                      glm_weight_function = weibull_glm_weight_function,
-                      schur_correction_function = weibull_schur_correction,
-                      unconstrained_fit_fxn = unconstrained_fit_weibull,
-                      opt = FALSE,
-                      wiggle_penalty = 0,
-                      flat_ridge_penalty = 0,
-                      K = 0,
-                      status = pbc$status!=0)
-print(summary(model_fit))
+  ## Weibull AFT using lgspline, showing how some custom options can be used to
+  # fit more complicated models
+  model_fit <- lgspline(time ~ trt + stage + hepato + bili + age,
+                        df,
+                        family = weibull_family(),
+                        need_dispersion_for_estimation = TRUE,
+                        dispersion_function = weibull_dispersion_function,
+                        glm_weight_function = weibull_glm_weight_function,
+                        schur_correction_function = weibull_schur_correction,
+                        unconstrained_fit_fxn = unconstrained_fit_weibull,
+                        opt = FALSE,
+                        wiggle_penalty = 0,
+                        flat_ridge_penalty = 0,
+                        K = 0,
+                        status = df$status != 0)
+  print(summary(model_fit))
 
-## Survreg results match closely on estimates and inference for coefficients
-survreg_fit <- survreg(Surv(time, status!=0) ~ trt + stage + hepato + bili + age,
-                       df)
-print(summary(survreg_fit))
+  ## Survreg results match closely on estimates and inference for coefficients
+  survreg_fit <- survival::survreg(
+    survival::Surv(time, status != 0) ~ trt + stage + hepato + bili + age,
+    df
+  )
+  print(summary(survreg_fit))
 
-## sigmasq_tilde = scale^2 of survreg
-print(c(sqrt(model_fit$sigmasq_tilde), survreg_fit$scale))
+  ## sigmasq_tilde = scale^2 of survreg
+  print(c(sqrt(model_fit$sigmasq_tilde), survreg_fit$scale))
+}
 
 ## ## ## ## Modelling Correlation Structures ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Setup
-n_blocks <- 150 # Number of correlation_ids (subjects)
+n_blocks <- 200 # Number of correlation_ids (subjects)
 block_size <- 5 # Size of each correlation_ids (number of repeated measures per subj.)
 N <- n_blocks * block_size # total sample size (balanced here)
 rho_true <- 0.25  # True correlation
@@ -949,13 +1433,11 @@ print(c("True correlation:" = rho_true,
         "Estimated correlation:" = rho_est))
 
 ## Quantify uncertainty in correlation estimate with 95\% confidence interval
-# CI is constructed on the working scale and back-transformed
-se <- c(sqrt(diag(model_fit$VhalfInv_params_vcov))) / sqrt(model_fit$N)
-ci <- exp(-exp(model_fit$VhalfInv_params_estimates + c(-1.96, 1.96)*se))
-# Note: the transformation reverses order since exp(-exp(.)) is decreasing
-ci <- rev(ci)
+#  CI is constructed on the working scale and back-transformed
+ci_transformed <- confint(model_fit)['Correlation parameter 1',]
+ci_natural <- sort(exp(-exp(ci_transformed)))
 print("95\% CI for correlation:")
-print(ci)
+print(ci_natural)
 
 ## Also check SD (should be close to 0.5)
 print(sqrt(model_fit$sigmasq_tilde))
@@ -967,281 +1449,230 @@ print(sqrt(model_fit$sigmasq_tilde))
 # If a GLM was to-be-fit, you would also submit a function "Vhalf_fxn" analogous
 # to VhalfInv_fxn with same argument (par) and an output of an N x N matrix
 # that yields the inverse of VhalfInv_fxn output.
-n_blocks <- 150   # Number of correlation_ids
-block_size <- 4   # Observations per correlation_id
+n_blocks <- 250   # Number of correlation_ids
+block_size <- 8   # Observations per correlation_id
 N <- n_blocks * block_size # total sample size
-rho_true <- 0.5    # True correlation within correlation_ids
-true_intercept <- 2     # True intercept
-true_slope <- 0.5       # True slope for covariate
+sigma_true <- 2   # Marginal standard deviation
 
-## Create design matrix with meaningful predictors
-Tmat <- matrix(0, N, 2)
-Tmat[,1] <- 1  # Intercept
-Tmat[,2] <- cos(rnorm(N))  # Continuous predictor
-
-## True coefficients
-beta <- c(true_intercept, true_slope)
+## True Toeplitz components
+# This example uses a convex combination of two geometric lag kernels:
+# corr(h) = mix * rho_fast^h + (1 - mix) * rho_slow^h
+# which is Toeplitz and positive definite for mix in (0, 1) and
+# rho_fast, rho_slow in (0, 1).
+rho_fast_true <- 0.25
+rho_slow_true <- 0.75
+mix_true <- 0.40
 
 ## Create time and correlation_id variables
 time_var <- rep(1:block_size, n_blocks)
 correlation_id_var <- rep(1:n_blocks, each = block_size)
 
-## Create block compound symmetric errors
-errors <- Reduce('rbind',
-                 lapply(1:n_blocks, function(i) {
-                   sigma <- diag(block_size) + rho_true *
-                     (matrix(1, block_size, block_size) -
-                        diag(block_size))
-                   matsqrt(sigma) \%*\% rnorm(block_size)
-                 }))
+## Create nonlinear predictor-response relationship
+# Not sinusoidal and not polynomial.
+t_base <- seq(-2, 2, length.out = block_size)
+t <- rep(t_base, n_blocks) + rnorm(N, sd = 0.10)
+f_true <- function(t) {
+  1.4 + 0.9 * atan(1.8 * t) + 0.8 * exp(-1.2 * (t - 0.4)^2)
+}
 
-## Generate response with correlated errors and covariate effect
-y <- Tmat \%*\% beta + errors * 2
+## Generate mean structure
+mu_true <- f_true(t)
 
-## Toeplitz correlation function
-# Custom functions can use any parameterization. Here we use
-# rho_lag = exp(-exp(par[lag])) to keep correlations in (0, 1),
-# consistent with the built-in structures.
-VhalfInv_fxn <- function(par) {
-  # Initialize correlation matrix
+## Toeplitz correlation helper
+corr_from_components <- function(rho_fast, rho_slow, mix) {
   corr <- matrix(0, block_size, block_size)
-
-  # Construct Toeplitz matrix with correlation by lag
   for(i in 1:block_size) {
     for(j in 1:block_size) {
-      lag <- abs(time_var[i] - time_var[j])
+      lag <- abs(i - j)
       if(lag == 0) {
-        corr[i,j] <- 1
-      } else if(lag <= length(par)) {
-        corr[i,j] <- exp(-exp(par[lag]))
+        corr[i, j] <- 1
+      } else {
+        corr[i, j] <- mix * rho_fast^lag + (1 - mix) * rho_slow^lag
       }
     }
   }
+  corr
+}
 
-  ## Matrix square root inverse
-  corr_inv_sqrt <- matinvsqrt(corr)
+## Toeplitz correlation function
+\donttest{
+# Custom functions can use any parameterization. Here we map:
+#   par[1] -> rho_fast = exp(-exp(par[1]))
+#   par[2] -> rho_slow = exp(-exp(par[2]))
+#   par[3] -> mix      = plogis(par[3])
+# so the parameter space is unconstrained, while the resulting Toeplitz
+# correlation matrix remains valid.
+corr_from_par <- function(par) {
+  rho_fast <- exp(-exp(par[1]))
+  rho_slow <- exp(-exp(par[2]))
+  mix <- plogis(par[3])
+  corr_from_components(rho_fast, rho_slow, mix)
+}
 
-  ## Expand to full matrix using Kronecker product
-  kronecker(diag(n_blocks), corr_inv_sqrt)
+## Create block Toeplitz errors from the same family we will fit
+corr_true <- corr_from_components(rho_fast_true, rho_slow_true, mix_true)
+errors <- Reduce('c',
+                 lapply(1:n_blocks, function(i) {
+                   c(matsqrt(corr_true) \%*\% rnorm(block_size))
+                 }))
+
+## Generate response with correlated errors and nonlinear covariate effect
+y <- mu_true + sigma_true * errors
+
+VhalfInv_fxn <- function(par) {
+  corr <- corr_from_par(par)
+  kronecker(diag(n_blocks), matinvsqrt(corr))
+}
+
+Vhalf_fxn <- function(par) {
+  corr <- corr_from_par(par)
+  kronecker(diag(n_blocks), matsqrt(corr))
 }
 
 ## Determinant function (for efficiency)
 # This avoids taking determinant of N by N matrix
 VhalfInv_logdet <- function(par) {
-  # Initialize correlation matrix
-  corr <- matrix(0, block_size, block_size)
+  corr <- corr_from_par(par)
+  log_det_invsqrt_corr <- -0.5 * determinant(corr, logarithm = TRUE)$modulus[1]
+  n_blocks * log_det_invsqrt_corr
+}
 
-  # Construct Toeplitz matrix
-  for(i in 1:block_size) {
-    for(j in 1:block_size) {
-      lag <- abs(time_var[i] - time_var[j])
-      if(lag == 0) {
-        corr[i,j] <- 1
-      } else if(lag <= length(par)) {
-        corr[i,j] <- exp(-exp(par[lag]))
-      }
-    }
-  }
-
-  # Compute log determinant
-  log_det_invsqrt_corr <- -0.5 * determinant(corr, logarithm=TRUE)$modulus[1]
-  return(n_blocks * log_det_invsqrt_corr)
+## GLM weights for REML gradient helper
+# For Gaussian identity, these are all 1.
+glm_weight_function <- function(mu, y, order_indices, family,
+                                dispersion, observation_weights, ...) {
+  rep(1, length(mu))
 }
 
 ## REML gradient function
-# The gradient has three terms per parameter (see ?`.reml_grad_from_dV`):
-#   (i)   0.5 * tr(V^{-1} dV/dpar) => log-determinant of V
-#   (ii)  -0.5/sigma^2 * t(r) dV/dpar r => residual quadratic form
-#   (iii) -0.5 * tr(M^+ t(X*)V^{-1}dV V^{-1}X*) => REML correction
-# where X* = XU is the constrained design and
-# M = t(X*)V^{-1}X* + t(U) Lambda U is the projected penalized information.
+# The helper reml_grad_from_dV computes the three REML terms once dV / dpar
+# is supplied. For this parameterization, dV / dpar has closed form.
 REML_grad <- function(par, model_fit, ...) {
-  ## Initialize gradient vector
-  n_par <- length(par)
-  gradient <- numeric(n_par)
+  rho_fast <- exp(-exp(par[1]))
+  rho_slow <- exp(-exp(par[2]))
+  mix <- plogis(par[3])
 
-  ## Process derivatives one parameter at a time
-  for(p in 1:n_par) {
-    ## Initialize derivative matrix
-    dV <- matrix(0, nrow(model_fit$VhalfInv), ncol(model_fit$VhalfInv))
-    V <- matrix(0, nrow(model_fit$VhalfInv), ncol(model_fit$VhalfInv))
+  dV1_block <- matrix(0, block_size, block_size)
+  dV2_block <- matrix(0, block_size, block_size)
+  dV3_block <- matrix(0, block_size, block_size)
 
-    ## Compute full correlation matrix and its derivative for parameter p
-    for(clust in unique(correlation_id_var)) {
-      inds <- which(correlation_id_var == clust)
-      block_size <- length(inds)
-
-      ## Initialize block matrices
-      V_block <- matrix(0, block_size, block_size)
-      dV_block <- matrix(0, block_size, block_size)
-
-      ## Construct Toeplitz matrix and its derivative
-      for(i in 1:block_size) {
-        for(j in 1:block_size) {
-          lag <- abs(time_var[i] - time_var[j])
-
-          if(i == j) {
-            V_block[i,j] <- 1
-            dV_block[i,j] <- 0
-          } else {
-            if(lag <= length(par)) {
-              ## Correlation via exp(-exp(.)) parameterization
-              rho_lag <- exp(-exp(par[lag]))
-              V_block[i,j] <- rho_lag
-
-              ## Derivative for the relevant parameter only
-              ## d/dpar exp(-exp(par)) = -exp(par) * exp(-exp(par))
-              if(lag == p) {
-                dV_block[i,j] <- -exp(par[p]) * rho_lag
-              }
-            }
-          }
-        }
+  for(i in 1:block_size) {
+    for(j in 1:block_size) {
+      lag <- abs(i - j)
+      if(lag > 0) {
+        ## d/dpar[1] through rho_fast = exp(-exp(par[1]))
+        dV1_block[i, j] <- -mix * lag * exp(par[1]) * rho_fast^lag
+        ## d/dpar[2] through rho_slow = exp(-exp(par[2]))
+        dV2_block[i, j] <- -(1 - mix) * lag * exp(par[2]) * rho_slow^lag
+        ## d/dpar[3] through mix = plogis(par[3])
+        dV3_block[i, j] <- mix * (1 - mix) * (rho_fast^lag - rho_slow^lag)
       }
-
-      ## Assign blocks to full matrices
-      V[inds, inds] <- V_block
-      dV[inds, inds] <- dV_block
     }
-
-    ## GLM Weights (all 1s for Gaussian identity link)
-    glm_weights <- rep(1, model_fit$N)
-
-    ## (ii) Quadratic form contribution
-    resid <- model_fit$y - model_fit$ytilde
-    VinvResid <- model_fit$VhalfInv \%*\% cbind(resid) / glm_weights
-    quad_term <- -0.5 * ((t(VinvResid) \%*\% dV) \%*\% VinvResid) /
-      model_fit$sigmasq_tilde
-
-    ## (i) Log|V| contribution
-    trace_term <- 0.5 * sum((model_fit$VhalfInv \%*\% dV) *
-                               model_fit$VhalfInv)
-
-    ## (iii) REML correction on constrained design X* = XU
-    U <- t(t(model_fit$U) * rep(c(1, model_fit$expansion_scales),
-                                model_fit$K + 1)) /
-      model_fit$sd_y
-    VhalfInvX <- model_fit$VhalfInv \%*\%
-      collapse_block_diagonal(model_fit$X)[unlist(
-        model_fit$og_order
-      ),] \%*\%
-      U
-
-    ## Build projected penalty t(U) Lambda U
-    if(length(model_fit$penalties$L_partition_list) != (model_fit$K + 1)){
-      model_fit$penalties$L_partition_list <- lapply(
-        1:(model_fit$K + 1), function(k)0
-      )
-    }
-    Lambda_raw <- collapse_block_diagonal(
-      lapply(1:(model_fit$K + 1),
-             function(k)
-               c(1, model_fit$expansion_scales) * (
-                 model_fit$penalties$L_partition_list[[k]] +
-                   model_fit$penalties$Lambda) \%*\%
-               diag(c(1, model_fit$expansion_scales)) /
-               model_fit$sd_y^2
-      )
-    )
-    ULambdaU <- t(U) \%*\% Lambda_raw \%*\% U
-
-    ## Projected penalized information inverse
-    XVinvX_inv <- invert(crossprod(t(t(VhalfInvX) * c(glm_weights))) +
-                           ULambdaU)
-    VInvX <- model_fit$VhalfInv \%*\% VhalfInvX
-    sc <- sqrt(norm(VInvX, '2'))
-    VInvX <- VInvX/sc
-    dXVinvX <-
-      (XVinvX_inv \%*\% t(VInvX)) \%*\%
-      (dV \%*\% VInvX)
-    XVinvX_term <- -0.5 * colSums(cbind(c(diag(dXVinvX) * sc))) * sc
-
-    ## Store gradient component (all three terms)
-    gradient[p] <- as.numeric(quad_term + trace_term + XVinvX_term)
   }
 
-  ## Return normalized gradient
-  return(gradient / model_fit$N)
+  dV1 <- kronecker(diag(n_blocks), dV1_block)
+  dV2 <- kronecker(diag(n_blocks), dV2_block)
+  dV3 <- kronecker(diag(n_blocks), dV3_block)
+
+  gradient <- numeric(3)
+  gradient[1] <- lgspline::reml_grad_from_dV(dV1, model_fit,
+                                   glm_weight_function, ...)
+  gradient[2] <- reml_grad_from_dV(dV2, model_fit,
+                                   glm_weight_function, ...)
+  gradient[3] <- reml_grad_from_dV(dV3, model_fit,
+                                   glm_weight_function, ...)
+  gradient
 }
 
 ## Visualization
-plot(time_var, y, col = correlation_id_var,
-     main = "Simulated Data with Toeplitz Correlation")
+plot(t, y, col = correlation_id_var,
+     main = 'Simulated Data with Toeplitz Correlation')
 
-## Fit model with custom Toeplitz (takes ~ 5-10 minutes on my laptop)
-# Note, for GLMs, efficiency would be improved by supplying a Vhalf_fxn
-# although strictly only VhalfInv_fxn and VhalfInv_par_init are needed
+## Fit model with custom Toeplitz
 model_fit <- lgspline(
   response = y,
-  predictors = Tmat[,2],
+  predictors = t,
   K = 4,
+  standardize_response = FALSE,
   VhalfInv_fxn = VhalfInv_fxn,
+  Vhalf_fxn = Vhalf_fxn,
   VhalfInv_logdet = VhalfInv_logdet,
   REML_grad = REML_grad,
-  VhalfInv_par_init = log(-log(c(0.5, 0.5, 0.5))),
+  VhalfInv_par_init = c(0, -1, 0),
   include_warnings = FALSE
 )
+}
 
 ## Print comparison of true and estimated correlations
-rho_true <- rep(0.5, 3)
-rho_est <- exp(-exp(model_fit$VhalfInv_params_estimates))
-cat("Correlation Estimates:\n")
+lag_values <- 1:(block_size - 1)
+corr_true_by_lag <- sapply(lag_values, function(h) {
+  mix_true * rho_fast_true^h + (1 - mix_true) * rho_slow_true^h
+})
+rho_fast_est <- exp(-exp(model_fit$VhalfInv_params_estimates[1]))
+rho_slow_est <- exp(-exp(model_fit$VhalfInv_params_estimates[2]))
+mix_est <- plogis(model_fit$VhalfInv_params_estimates[3])
+corr_est_by_lag <- sapply(lag_values, function(h) {
+  mix_est * rho_fast_est^h + (1 - mix_est) * rho_slow_est^h
+})
+cat('Toeplitz Correlation Estimates by Lag:\n')
 print(data.frame(
-  "True Correlation" = rho_true,
-  "Estimated Correlation" = rho_est
+  Lag = lag_values,
+  True.Correlation = round(corr_true_by_lag, 4),
+  Estimated.Correlation = round(corr_est_by_lag, 4)
 ))
 
 ## Should be ~ 2
 print(sqrt(model_fit$sigmasq_tilde))
 
 ## ## ## ## Parallelism ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-## Data generating function
-a <- runif(500000, -9, 9)
-b <- runif(500000, -9, 9)
-c <- rnorm(500000)
-d <- rpois(500000, 1)
-y <- sin(a) + cos(b) - 0.2*sqrt(a^2 + b^2) +
-  abs(a) + b +
-  0.5*(a^2 + b^2) +
-  (1/6)*(a^3 + b^3) +
-  a*b*c -
-  c +
-  d +
-  rnorm(500000, 0, 5)
+if (requireNamespace("parallel", quietly = TRUE)) {
+  ## Data generating function
+  a <- runif(500000, -9, 9)
+  b <- runif(500000, -9, 9)
+  c <- rnorm(500000)
+  d <- rpois(500000, 1)
+  y <- sin(a) + cos(b) - 0.2*sqrt(a^2 + b^2) +
+    abs(a) + b +
+    0.5*(a^2 + b^2) +
+    (1/6)*(a^3 + b^3) +
+    a*b*c -
+    c +
+    d +
+    rnorm(500000, 0, 5)
 
-## Set up cores
-cl <- parallel::makeCluster(1)
-on.exit(parallel::stopCluster(cl))
+  ## Set up cores
+  cl <- parallel::makeCluster(1)
+  on.exit(try(parallel::stopCluster(cl), silent = TRUE), add = TRUE)
 
-## This example shows some options for what operations can be parallelized
-# By default, only parallel_eigen and parallel_unconstrained are TRUE
-# parallel_unconstrained is only for GLMs, for identity link Gaussian
-# response, use parallel_matmult=TRUE to ensure parallel fitting across
-# partitions.
-# G, G^{-1/2}, and G^{1/2} are computed in parallel across each of the
-# K+1 partitions.
-# However, parallel_unconstrained only affects GLMs without corr. components
-# - it does not affect fitting here
-system.time({
-  parfit <- lgspline(y ~ spl(a, b) + a*b*c + d,
-                     data = data.frame(y = y,
-                                       a = a,
-                                       b = b,
-                                       c = c,
-                                       d = d),
-                     cl = cl,
-                     K = 1,
-                     parallel_eigen = TRUE,
-                     parallel_unconstrained = TRUE,
-                     parallel_aga = FALSE,
-                     parallel_find_neighbors = FALSE,
-                     parallel_trace = FALSE,
-                     parallel_matmult = TRUE,
-                     parallel_make_constraint = FALSE,
-                     parallel_penalty = FALSE)
-})
-parallel::stopCluster(cl)
-print(summary(parfit))
+  ## This example shows some options for what operations can be parallelized
+  # By default, only parallel_eigen and parallel_unconstrained are TRUE
+  # parallel_unconstrained is only for GLMs, for identity link Gaussian
+  # response, use parallel_matmult=TRUE to ensure parallel fitting across
+  # partitions.
+  # G, G^{-1/2}, and G^{1/2} are computed in parallel across each of the
+  # K+1 partitions.
+  # However, parallel_unconstrained only affects GLMs without corr. components
+  # - it does not affect fitting here
+  system.time({
+    parfit <- lgspline(y ~ spl(a, b) + a*b*c + d,
+                       data = data.frame(y = y,
+                                         a = a,
+                                         b = b,
+                                         c = c,
+                                         d = d),
+                       cl = cl,
+                       K = 1,
+                       parallel_eigen = TRUE,
+                       parallel_unconstrained = TRUE,
+                       parallel_aga = FALSE,
+                       parallel_find_neighbors = FALSE,
+                       parallel_trace = FALSE,
+                       parallel_matmult = TRUE,
+                       parallel_make_constraint = FALSE,
+                       parallel_penalty = FALSE)
+  })
+  print(summary(parfit))
+}
 
 
 }

@@ -3,17 +3,16 @@
 \name{leave_one_out}
 \alias{leave_one_out}
 \title{Compute Leave-One-Out Cross-Validated Predictions for
-Gaussian Response/Identity Link under Constraint.}
+Gaussian Response/Identity Link under Constraint}
 \usage{
 leave_one_out(model_fit, leverage_threshold = 100)
 }
 \arguments{
 \item{model_fit}{A fitted lgspline model object.}
 
-\item{leverage_threshold}{Numeric scalar in (0, 1). Observations with
+\item{leverage_threshold}{Numeric scalar. Observations with
 \eqn{H_{ii} \geq} \code{leverage_threshold} are treated as
-high-leverage and their LOO predictions are set to \code{NA}.
-Default \code{100}.}
+high-leverage for the warning below. Default \code{100}.}
 }
 \value{
 A vector of leave-one-out cross-validated predictions
@@ -28,11 +27,16 @@ The LOO closed-formula for observation \eqn{i} is \eqn{\hat{y}_{(-i)} = y_i -
 smoothing constraints, adjusted for weights and correlation structure if
 present.
 
-Observations with leverage at or above \code{leverage_threshold} have
-the denominator \eqn{1 - H_{ii}} near zero, making the shortcut
-numerically unreliable. A warning is
-issued to consider re-fitting with greater penalties or fewer knots if
-many observations are flagged.
+Observations with leverage at or above \code{leverage_threshold} are flagged
+in a warning, since extreme hat values can make the shortcut numerically
+unreliable. The default \code{leverage_threshold = 100} is intentionally
+permissive, so users who want diagnostic warnings for large \eqn{H_{ii}}
+should set a smaller threshold explicitly.
+
+For related discussion of prediction-sum-of-squares calculations under
+linear restrictions, see Tarpey (2000), who studies the PRESS statistic for
+restricted least squares. That setting is closely related to the
+constraint-adjusted hat-matrix shortcut used here.
 }
 \examples{
 
@@ -49,4 +53,9 @@ plot(loo, y,
    xlab = 'Prediction', ylab = 'Response')
 abline(0, 1)
 
+}
+\references{
+Tarpey, T. (2000). A note on the prediction sum of squares statistic for
+restricted least squares. \emph{The American Statistician}, 54(2), 116--118.
+\doi{10.2307/2686028}
 }

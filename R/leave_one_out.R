@@ -1,5 +1,5 @@
 #' Compute Leave-One-Out Cross-Validated Predictions for
-#' Gaussian Response/Identity Link under Constraint.
+#' Gaussian Response/Identity Link under Constraint
 #'
 #' @description
 #' Computes the leave-one-out cross-validated predictions from a model
@@ -11,17 +11,21 @@
 #' smoothing constraints, adjusted for weights and correlation structure if
 #' present.
 #'
-#' Observations with leverage at or above \code{leverage_threshold} have
-#' the denominator \eqn{1 - H_{ii}} near zero, making the shortcut
-#' numerically unreliable. A warning is
-#' issued to consider re-fitting with greater penalties or fewer knots if
-#' many observations are flagged.
+#' Observations with leverage at or above \code{leverage_threshold} are flagged
+#' in a warning, since extreme hat values can make the shortcut numerically
+#' unreliable. The default \code{leverage_threshold = 100} is intentionally
+#' permissive, so users who want diagnostic warnings for large \eqn{H_{ii}}
+#' should set a smaller threshold explicitly.
+#'
+#' For related discussion of prediction-sum-of-squares calculations under
+#' linear restrictions, see Tarpey (2000), who studies the PRESS statistic for
+#' restricted least squares. That setting is closely related to the
+#' constraint-adjusted hat-matrix shortcut used here.
 #'
 #' @param model_fit A fitted lgspline model object.
-#' @param leverage_threshold Numeric scalar in (0, 1). Observations with
+#' @param leverage_threshold Numeric scalar. Observations with
 #'   \eqn{H_{ii} \geq} \code{leverage_threshold} are treated as
-#'   high-leverage and their LOO predictions are set to \code{NA}.
-#'   Default \code{100}.
+#'   high-leverage for the warning below. Default \code{100}.
 #'
 #' @return A vector of leave-one-out cross-validated predictions
 #'
@@ -40,6 +44,11 @@
 #'    xlab = 'Prediction', ylab = 'Response')
 #' abline(0, 1)
 #'
+#' @references
+#' Tarpey, T. (2000). A note on the prediction sum of squares statistic for
+#' restricted least squares. \emph{The American Statistician}, 54(2), 116--118.
+#' \doi{10.2307/2686028}
+#'
 #' @export
 leave_one_out <- function(model_fit,
                           leverage_threshold = 100){
@@ -51,14 +60,11 @@ leave_one_out <- function(model_fit,
 
   if(!is.null(model_fit$VhalfInv)){
 
-    ## [Change 2026-02-17] Under correlated response the hat diagonal must
-    #  come from G_correct = (X'V^{-1}X + Lambda)^{-1}, not the
-    #  block-diagonal G. Uses the same G_correct path as varcovmat and
-    #  trace_XUGX for consistency, which is the P x P dense matrix
-    #  rather usual block-diagonal.
+    ## Under correlation, compute the hat diagonal from the same dense
+    #  GLS system used by varcovmat and trace_XUGX.
     X_ordered <- X_block[unlist(model_fit$og_order), , drop = FALSE]
     VinvhalfX <- t(t(model_fit$VhalfInv %**% X_ordered) *
-                     model_fit$weights)
+                     sqrt(model_fit$weights))
 
     has_part_pen <-
       length(model_fit$penalties$L_partition_list) == (model_fit$K + 1)
@@ -73,28 +79,30 @@ leave_one_out <- function(model_fit,
       })
     )
 
-    Ghalf_correct <- matinvsqrt(gramMatrix(VinvhalfXU) + Lambda_full)
+    Ghalf_correct <- matinvsqrt(crossprod(VinvhalfX) + Lambda_full)
 
-    ## hat diagonal: row-wise squared norms of V^{-1/2} X G_correct^{1/2}
-    const <- sqrt(norm(Ghalf_correct, "2"))
-    VinvhalfXUGhalf <- VinvhalfX %**% (model_fit$U %**% (Ghalf_correct / const))
-    diag_hat <- rowSums(VinvhalfXUGhalf * VinvhalfXUGhalf) * const^2
-
-    ## Reorder back to partition order used by y and ytilde
-    diag_hat <- diag_hat[unlist(model_fit$order_list)]
+    ## hat diagonal: diag(V^{-1/2} X U G X^T V^{-1/2})
+    #  = rowSums((V^{-1/2} X U G^{1/2}) * (V^{-1/2} X G^{1/2}))
+    const <- max(sqrt(norm(Ghalf_correct, "2")), sqrt(.Machine$double.eps))
+    VinvhalfXUGhalf <-
+      VinvhalfX %**% (model_fit$U %**% (Ghalf_correct / const))
+    VinvhalfXGhalf <- VinvhalfX %**% (Ghalf_correct / const)
+    diag_hat <- rowSums(VinvhalfXUGhalf * VinvhalfXGhalf) * const^2
 
   } else {
 
-    ## [Change 2026-02-17] Fixed pre-existing bug: matmult_U called with
-    #  Ghalf (not G) so that diag(X U G X') is computed rather than
-    #  diag(X U G^2 X').
-    UGhalf    <- matmult_U(model_fit$U,
-                           model_fit$Ghalf,
-                           model_fit$p,
-                           model_fit$K)
-    const  <- sqrt(norm(UGhalf, "2"))
-    X_block <- t(t(X_block) * model_fit$weights)
-    diag_hat <- rowSums((X_block %**% (UGhalf / const)) * X_block) * const
+    ## Without correlation, use the block-diagonal shortcut for the
+    #  hat diagonal.
+    UGhalf <- matmult_U(model_fit$U,
+                        model_fit$Ghalf,
+                        model_fit$p,
+                        model_fit$K)
+    Ghalf_block <- collapse_block_diagonal(model_fit$Ghalf)
+    const <- max(sqrt(norm(UGhalf, "2")), sqrt(.Machine$double.eps))
+    X_block <- t(t(X_block) * sqrt(model_fit$weights))
+    XUGhalf <- X_block %**% (UGhalf / const)
+    XGhalf <- X_block %**% (Ghalf_block / const)
+    diag_hat <- rowSums(XUGhalf * XGhalf) * const^2
     diag_hat <- diag_hat[unlist(model_fit$og_order)]
   }
 
@@ -108,6 +116,7 @@ leave_one_out <- function(model_fit,
       call. = FALSE
     )
   }
+  ## Apply the standard leave-one-out shortcut once the hat diagonal is in hand.
   denom <- 1 - diag_hat
 
   leave_one_out <- model_fit$y - (model_fit$y - model_fit$ytilde) / denom

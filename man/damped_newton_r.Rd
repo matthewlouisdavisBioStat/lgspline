@@ -30,16 +30,18 @@ damped_newton_r(
 \item{max_dmp_steps}{Maximum damping step attempts (default 16)}
 }
 \value{
-Optimized parameter estimates after convergence or reaching iteration limit
+Final parameter vector returned at termination.
 }
 \description{
-Performs iterative parameter estimation with adaptive step-size dampening
+Performs iterative parameter estimation with adaptive step-size damping
 
-Internal function for fitting unconstrained GLM models using damped
-Newton-Raphson optimization technique.
+Internal function for fitting unconstrained model components using damped
+Newton-Raphson updates.
 }
 \details{
 Implements a robust damped Newton-Raphson optimization algorithm.
+The Newton direction is computed once per outer iteration and reused
+across damping half-steps.
 }
 \seealso{
 - \code{\link{nr_iterate}} for parameter update computation
