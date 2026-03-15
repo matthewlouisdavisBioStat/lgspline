@@ -682,7 +682,7 @@ unconstrained_fit_cox <- function(X, y, LambdaHalf, Lambda,
 #' unlike for ordinary \code{\link{lgspline}}.
 #'
 #' @examples
-#' \donttest{
+#'
 #' ## Cox PH with a nonlinear age effect on lung cancer survival
 #' if(requireNamespace("survival", quietly = TRUE)) {
 #'   library(survival)
@@ -707,7 +707,6 @@ unconstrained_fit_cox <- function(X, y, LambdaHalf, Lambda,
 #'        custom_predictor_lab = 'Standardized Age',
 #'        ylim = c(0, 5))
 #'
-#' }
 #' }
 #'
 #' @export

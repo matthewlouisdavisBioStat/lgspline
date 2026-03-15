@@ -69,6 +69,7 @@ comparisons of fixed-effects structure.
 The \code{df} attribute is set to \eqn{N - \mathrm{trace}(\mathbf{XUGX}^\top)}.
 }
 \examples{
+
 set.seed(1234)
 t <- runif(1000, -10, 10)
 y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))

@@ -21,6 +21,7 @@ NULL
 #'
 #' @examples
 #'
+#'
 #' ## lgspline will not accept this format of "catvar", because inputting data
 #' # this way can cause difficult-to-diagnose issues in formula parsing
 #' # all variables must be numeric
@@ -38,6 +39,7 @@ NULL
 #' df$catvar <- NULL
 #' df <- cbind(df, dummy_intercept_coding)
 #' print(head(df))
+#'
 #'
 #'
 #' @export
@@ -65,10 +67,12 @@ create_onehot <- function(x, drop_first = FALSE) {
 #' @return Standardized vector with sample mean 0 and standard deviation 1
 #'
 #' @examples
+#'
 #' x <- c(1, 2, 3, 4, 5)
 #' std(x)
 #' print(mean(x))
 #' print(sd(x))
+#'
 #'
 #' @export
 #' @export
@@ -88,8 +92,10 @@ std <- function(x){
 #' @return Softplus transformed vector
 #'
 #' @examples
+#'
 #' x <- runif(5)
 #' softplus(x)
+#'
 #'
 #' @keywords internal
 #' @export
@@ -112,9 +118,11 @@ softplus <- function(x){
 #' @return Matrix product of x and y
 #'
 #' @examples
+#'
 #' M1 <- matrix(1:4, 2, 2)
 #' M2 <- matrix(5:8, 2, 2)
 #' M1 %**% M2
+#'
 #'
 #' @keywords internal
 #' @export
@@ -149,6 +157,7 @@ softplus <- function(x){
 #' zeroes eigenvalues below machine precision.
 #'
 #' @examples
+#'
 #' ## Well-conditioned matrix
 #' A <- matrix(c(4,2,2,4), 2, 2)
 #' invert(A) %*% A
@@ -156,6 +165,7 @@ softplus <- function(x){
 #' ## Singular matrix falls back to M.P. generalized inverse
 #' B <- matrix(c(1,1,1,1), 2, 2)
 #' invert(B) %*% B
+#'
 #'
 #' @keywords internal
 #' @export
@@ -227,6 +237,7 @@ invert <- function(mat, include_warnings = FALSE){
 #' matrix multiplied.
 #'
 #' @examples
+#'
 #' A <- list(matrix(1:4,2,2), matrix(5:8,2,2))
 #' B <- list(matrix(1:4,2,2), matrix(5:8,2,2))
 #' matmult_block_diagonal(A, B, K=1, parallel=FALSE, cl=NULL,
@@ -3006,8 +3017,8 @@ compute_dGhalf <- function(dG_dlambda,
 #'   interface.
 #'
 #' @examples
-#' ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-#' #  Verification example: 3-predictor model with all term types:
+#'
+#' ## Verification example: 3-predictor model with all term types:
 #' #  This example constructs the penalty matrix analytically and then
 #' #  verifies selected entries against closed-form hand calculations.
 #' #  Users can extend or adapt this example to audit new basis
@@ -3088,6 +3099,7 @@ compute_dGhalf <- function(dG_dlambda,
 #' cat("Entry [15,15]: analytical =", round(Ls[15,15], 2),
 #'     "  exact = 723.75\n")
 #' cat("Symmetric:", isSymmetric(Ls), "\n")
+#'
 #'
 #' @keywords internal
 #' @export
@@ -3796,7 +3808,7 @@ get_interaction_patterns <- function(vars) {
 #' avoiding re-computing components in "fn" and "gr" separately.
 #'
 #' @examples
-#' \donttest{
+#'
 #'
 #' ## Minimize Rosenbrock function
 #' fn <- function(x) {
@@ -3812,7 +3824,6 @@ get_interaction_patterns <- function(vars) {
 #' ## Compare to
 #' (res0 <- stats::optim(c(0.5, 2.5), function(x)fn(x)[[1]], hessian = TRUE))
 #' solve(res0$hessian)
-#' }
 #'
 #' @keywords internal
 #' @export
@@ -3989,6 +4000,7 @@ approx_grad <- function(x, fn, eps = sqrt(.Machine$double.eps)) {
 #' \code{\link{lgspline}} for correlation-aware fits.
 #'
 #' @examples
+#'
 #' ## Identity matrix
 #' m1 <- diag(2)
 #' matsqrt(m1)  # Returns identity matrix
@@ -4044,6 +4056,7 @@ matsqrt <- function(mat) {
 #' for the GEE code paths.
 #'
 #' @examples
+#'
 #' ## Identity matrix
 #' m1 <- diag(2)
 #' matinvsqrt(m1)  # Returns identity matrix

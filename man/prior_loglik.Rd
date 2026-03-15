@@ -38,6 +38,8 @@ This is useful for computing joint penalized log-likelihoods and related
 MAP-style diagnostics for a fitted \code{lgspline} object.
 }
 \examples{
+
+\donttest{
 ## Data
 t <- sort(runif(100, -5, 5))
 y <- sin(t) - 0.1*t^2 + rnorm(100)
@@ -52,6 +54,7 @@ jntloglik <- sum(dnorm(model_fit$y,
                     log = TRUE)) +
           prior_loglik(model_fit, sigmasq = 1)
 print(jntloglik)
+}
 
 }
 \seealso{

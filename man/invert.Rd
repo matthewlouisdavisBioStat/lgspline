@@ -34,6 +34,7 @@ For eigendecomposition, uses a small ridge penalty (\code{1e-16}) for stability 
 zeroes eigenvalues below machine precision.
 }
 \examples{
+
 ## Well-conditioned matrix
 A <- matrix(c(4,2,2,4), 2, 2)
 invert(A) \%*\% A
@@ -41,6 +42,7 @@ invert(A) \%*\% A
 ## Singular matrix falls back to M.P. generalized inverse
 B <- matrix(c(1,1,1,1), 2, 2)
 invert(B) \%*\% B
+
 
 }
 \keyword{internal}

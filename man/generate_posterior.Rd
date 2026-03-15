@@ -163,6 +163,8 @@ stored sampler for both the standard and correlation-aware posterior
 paths.
 }
 \examples{
+
+\donttest{
 set.seed(1234)
 n_blocks <- 100; block_size <- 5; N <- n_blocks * block_size
 rho_true <- 0.3
@@ -196,6 +198,7 @@ post_fixed <- generate_posterior(model_fit, num_draws = 50)
 corr_draws <- unlist(post$post_draw_correlation_params)
 rho_draws <- exp(-exp(corr_draws))
 print(summary(rho_draws))
+}
 
 }
 \seealso{

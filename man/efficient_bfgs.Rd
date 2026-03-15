@@ -48,7 +48,7 @@ This is more efficient than native BFGS, since gradient and loss can be computed
 avoiding re-computing components in "fn" and "gr" separately.
 }
 \examples{
-\donttest{
+
 
 ## Minimize Rosenbrock function
 fn <- function(x) {
@@ -64,7 +64,6 @@ fn <- function(x) {
 ## Compare to
 (res0 <- stats::optim(c(0.5, 2.5), function(x)fn(x)[[1]], hessian = TRUE))
 solve(res0$hessian)
-}
 
 }
 \keyword{internal}

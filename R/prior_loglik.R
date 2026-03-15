@@ -28,6 +28,8 @@
 #' @return A numeric scalar representing the prior log-likelihood.
 #'
 #' @examples
+#'
+#' \donttest{
 #' ## Data
 #' t <- sort(runif(100, -5, 5))
 #' y <- sin(t) - 0.1*t^2 + rnorm(100)
@@ -42,6 +44,7 @@
 #'                     log = TRUE)) +
 #'           prior_loglik(model_fit, sigmasq = 1)
 #' print(jntloglik)
+#' }
 #'
 #' @seealso \code{\link{lgspline}}
 #'

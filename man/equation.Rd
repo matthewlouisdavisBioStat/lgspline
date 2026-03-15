@@ -131,6 +131,7 @@ operations should be performed one variable at a time by calling
 \code{equation()} repeatedly.
 }
 \examples{
+
 ## 1D example
 set.seed(1234)
 t <- runif(500, -5, 5)

@@ -1017,7 +1017,7 @@ unconstrained_fit_weibull <- function(X,
 #' unlike for ordinary \code{\link{lgspline}}.
 #'
 #' @examples
-#' \donttest{
+#'
 #' ## Weibull AFT with a nonlinear age effect on lung cancer survival
 #' if(requireNamespace("survival", quietly = TRUE)) {
 #'   library(survival)
@@ -1043,7 +1043,6 @@ unconstrained_fit_weibull <- function(X,
 #'        show_formulas = TRUE,
 #'        custom_response_lab = 'Survival Time',
 #'        custom_predictor_lab = 'Standardized Age')
-#' }
 #' }
 #'
 #' @seealso \code{\link{lgspline_cox}} for Cox proportional hazards,

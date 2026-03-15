@@ -34,6 +34,7 @@ To get all coefficients as a single matrix:
 \code{Reduce('cbind', coef(model_fit))}.
 }
 \examples{
+
 set.seed(1234)
 t <- runif(1000, -10, 10)
 y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))

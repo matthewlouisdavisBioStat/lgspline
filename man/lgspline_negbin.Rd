@@ -50,7 +50,7 @@ The score function handles the whitened design consistently with the
 Weibull AFT GEE convention.
 }
 \examples{
-\donttest{
+
 set.seed(1234)
 N <- 300
 t <- rnorm(N)
@@ -69,7 +69,6 @@ print(summary(fit))
 plot(fit, show_formulas = TRUE,
      custom_response_lab = 'Count')
 points(t, mu, col = 'grey', cex=0.67)
-}
 
 }
 \seealso{

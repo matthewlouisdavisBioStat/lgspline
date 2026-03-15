@@ -31,6 +31,7 @@ directly to build the \eqn{\mathbf{V}^{1/2}} input supplied to
 \code{\link{lgspline}} for correlation-aware fits.
 }
 \examples{
+
 ## Identity matrix
 m1 <- diag(2)
 matsqrt(m1)  # Returns identity matrix

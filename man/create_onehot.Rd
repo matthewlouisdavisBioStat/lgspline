@@ -26,6 +26,7 @@ The function creates dummy variables for each unique value in the input vector u
 }
 \examples{
 
+
 ## lgspline will not accept this format of "catvar", because inputting data
 # this way can cause difficult-to-diagnose issues in formula parsing
 # all variables must be numeric
@@ -43,6 +44,7 @@ dummy_intercept_coding <- create_onehot(df$catvar)[,-1]
 df$catvar <- NULL
 df <- cbind(df, dummy_intercept_coding)
 print(head(df))
+
 
 
 }

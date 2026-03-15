@@ -48,6 +48,7 @@ The function expects A and B to contain corresponding blocks that can be
 matrix multiplied.
 }
 \examples{
+
 A <- list(matrix(1:4,2,2), matrix(5:8,2,2))
 B <- list(matrix(1:4,2,2), matrix(5:8,2,2))
 matmult_block_diagonal(A, B, K=1, parallel=FALSE, cl=NULL,

@@ -45,7 +45,7 @@ A formula interface is needed, e.g. \code{lgspline_weibull(t, y, ...)} won't wor
 unlike for ordinary \code{\link{lgspline}}.
 }
 \examples{
-\donttest{
+
 ## Weibull AFT with a nonlinear age effect on lung cancer survival
 if(requireNamespace("survival", quietly = TRUE)) {
   library(survival)
@@ -71,7 +71,6 @@ if(requireNamespace("survival", quietly = TRUE)) {
        show_formulas = TRUE,
        custom_response_lab = 'Survival Time',
        custom_predictor_lab = 'Standardized Age')
-}
 }
 
 }

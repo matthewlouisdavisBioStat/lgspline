@@ -17,8 +17,10 @@ Computes the softplus transform, equivalent to the cumulant generating function
 of a logistic regression model: \eqn{\log(1+e^x)}.
 }
 \examples{
+
 x <- runif(5)
 softplus(x)
+
 
 }
 \keyword{internal}

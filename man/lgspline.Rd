@@ -904,14 +904,16 @@ available for backward compatibility.
 \examples{
 
 ## ## ## ## Simple Examples ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-## Simulate some data, fit using default settings, and plot
+## Simulate some data, fit using default settings without tuning, and plot
 set.seed(1234)
 t <- runif(2500, -10, 10)
 y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
-model_fit <- lgspline(t, y)
+model_fit <- lgspline(t, y, opt = FALSE)
 plot(t, y, main = 'Observed Data vs. Fitted Function, Colored by Partition',
      ylim = c(-10, 10))
 plot(model_fit, add = TRUE)
+
+\donttest{
 
 ## Repeat using logistic regression, with univariate inference shown
 # and alternative function call
@@ -1495,7 +1497,6 @@ corr_from_components <- function(rho_fast, rho_slow, mix) {
 }
 
 ## Toeplitz correlation function
-\donttest{
 # Custom functions can use any parameterization. Here we map:
 #   par[1] -> rho_fast = exp(-exp(par[1]))
 #   par[2] -> rho_slow = exp(-exp(par[2]))
@@ -1601,7 +1602,6 @@ model_fit <- lgspline(
   VhalfInv_par_init = c(0, -1, 0),
   include_warnings = FALSE
 )
-}
 
 ## Print comparison of true and estimated correlations
 lag_values <- 1:(block_size - 1)
@@ -1672,6 +1672,7 @@ if (requireNamespace("parallel", quietly = TRUE)) {
                        parallel_penalty = FALSE)
   })
   print(summary(parfit))
+}
 }
 
 

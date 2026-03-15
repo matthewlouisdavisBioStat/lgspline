@@ -22,9 +22,11 @@ certain large matrix operations, at a cost of potential slight slowdown for
 smaller problems.
 }
 \examples{
+
 M1 <- matrix(1:4, 2, 2)
 M2 <- matrix(5:8, 2, 2)
 M1 \%**\% M2
+
 
 }
 \keyword{internal}

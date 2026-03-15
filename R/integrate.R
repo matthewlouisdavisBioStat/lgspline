@@ -59,6 +59,7 @@
 #' @return A numeric scalar: the estimated definite integral.
 #'
 #' @examples
+#'
 #' ## 1-D: integral of fitted sin(t) over [-pi, pi] should be near 0
 #' set.seed(1234)
 #' t <- seq(-pi, pi, length.out = 1000)

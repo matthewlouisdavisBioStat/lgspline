@@ -94,6 +94,7 @@ columns are dropped when they can be identified as irrelevant to the
 fitted expansions.
 }
 \examples{
+
 set.seed(1234)
 t <- runif(1000, -10, 10)
 y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))

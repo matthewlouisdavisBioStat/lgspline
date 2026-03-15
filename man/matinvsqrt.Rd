@@ -32,6 +32,7 @@ the corresponding \code{Vhalf} is reconstructed internally by inversion
 for the GEE code paths.
 }
 \examples{
+
 ## Identity matrix
 m1 <- diag(2)
 matinvsqrt(m1)  # Returns identity matrix

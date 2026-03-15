@@ -169,8 +169,8 @@ another.
 }
 
 \examples{
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-#  Verification example: 3-predictor model with all term types:
+
+## Verification example: 3-predictor model with all term types:
 #  This example constructs the penalty matrix analytically and then
 #  verifies selected entries against closed-form hand calculations.
 #  Users can extend or adapt this example to audit new basis
@@ -251,6 +251,7 @@ cat("Entry [10,10]: analytical =", round(Ls[10,10], 2),
 cat("Entry [15,15]: analytical =", round(Ls[15,15], 2),
     "  exact = 723.75\n")
 cat("Symmetric:", isSymmetric(Ls), "\n")
+
 
 }
 \references{

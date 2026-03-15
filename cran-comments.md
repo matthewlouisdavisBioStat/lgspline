@@ -9,7 +9,11 @@ It also introduces novel functionality, including a logLik S3 method, 2nd deriva
 
 I understand large overhauls such as this aren't preferred; although the changes are expansive, there should not be any compatibility issues with previous versions of the package, and many of the changes were necessary for ensuring the mathematical rigor and correctness of the package.
 
-I do not expect future changes to the package to be this large in the future, I expect only documentation changes and targeted bug fixes. Hence, this is version 1.0.0.
+I do not expect future changes to the package to be this large in the future, I expect only documentation changes and targeted bug fixes. Hence, this is version 1.0.1.
+
+(A bug of too-long runtimes and mis-spellings accounted for v 1.0.0)
+
+Thank you for your time.
 
 ---
 
@@ -182,18 +186,5 @@ I do not expect future changes to the package to be this large in the future, I 
 
 0 errors | 0 warnings | 0 notes
 
-
-* NOTE: Possibly misspelled words — these are author surnames
-  (Goldfarb, Idnani, MacQueen, McCullagh, Nelder).
-
-* NOTE: RcppArmadillo in Imports — needed for R-level functions,
-  not just C++ headers.
-
----
-
-## Reverse dependencies
-
-There are currently no downstream dependencies for this package.
-
-
+There are no downstream dependencies for this package.
 

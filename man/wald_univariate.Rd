@@ -43,6 +43,7 @@ lgspline. For Gaussian identity-link models, t-statistics and t-intervals
 are used; otherwise z-statistics.
 }
 \examples{
+
 set.seed(1234)
 t <- runif(1000, -10, 10)
 y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))

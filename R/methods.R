@@ -204,6 +204,7 @@ print.summary.lgspline <- function(x, ...) {
 #' }
 #'
 #' @examples
+#'
 #' set.seed(1234)
 #' t <- runif(1000, -10, 10)
 #' y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
@@ -390,6 +391,8 @@ find_extremum <- function(object,
 #' \eqn{N_{\mathrm{new}} \times M} matrix, where \eqn{M = \mathrm{num\_draws}}.
 #'
 #' @examples
+#'
+#' \donttest{
 #' set.seed(1234)
 #' n_blocks <- 100; block_size <- 5; N <- n_blocks * block_size
 #' rho_true <- 0.3
@@ -423,6 +426,7 @@ find_extremum <- function(object,
 #' corr_draws <- unlist(post$post_draw_correlation_params)
 #' rho_draws <- exp(-exp(corr_draws))
 #' print(summary(rho_draws))
+#' }
 #'
 #' @seealso
 #' \code{\link{lgspline}},
@@ -1236,6 +1240,7 @@ generate_posterior_correlation <- function(
 #'   device). For 2D models: returns a plotly object.
 #'
 #' @examples
+#'
 #' set.seed(1234)
 #' t_data <- runif(1000, -10, 10)
 #' y_data <- 2*sin(t_data) + -0.06*t_data^2 + rnorm(length(t_data))
@@ -1637,6 +1642,7 @@ plot.lgspline <- function(x,
 #' If \code{expansions_only = TRUE}, returns a list of basis expansions.
 #'
 #' @examples
+#'
 #' set.seed(1234)
 #' t <- runif(1000, -10, 10)
 #' y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
@@ -1777,6 +1783,7 @@ predict.lgspline <- function(object,
 #'   warning if \code{object$B} is not found.
 #'
 #' @examples
+#'
 #' set.seed(1234)
 #' t <- runif(1000, -10, 10)
 #' y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
@@ -1830,6 +1837,7 @@ coef.lgspline <- function(object, ...) {
 #' \code{\link{plot.wald_lgspline}}.
 #'
 #' @examples
+#'
 #' set.seed(1234)
 #' t <- runif(1000, -10, 10)
 #' y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
@@ -2334,6 +2342,7 @@ confint.lgspline <- function(object, parm, level = 0.95, ...) {
 #'   degrees of freedom) and \code{nobs} (number of observations).
 #'
 #' @examples
+#'
 #' set.seed(1234)
 #' t <- runif(1000, -10, 10)
 #' y <- 2*sin(t) + -0.06*t^2 + rnorm(length(t))
@@ -2576,6 +2585,7 @@ logLik.lgspline <- function(object,
 #' }
 #'
 #' @examples
+#'
 #' ## 1D example
 #' set.seed(1234)
 #' t <- runif(500, -5, 5)

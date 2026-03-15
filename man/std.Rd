@@ -17,9 +17,11 @@ Centers a vector by its sample mean, then scales it by its sample standard devia
 \eqn{(\text{x}-\text{mean}(\text{x}))/\text{sd}(\text{x})}.
 }
 \examples{
+
 x <- c(1, 2, 3, 4, 5)
 std(x)
 print(mean(x))
 print(sd(x))
+
 
 }

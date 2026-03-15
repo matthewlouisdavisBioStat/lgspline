@@ -10,9 +10,7 @@ no correlation) and Path 3 (binomial GLM).
 }
 \examples{
 \dontrun{
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Example 1: Path 2 - Gaussian identity, with knots
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 set.seed(42)
 t <- runif(200, -5, 5)
 y <- sin(t) + rnorm(200, 0, 0.5)
@@ -25,9 +23,7 @@ preds1 <- predict(fit1, new_predictors = rnorm(10))
 stopifnot(all(is.finite(preds1)))
 cat("  Predictions finite: OK\n")
 
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Example 2: Path 2 - Gaussian identity, K=0 (no constraints)
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 fit2 <- lgspline(t, y, K = 0, opt = FALSE, wiggle_penalty = 1e-4)
 stopifnot(inherits(fit2, "lgspline"))
 stopifnot(length(fit2$B) == 1)
@@ -35,9 +31,7 @@ preds2 <- predict(fit2, new_predictors = rnorm(10))
 stopifnot(all(is.finite(preds2)))
 cat("Example 2 passed: Gaussian identity, K=0\n")
 
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Example 3: Path 3 - Binomial GLM
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 y_bin <- rbinom(200, 1, plogis(sin(t)))
 fit3 <- lgspline(t, y_bin, K = 2, family = binomial(),
                  opt = FALSE, wiggle_penalty = 1e-3)
@@ -46,9 +40,7 @@ preds3 <- predict(fit3, new_predictors = rnorm(10))
 stopifnot(all(preds3 >= 0 & preds3 <= 1))
 cat("Example 3 passed: Binomial GLM, K=2\n")
 
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Example 4: Path 2 with QP constraints (monotonic increase)
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 t_sorted <- sort(runif(100, -3, 3))
 y_mono <- t_sorted + 0.5 * sin(t_sorted) + rnorm(100, 0, 0.3)
 fit4 <- lgspline(t_sorted, y_mono, K = 2,
@@ -58,9 +50,7 @@ preds4 <- predict(fit4, new_predictors = cbind(sort(rnorm(50))))
 stopifnot(all(diff(preds4) >= -sqrt(.Machine$double.eps)))
 cat("Example 4 passed: Monotonic increase QP constraint\n")
 
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Example 5: Path 2 with range constraints
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 fit5 <- lgspline(t, y, K = 3,
                  qp_range_lower = -2, qp_range_upper = 2,
                  opt = FALSE, wiggle_penalty = 1e-4)
@@ -68,9 +58,7 @@ stopifnot(all(fit5$ytilde >= -2 - 0.01))
 stopifnot(all(fit5$ytilde <= 2 + 0.01))
 cat("Example 5 passed: Range constraints\n")
 
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Example 6: Multi-predictor
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 set.seed(123)
 x1 <- rnorm(300)
 x2 <- rnorm(300)
@@ -81,9 +69,7 @@ stopifnot(inherits(fit6, "lgspline"))
 stopifnot(fit6$q_predictors == 2)
 cat("Example 6 passed: 2D predictor, K=4\n")
 
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Example 7: Coefficient consistency (determinism)
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 set.seed(999)
 t7 <- runif(150, -4, 4)
 y7 <- 2 * cos(t7) + rnorm(150, 0, 0.4)

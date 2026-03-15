@@ -44,7 +44,7 @@ A formula interface is needed, e.g. \code{lgspline_cox(t, y, ...)} won't work,
 unlike for ordinary \code{\link{lgspline}}.
 }
 \examples{
-\donttest{
+
 ## Cox PH with a nonlinear age effect on lung cancer survival
 if(requireNamespace("survival", quietly = TRUE)) {
   library(survival)
@@ -69,7 +69,6 @@ if(requireNamespace("survival", quietly = TRUE)) {
        custom_predictor_lab = 'Standardized Age',
        ylim = c(0, 5))
 
-}
 }
 
 }

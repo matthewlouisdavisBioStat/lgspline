@@ -145,6 +145,7 @@ plotting will fail. As a workaround, constrain those terms to zero via
 the expansion but are zeroed out.
 }
 \examples{
+
 set.seed(1234)
 t_data <- runif(1000, -10, 10)
 y_data <- 2*sin(t_data) + -0.06*t_data^2 + rnorm(length(t_data))
