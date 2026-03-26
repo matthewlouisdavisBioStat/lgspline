@@ -41,9 +41,10 @@ cross-products \eqn{\mathbf{X}_k^{\top}\mathbf{V}^{-1}\mathbf{y}_k}.}
 
 \item{wb_sqrt}{Output of \code{.woodbury_halfsqrt_components},
 containing the internal rank-\eqn{r} representation of
-\eqn{\mathbf{F}^{1/2}}: \code{U_Q} (basis for the Woodbury subspace),
-\code{C} and \code{C_inv} (diagonal correction coefficients),
-and \code{GchalfUQ} (partition-wise copies of
+\eqn{\mathbf{F}^{1/2}}: \code{U_Q} / \code{Q_basis}
+(basis for the Woodbury subspace, matching manuscript
+\eqn{\mathbf{Q}}), \code{C} and \code{C_inv} (diagonal correction
+coefficients), and \code{GchalfUQ} (partition-wise copies of
 \eqn{\mathbf{G}_{c,k}^{1/2}\mathbf{U}_Q[rows_k,]}).}
 
 \item{parallel_aga, parallel_matmult}{Logical flags.}

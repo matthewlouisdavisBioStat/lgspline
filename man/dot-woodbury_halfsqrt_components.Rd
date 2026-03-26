@@ -4,15 +4,15 @@
 \alias{.woodbury_halfsqrt_components}
 \title{Compute Woodbury Half-Square-Root Components}
 \usage{
-.woodbury_halfsqrt_components(Ghalf_corrected, L, S_signs, r, K, p_expansions)
+.woodbury_halfsqrt_components(Ghalf_corrected, E, J_signs, r, K, p_expansions)
 }
 \arguments{
 \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.}
 
-\item{L}{Off-diagonal low-rank factor (\eqn{P \times r}), denoted
+\item{E}{Off-diagonal low-rank factor (\eqn{P \times r}), denoted
 \eqn{\mathbf{E}} in the manuscript.}
 
-\item{S_signs}{Length-\eqn{r} sign vector corresponding to the
+\item{J_signs}{Length-\eqn{r} sign vector corresponding to the
 diagonal of \eqn{\mathbf{J}} in the manuscript.}
 
 \item{r}{Integer effective rank.}
@@ -27,6 +27,8 @@ A list with components:
   \item{U_Q}{\eqn{P \times r} left singular vectors of
     \eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}}. This spans the same
     subspace as the manuscript QR factor \eqn{\mathbf{Q}}.}
+  \item{Q_basis}{Alias for \code{U_Q}, included so the stored object can
+    be read directly against the manuscript notation \eqn{\mathbf{Q}}.}
   \item{C}{\eqn{r \times r} diagonal matrix
     encoding the rank-\eqn{r} update in the internal form
     \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{U}_Q\mathbf{C}

@@ -37,6 +37,7 @@ tune_Lambda(
   tol,
   sd_y,
   delta,
+  gcv_gamma,
   constraint_value_vectors,
   parallel,
   parallel_eigen,
@@ -129,6 +130,15 @@ programming parameters (see arguments of \code{\link[lgspline]{lgspline}}).}
 
 \item{sd_y, delta}{Response standardization parameters.}
 
+\item{gcv_gamma}{Numeric scalar, at least 1. Multiplies the effective
+degrees of freedom in the GCV denominator so that tuning minimizes the
+modified criterion
+\eqn{\sum r_i^2 / \{N(1 - \gamma \bar{W})^2\}}.
+\code{gcv_gamma = 1} recovers ordinary GCV; values above 1 penalize
+complexity more strongly and reduce the occasional severe undersmoothing
+of unmodified GCV. The default \code{1.4} follows Kim and Gu (2004,
+Section 4, equation 4.1), who recommend values in the range 1.2 to 1.4.}
+
 \item{constraint_value_vectors}{List; constraint values.}
 
 \item{parallel}{Logical; enable parallel computation.}
@@ -218,6 +228,11 @@ The tuning procedure consists of the following steps:
     damped BFGS with closed-form gradients (see \code{.damped_bfgs},
     \code{.compute_gcvu_gradient}) or base R's \code{stats::optim} with
     finite-difference gradients.
+  \item \strong{Modified GCV}: Use
+    \eqn{N(1 - \gamma\bar{W})^2} in the denominator, where
+    \eqn{\gamma = \code{gcv_gamma}}. Setting \eqn{\gamma > 1}
+    follows Kim and Gu's modified GCV recommendation and penalizes
+    effective degrees of freedom more strongly.
   \item \strong{Inflation}: Apply small inflation factor
     \eqn{((N+2)/(N-2))^{2}} to counteract in-sample bias toward
     underpenalization.

@@ -136,19 +136,27 @@
 #'
 #' @section Penalty:
 #' These arguments configure the smoothing penalty itself and the optional
-#' generalized cross-validation tuning procedure.
+#' modified generalized cross-validation tuning procedure.
 #' @param previously_tuned_penalties Default: NULL. Optional list of pre-computed penalty
 #'   components from a previous model fit.
 #' @param smoothing_spline_penalty Default: NULL. Optional custom smoothing spline penalty
 #'   matrix.
 #' @param opt Default: TRUE. Logical switch controlling automatic penalty optimization via
-#'   generalized cross-validation.
+#'   modified generalized cross-validation; the inflation factor is set by
+#'   \code{gcv_gamma}.
 #' @param use_custom_bfgs Default: TRUE. Selects between a native damped-BFGS
 #'   implementation with closed-form gradients or base R's BFGS with finite-difference
 #'   gradients.
 #' @param delta Default: NULL. Numeric pseudocount for stabilizing optimization in
 #'   non-identity link function scenarios.
 #' @param tol Default: \code{10*sqrt(.Machine$double.eps)}. Numeric convergence tolerance.
+#' @param gcv_gamma Default: 1.4. Numeric scalar, at least 1, multiplying the
+#'   effective degrees of freedom in the GCV denominator during automatic
+#'   penalty tuning. \code{gcv_gamma = 1} recovers ordinary GCV, while values
+#'   above 1 penalize complexity more strongly and can reduce the occasional
+#'   severe undersmoothing of unmodified GCV. The default follows Kim and Gu
+#'   (2004) and matches the common \pkg{mgcv} convention of using
+#'   \code{gamma > 1} for smoother fits.
 #' @param initial_wiggle Default: \code{c(1e-10, 1e-5, 1e-1)}. Numeric vector of
 #'   initial grid points for wiggle penalty optimization, on the raw (non-negative) scale.
 #' @param initial_flat Default: \code{c(0.1, 10)}. Numeric vector of initial grid points
@@ -330,7 +338,17 @@
 #'
 #' @section Correlation Structures:
 #' These arguments enable built-in or custom working-correlation structures for
-#' longitudinal, clustered, or spatially indexed responses.
+#' longitudinal, clustered, or spatially indexed responses. In the notation
+#' used throughout \code{\link{lgspline_details}}, the correlated penalized
+#' information is
+#' \eqn{\mathbf{G}_V^{-1} = \mathbf{G}_0^{-1} + \mathbf{M}} with
+#' \eqn{\mathbf{G}_0^{-1} = \mathbf{X}^{\top}\mathbf{X} +
+#' \boldsymbol{\Lambda}} and
+#' \eqn{\mathbf{M} = \mathbf{X}^{\top}(\mathbf{V}^{-1} -
+#' \mathbf{I})\mathbf{X}}. When \eqn{\mathbf{M}_{\mathrm{off}}} is low-rank,
+#' the internal Woodbury helpers factor it as
+#' \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}} and accelerate the correlated
+#' solve without changing the final estimator.
 #' @param correlation_id,spacetime Default: NULL. N-length vector and N-row matrix of
 #'   cluster ids and longitudinal/spatial variables, respectively.
 #' @param correlation_structure Default: NULL. Native implementations: \code{"exchangeable"},
@@ -374,6 +392,7 @@
 #'     \code{smoothing_spline_penalty}.}
 #'   \item{\code{tuning_args}}{Groups: \code{opt},
 #'     \code{use_custom_bfgs}, \code{delta}, \code{tol},
+#'     \code{gcv_gamma},
 #'     \code{initial_wiggle}, \code{initial_flat},
 #'     \code{iterate_tune}, \code{iterate_final_fit}.}
 #'   \item{\code{expansion_args}}{Groups: \code{include_quadratic_terms},
@@ -544,59 +563,6 @@
 #' extraction and confidence interval computation, respectively.
 #' Advanced customization options are available for
 #' analyzing arbitrarily complex study designs.
-#'
-#' @section Grouped Arguments:
-#' For convenience, related arguments can be bundled into named lists.
-#' When a grouped argument is non-NULL, its entries overwrite the
-#' corresponding individual arguments. Individual arguments remain
-#' available for backward compatibility.
-#'
-#' \describe{
-#'   \item{\code{penalty_args}}{List. Groups: \code{wiggle_penalty},
-#'     \code{flat_ridge_penalty}, \code{unique_penalty_per_partition},
-#'     \code{unique_penalty_per_predictor}, \code{meta_penalty},
-#'     \code{predictor_penalties}, \code{partition_penalties},
-#'     \code{custom_penalty_mat}, \code{previously_tuned_penalties},
-#'     \code{smoothing_spline_penalty}.}
-#'   \item{\code{tuning_args}}{List. Groups: \code{opt},
-#'     \code{use_custom_bfgs}, \code{delta}, \code{tol},
-#'     \code{initial_wiggle}, \code{initial_flat},
-#'     \code{iterate_tune}, \code{iterate_final_fit}.}
-#'   \item{\code{expansion_args}}{List. Groups: \code{include_quadratic_terms},
-#'     \code{include_cubic_terms}, \code{include_quartic_terms},
-#'     \code{include_2way_interactions}, \code{include_3way_interactions},
-#'     \code{include_quadratic_interactions},
-#'     \code{just_linear_with_interactions},
-#'     \code{just_linear_without_interactions},
-#'     \code{exclude_interactions_for}, \code{exclude_these_expansions},
-#'     \code{custom_basis_fxn}, \code{offset}.}
-#'   \item{\code{constraint_args}}{List. Groups:
-#'     \code{include_constrain_fitted},
-#'     \code{include_constrain_first_deriv},
-#'     \code{include_constrain_second_deriv},
-#'     \code{include_constrain_interactions},
-#'     \code{constraint_values}, \code{constraint_vectors},
-#'     \code{no_intercept}.}
-#'   \item{\code{qp_args}}{List. Groups all \code{qp_*} arguments.}
-#'   \item{\code{parallel_args}}{List. Groups: \code{cl},
-#'     \code{chunk_size}, and all \code{parallel_*} flags.}
-#'   \item{\code{covariance_args}}{List. Groups: \code{correlation_id},
-#'     \code{spacetime}, \code{correlation_structure},
-#'     \code{VhalfInv}, \code{Vhalf}, \code{VhalfInv_fxn},
-#'     \code{Vhalf_fxn}, \code{VhalfInv_par_init},
-#'     \code{REML_grad}, \code{custom_VhalfInv_loss},
-#'     \code{VhalfInv_logdet}.}
-#'   \item{\code{return_args}}{List. Groups: \code{return_G},
-#'     \code{return_Ghalf}, \code{return_U},
-#'     \code{estimate_dispersion}, \code{unbias_dispersion},
-#'     \code{return_varcovmat}, \code{return_lagrange_multipliers}.}
-#'   \item{\code{glm_args}}{List. Groups: \code{glm_weight_function},
-#'     \code{schur_correction_function},
-#'     \code{need_dispersion_for_estimation},
-#'     \code{dispersion_function}, \code{unconstrained_fit_fxn},
-#'     \code{keep_weighted_Lambda}.}
-#' }
-#'
 #'
 #' @examples
 #'
@@ -1454,6 +1420,7 @@ lgspline <- function(
     use_custom_bfgs = TRUE,
     delta = NULL,
     tol = 10*sqrt(.Machine$double.eps),
+    gcv_gamma = 1.4,
     initial_wiggle = c(1e-10, 1e-5, 1e-1),
     initial_flat = c(0.1, 10),
     wiggle_penalty = 2e-7,
@@ -1706,6 +1673,7 @@ lgspline <- function(
                                  use_custom_bfgs,
                                  delta,
                                  tol,
+                                 gcv_gamma,
                                  initial_wiggle,
                                  initial_flat,
                                  wiggle_penalty,
@@ -2796,6 +2764,7 @@ lgspline <- function(
                                          use_custom_bfgs,
                                          delta,
                                          tol,
+                                         gcv_gamma,
                                          initial_wiggle,
                                          initial_flat,
                                          wiggle_penalty,
@@ -3016,6 +2985,7 @@ lgspline <- function(
                               use_custom_bfgs,
                               delta,
                               tol,
+                              gcv_gamma,
                               initial_wiggle,
                               initial_flat,
                               wiggle_penalty,
@@ -4305,6 +4275,7 @@ lgspline <- function(
     use_custom_bfgs                    = use_custom_bfgs,
     delta                              = delta,
     tol                                = tol,
+    gcv_gamma                          = gcv_gamma,
     initial_wiggle                     = initial_wiggle,
     initial_flat                       = initial_flat,
     wiggle_penalty                     = wiggle_penalty,
@@ -4402,8 +4373,9 @@ lgspline <- function(
 #'   \item Knot placement and partitioning (k-means or custom).
 #'   \item Constraint matrix \eqn{\mathbf{A}} construction. Only a linearly
 #'         independent subset of columns is retained via pivoted QR decomposition.
-#'   \item Penalty tuning via GCV (exponential parameterization) or
-#'         use of previously tuned penalties.
+#'   \item Penalty tuning via modified GCV (exponential parameterization;
+#'         \code{gcv_gamma = 1} recovers ordinary GCV) or use of previously
+#'         tuned penalties.
 #'   \item Final coefficient estimation via one of three paths:
 #'         \itemize{
 #'           \item \strong{Blockfit option} (when \code{blockfit = TRUE},
@@ -4567,6 +4539,7 @@ lgspline <- function(
 #'              make_partition_list = NULL, previously_tuned_penalties = NULL,
 #'              smoothing_spline_penalty = NULL, opt = TRUE, use_custom_bfgs = TRUE,
 #'              delta = NULL, tol = 10*sqrt(.Machine$double.eps),
+#'              gcv_gamma = 1.4,
 #'              initial_wiggle = c(1e-10, 1e-5, 1e-1),
 #'              initial_flat = c(0.1, 10), wiggle_penalty = 2e-07,
 #'              flat_ridge_penalty = 0.5, unique_penalty_per_partition = TRUE,
@@ -4716,6 +4689,7 @@ lgspline.fit <- function(predictors,
                          use_custom_bfgs = TRUE,
                          delta = NULL,
                          tol = 10*sqrt(.Machine$double.eps),
+                         gcv_gamma = 1.4,
                          initial_wiggle = c(1e-10, 1e-5, 1e-1),
                          initial_flat = c(0.1, 10),
                          wiggle_penalty = 2e-7,
@@ -5872,6 +5846,13 @@ lgspline.fit <- function(predictors,
     unique_penalty_per_predictor <- FALSE
   }
 
+  ## Modified GCV multiplier for tuning
+  if(!is.numeric(gcv_gamma) || length(gcv_gamma) != 1 ||
+     !is.finite(gcv_gamma) || gcv_gamma < 1){
+    stop("\n \t gcv_gamma must be a finite numeric scalar >= 1. ",
+         "Set gcv_gamma = 1 to recover ordinary GCV. \n")
+  }
+
   ## Convert constraint_values, penalty setup,
   #  parallel export, X^TWX gram, SQP setup (quadprog).
   if(verbose){
@@ -6112,6 +6093,7 @@ lgspline.fit <- function(predictors,
         tol = tol,
         sd_y = sd_y,
         delta = delta,
+        gcv_gamma = gcv_gamma,
         constraint_value_vectors = constraint_values,
         parallel = parallel,
         parallel_eigen = parallel_eigen,
@@ -7541,11 +7523,3 @@ lgspline.fit <- function(predictors,
 
   return(return_list)
 }
-
-
-
-
-
-
-
-

@@ -2,7 +2,7 @@
 % Please edit documentation in R/tune_Lambda.R
 \name{.damped_bfgs}
 \alias{.damped_bfgs}
-\title{Damped BFGS Optimizer for GCV Penalty Tuning}
+\title{Damped BFGS Optimizer for Modified-GCV Penalty Tuning}
 \usage{
 .damped_bfgs(
   par,
@@ -48,8 +48,8 @@ List containing:
 }
 \description{
 Custom implementation of damped BFGS quasi-Newton optimization for
-minimizing the GCV_u criterion. Uses step-size damping with backtracking
-and Sherman-Morrison-Woodbury inverse Hessian updates.
+minimizing the modified GCV_u criterion. Uses step-size damping with
+backtracking and Sherman-Morrison-Woodbury inverse Hessian updates.
 }
 \details{
 The optimizer uses the following strategy:

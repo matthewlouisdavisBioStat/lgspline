@@ -67,17 +67,19 @@ A list with the same structure as \code{.woodbury_decompose_V}:
   \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.}
   \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{-1/2}}.}
   \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}}.}
-  \item{L}{Off-diagonal low-rank factor (\eqn{P \times r}), denoted by
+  \item{E}{Off-diagonal low-rank factor (\eqn{P \times r}), denoted by
     \eqn{\mathbf{E}} in the manuscript.}
-  \item{S_signs}{Length-\eqn{r} sign vector, i.e.\ the diagonal of the
+  \item{J_signs}{Length-\eqn{r} sign vector, i.e.\ the diagonal of the
     manuscript sign matrix \eqn{\mathbf{J}}.}
   \item{r}{Integer effective rank.}
-  \item{M}{Precomputed \eqn{r \times r} Woodbury inner inverse; in
+  \item{inner_inv}{Precomputed \eqn{r \times r} Woodbury inner inverse; in
     manuscript notation,
     \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c
     \mathbf{E})^{-1}}.}
   \item{GL}{List of per-partition matrices corresponding to
     \eqn{\mathbf{G}_{c,k}\mathbf{E}[rows_k,]} in manuscript notation.}
+  \item{L,S_signs,M}{Legacy internal aliases for
+    \code{E}, \code{J_signs}, and \code{inner_inv}.}
 }
 }
 \description{

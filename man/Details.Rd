@@ -405,13 +405,20 @@ in \code{\link{.get_B_glm_nocorr}}.
 For structured correlation matrices (AR(1), exchangeable, banded), the
 perturbation \eqn{\mathbf{V}^{-1} - \mathbf{I}} is sparse. Writing the
 GLS information matrix as
-\deqn{\mathbf{G}_V^{-1} = \underbrace{(\mathbf{X}^{\top}\mathbf{X} +
-  \boldsymbol{\Lambda})}_{\text{block-diagonal}} +
-  \mathbf{X}^{\top}(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X},}
-the block-diagonal part of the correlation-induced term is absorbed into
-per-partition eigendecompositions, yielding the corrected block-diagonal
-inverse \eqn{\mathbf{G}_c}. The remaining cross-partition coupling has
-effective rank \eqn{r} determined numerically by
+\deqn{\mathbf{G}_V^{-1}
+  = \mathbf{G}_0^{-1} + \mathbf{M}, \qquad
+  \mathbf{G}_0^{-1} = \mathbf{X}^{\top}\mathbf{X} + \boldsymbol{\Lambda},
+  \qquad
+  \mathbf{M} = \mathbf{X}^{\top}(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X},}
+the correlation-induced term is split conformably with the partitioned
+coefficient blocks as
+\eqn{\mathbf{M} = \mathbf{M}_{\mathrm{diag}} +
+\mathbf{M}_{\mathrm{off}}}. The block-diagonal part
+\eqn{\mathbf{M}_{\mathrm{diag}}} is absorbed into the corrected
+block-diagonal inverse
+\eqn{\mathbf{G}_c^{-1} = \mathbf{G}_0^{-1} +
+\mathbf{M}_{\mathrm{diag}}}, leaving only the cross-partition remainder
+\eqn{\mathbf{M}_{\mathrm{off}}}. Its effective rank \eqn{r} is determined numerically by
 \code{\link{.woodbury_decompose_V}}. For example, AR(1) correlation
 partitioned by time gives \eqn{r \approx 2K} since only observation pairs
 straddling knot boundaries contribute.
@@ -453,15 +460,18 @@ correction through \eqn{\mathbf{Q}}.
 cleaner than the internal object names used in \code{get_B()}. The
 correspondence is:
 \itemize{
-  \item manuscript \eqn{\mathbf{E}} \eqn{\leftrightarrow} internal
-    object \code{L};
+  \item manuscript \eqn{\mathbf{E}} \eqn{\leftrightarrow} helper output
+    \code{E} (legacy alias \code{L});
   \item manuscript diagonal sign matrix \eqn{\mathbf{J}}
-    \eqn{\leftrightarrow} internal vector \code{S_signs};
+    \eqn{\leftrightarrow} helper output \code{J_signs}
+    (legacy alias \code{S_signs});
   \item manuscript inverse
     \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c\mathbf{E})^{-1}}
-    \eqn{\leftrightarrow} internal object \code{M};
+    \eqn{\leftrightarrow} helper output \code{inner_inv}
+    (legacy alias \code{M});
   \item manuscript projector basis \eqn{\mathbf{Q}}
-    \eqn{\leftrightarrow} internal basis \code{U_Q};
+    \eqn{\leftrightarrow} internal basis \code{U_Q}
+    (alias \code{Q_basis});
   \item manuscript projector \eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}
     is not stored explicitly, but is represented through rank-\eqn{r}
     multiplies involving \code{U_Q};
@@ -1457,11 +1467,12 @@ of \eqn{K+1} \eqn{p \times p} square, symmetric, positive semi-definite
 matrices.
 }
 
-\subsection{Penalty Optimization via Generalized Cross-Validation}{
+\subsection{Penalty Optimization via Modified Generalized Cross-Validation}{
 After the structural pieces of the model are fixed, the main remaining
 question is how much smoothing to apply. In \pkg{lgspline}, that tuning is
-performed with generalized cross-validation, but it is carried out using the
-same constrained estimator that will be used in the final model fit.
+performed with modified generalized cross-validation, controlled by
+\code{gcv_gamma}, but it is carried out using the same constrained
+estimator that will be used in the final model fit.
 Penalty parameters are estimated on the log scale via exponential
 parameterization (\eqn{\lambda = \exp(\theta)},
 \eqn{\theta \in \mathbb{R}}), ensuring positivity. The chain rule factor
@@ -1486,11 +1497,22 @@ scalars \eqn{\lambda_w} (\code{wiggle_penalty}), \eqn{\lambda_r}
 (\code{flat_ridge_penalty}), \eqn{\{\nu_j\}}
 (\code{predictor_penalties}), and \eqn{\{\tau_k\}}
 (\code{partition_penalties}) are tuned.
-The unbiased generalized cross-validation criterion is
-\deqn{\mathrm{GCV}_{u} = \frac{\sum_{i=1}^{N}D_{ii}\,r_i^{2}}{N(1 - \bar{W})^{2}},}
+The default tuning criterion is a modified generalized cross-validation
+score,
+\deqn{\mathrm{GCV}_{u,\gamma}
+  = \frac{\sum_{i=1}^{N}D_{ii}\,r_i^{2}}
+          {N(1 - \gamma\bar{W})^{2}},}
 where \eqn{r_i} are residuals on the link scale and
 \eqn{\bar{W} = \mathrm{tr}(\mathbf{H})/N} is the mean of the hat-matrix
-diagonal. For identity link, \eqn{r_i = y_i - \hat{\eta}_i}. For
+diagonal. Here \eqn{\gamma = \code{gcv_gamma}} is a user-facing tuning
+parameter, with \code{gcv_gamma = 1} recovering ordinary GCV. The default
+\code{gcv_gamma = 1.4} follows the modified-GCV recommendation of Kim and
+Gu (2004, Section 4, equation 4.1), who propose inflating the effective
+degrees-of-freedom term to reduce the occasional severe undersmoothing of
+standard GCV. This is the same role played by the \code{gamma} argument in
+\pkg{mgcv}; values above 1 favor smoother fits by penalizing model
+complexity more strongly through the denominator. For identity link,
+\eqn{r_i = y_i - \hat{\eta}_i}. For
 non-identity links, the residuals are
 \eqn{r_i = g((y_i + \delta)/(1+2\delta)) - (\hat{\eta}_i + \delta)/(1+2\delta)},
 where \eqn{\delta \geq 0} is a pseudocount that stabilizes the link
@@ -1526,18 +1548,18 @@ scale, incorporating the exp chain rule, is
 \eqn{\partial P_{\mathrm{meta}}/\partial\theta_j = c_{\mathrm{meta}}(\nu_j - 1)\nu_j}
 and
 \eqn{\partial P_{\mathrm{meta}}/\partial\theta_1 = 10^{-32}(\lambda_w - 1)\lambda_w}.
-The total objective is \eqn{\mathrm{GCV}_{u} + P_{\mathrm{meta}}}.
+The total objective is \eqn{\mathrm{GCV}_{u,\gamma} + P_{\mathrm{meta}}}.
 }
 
-\subsection{Closed-Form Gradient of GCV}{
-The gradient of \eqn{\mathrm{GCV}_{u}} with respect to
+\subsection{Closed-Form Gradient of Modified GCV}{
+The gradient of \eqn{\mathrm{GCV}_{u,\gamma}} with respect to
 \eqn{\theta_1 = \log\lambda_w} is computed analytically via the quotient
 rule:
-\deqn{\frac{\partial\mathrm{GCV}_{u}}{\partial\theta_1}
+\deqn{\frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\theta_1}
   = \frac{1}{D^{2}}\left(\frac{\partial\mathcal{N}}{\partial\theta_1}D
   - \mathcal{N}\frac{\partial D}{\partial\theta_1}\right),}
 where \eqn{\mathcal{N} = \sum r_i^{2}} (numerator) and
-\eqn{D = N(1 - \bar{W})^{2}} (denominator). The key intermediates are:
+\eqn{D = N(1 - \gamma\bar{W})^{2}} (denominator). The key intermediates are:
 \itemize{
   \item \eqn{\partial\mathbf{G}/\partial\lambda_w}, computed from the
     matrix identity
@@ -1553,15 +1575,16 @@ where \eqn{\mathcal{N} = \sum r_i^{2}} (numerator) and
     \eqn{\partial\mathbf{G}^{1/2}/\partial\lambda_w}.
   \item \eqn{\partial\mathcal{N}/\partial\theta_1 = -2\mathbf{r}^{\top}\mathbf{X}(\partial(\mathbf{U}\mathbf{G})/\partial\lambda_w)\mathbf{X}^{\top}\mathbf{y}\cdot\lambda_w},
     via the chain rule applied to the residual vector.
-  \item \eqn{\partial D/\partial\theta_1 = 2(1 - \bar{W})(-\partial\bar{W}/\partial\lambda_w)\cdot\lambda_w}.
+  \item \eqn{\partial D/\partial\theta_1 =
+    2(1 - \gamma\bar{W})(-\gamma\,\partial\bar{W}/\partial\lambda_w)\cdot\lambda_w}.
 }
 In the implementation, these quantities are assembled by a small set of
 helper routines: \code{\link{compute_dG_dlambda}} for
 \eqn{\partial\mathbf{G}/\partial\lambda}, \code{\link{compute_dGhalf}}
 for \eqn{\partial\mathbf{G}^{1/2}/\partial\lambda},
 \code{\link{compute_dW_dlambda_wrapper}} for derivatives of the effective
-degrees-of-freedom term, \code{\link{compute_trace_UGXX_wrapper}} for the
-trace pieces entering GCV, and \code{\link{compute_dG_u_dlambda_xy}} for
+degrees-of-freedom term, \code{compute_trace_H} for the
+trace pieces entering modified GCV, and \code{\link{compute_dG_u_dlambda_xy}} for
 the derivative of the fitted-value quadratic form.
 
 The full gradient is scaled by \eqn{N} before adding the meta-penalty
@@ -1569,9 +1592,9 @@ gradient.
 
 For the ridge penalty and predictor-/partition-specific penalties, a
 trace-ratio heuristic is used:
-\deqn{\frac{\partial\mathrm{GCV}_{u}}{\partial\lambda_l} \approx
+\deqn{\frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\lambda_l} \approx
   \frac{\mathrm{mean}(\mathrm{diag}(\mathbf{L}_l))}{\mathrm{mean}(\mathrm{diag}(\boldsymbol{\Lambda}))}
-  \frac{\partial\mathrm{GCV}_{u}}{\partial\lambda_w},}
+  \frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\lambda_w},}
 and analogously for predictor- and partition-specific penalties, where
 \eqn{\mathbf{L}_j^{(\mathrm{pred})}} or \eqn{\mathbf{L}_k^{(\mathrm{part})}}
 replaces \eqn{\mathbf{L}_l} in the numerator. This follows from a
@@ -1585,20 +1608,20 @@ to compute. The exp chain rule is then applied:
 }
 
 \subsection{Optimization Procedure}{
-\strong{Grid search initialization.} The \eqn{\mathrm{GCV}_{u}} criterion
+\strong{Grid search initialization.} The \eqn{\mathrm{GCV}_{u,\gamma}} criterion
 is evaluated over a grid of candidate values for
 \eqn{(\lambda_w, \lambda_r)} on the log scale. All combinations of
 user-supplied candidate vectors (\code{initial_wiggle} and
 \code{initial_flat}) are formed, and the combination yielding
-the smallest finite \eqn{\mathrm{GCV}_{u}} is selected as the starting
+the smallest finite \eqn{\mathrm{GCV}_{u,\gamma}} is selected as the starting
 point for BFGS optimization. Grid points producing non-finite
-\eqn{\mathrm{GCV}_{u}} are discarded. If all grid points fail, an error
+\eqn{\mathrm{GCV}_{u,\gamma}} are discarded. If all grid points fail, an error
 is raised advising the user to check the data or adjust the grid.
 
 \strong{Damped BFGS optimizer.} A custom damped BFGS quasi-Newton optimizer,
 implemented in \code{\link{efficient_bfgs}}, minimizes
-\eqn{\mathrm{GCV}_{u} + P_{\mathrm{meta}}}. When analytic gradients are not
-usable, the fallback finite-difference helper is \code{\link{approx_grad}}.
+\eqn{\mathrm{GCV}_{u,\gamma} + P_{\mathrm{meta}}}. When analytic gradients are
+not usable, the fallback finite-difference helper is \code{\link{approx_grad}}.
 
 \emph{Iterations 1-2: steepest descent.} The first two iterations use
 steepest descent with a damping factor \eqn{\alpha}:
@@ -1623,13 +1646,13 @@ search direction is
 \eqn{\mathbf{d}^{(t)} = -\mathbf{J}^{(t)}\nabla^{(t)}}.
 
 \emph{Step acceptance.} A step is accepted if
-\eqn{\mathrm{GCV}_{u}^{(\mathrm{new})} \leq \mathrm{GCV}_{u}^{(\mathrm{old})}}.
+\eqn{\mathrm{GCV}_{u,\gamma}^{(\mathrm{new})} \leq \mathrm{GCV}_{u,\gamma}^{(\mathrm{old})}}.
 On rejection, \eqn{\alpha} is halved. If \eqn{\alpha < 2^{-10}} (early
 iterations) or \eqn{\alpha < 2^{-12}} (later iterations), the optimizer
 terminates with the best solution found.
 
 \emph{Convergence.} The optimizer terminates when
-\eqn{|\mathrm{GCV}_{u}^{(t)} - \mathrm{GCV}_{u}^{(t-1)}| < \epsilon} or
+\eqn{|\mathrm{GCV}_{u,\gamma}^{(t)} - \mathrm{GCV}_{u,\gamma}^{(t-1)}| < \epsilon} or
 \eqn{\|\boldsymbol{\phi}^{(t)} - \boldsymbol{\phi}^{(t-1)}\|_{\infty} < \epsilon},
 provided at least 10 iterations have elapsed, for penalties
 \eqn{\boldsymbol{\phi} = \lambda_w, \lambda_r, \nu_j, \tau_j, ...}.
@@ -1835,6 +1858,10 @@ Artificial Intelligence and Statistics (AISTATS)}, 9, 541-548.
 
 Nocedal, J. and Wright, S. J. (2006). \emph{Numerical Optimization}
 (2nd ed.). Springer.
+
+Kim, Y.-J. and Gu, C. (2004). Smoothing Spline Gaussian Regression:
+More Scalable Computation via Efficient Approximation. \emph{Journal of
+the Royal Statistical Society: Series B}, 66(2), 337-356.
 
 Patterson, H. D. and Thompson, R. (1971). Recovery of Inter-Block
 Information When Block Sizes Are Unequal. \emph{Biometrika}, 58,

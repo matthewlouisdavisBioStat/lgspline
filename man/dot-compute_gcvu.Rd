@@ -2,7 +2,7 @@
 % Please edit documentation in R/tune_Lambda.R
 \name{.compute_gcvu}
 \alias{.compute_gcvu}
-\title{Evaluate GCV_u Criterion at a Given Penalty Configuration}
+\title{Evaluate Modified GCV_u Criterion at a Given Penalty Configuration}
 \usage{
 .compute_gcvu(par, log_penalty_vec, env, ...)
 }
@@ -27,6 +27,8 @@ penalties (passed separately for compatibility with the grid search).}
   \item{unique_penalty_per_predictor, unique_penalty_per_partition}{Logicals.}
   \item{family}{GLM family object.}
   \item{delta}{Pseudocount for link function stabilization.}
+  \item{gcv_gamma}{Modified-GCV inflation factor applied to the
+    effective-degrees-of-freedom term in the denominator.}
   \item{meta_penalty}{Meta-penalty coefficient.}
   \item{order_list}{List of observation indices per partition.}
   \item{observation_weights, homogenous_weights}{Observation weighting.}
@@ -68,15 +70,16 @@ List containing:
   \item{L_predictor_list}{List; predictor-specific penalty matrices.}
   \item{L_partition_list}{List; partition-specific penalty matrices.}
   \item{numerator}{Numeric; sum of squared residuals.}
-  \item{denominator}{Numeric; GCV denominator \eqn{N(1 - \bar{W})^{2}}.}
+  \item{denominator}{Numeric; modified-GCV denominator
+    \eqn{N(1 - \gamma\bar{W})^{2}}.}
   \item{residuals}{List; residual vectors by partition.}
   \item{denom_sq}{Numeric; squared denominator.}
   \item{AGAInv}{Matrix; \eqn{(\mathbf{A}^{\top}\mathbf{G}\mathbf{A})^{-1}}.}
 }
 }
 \description{
-Computes the GCV_u (unbiased generalized cross-validation) criterion for
-a given set of penalty parameters. This is the objective function minimized
-during penalty tuning.
+Computes the modified GCV_u criterion for a given set of penalty
+parameters. This is the objective function minimized during penalty tuning;
+\code{gcv_gamma = 1} recovers ordinary GCV.
 }
 \keyword{internal}

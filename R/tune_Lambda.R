@@ -398,12 +398,12 @@
 # Subfunction: .compute_gcvu
 ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 
-#' Evaluate GCV_u Criterion at a Given Penalty Configuration
+#' Evaluate Modified GCV_u Criterion at a Given Penalty Configuration
 #'
 #' @description
-#' Computes the GCV_u (unbiased generalized cross-validation) criterion for
-#' a given set of penalty parameters. This is the objective function minimized
-#' during penalty tuning.
+#' Computes the modified GCV_u criterion for a given set of penalty
+#' parameters. This is the objective function minimized during penalty tuning;
+#' \code{gcv_gamma = 1} recovers ordinary GCV.
 #'
 #' @param par Numeric vector; log-scale penalty parameters. First two elements
 #'   are log(wiggle_penalty) and log(flat_ridge_penalty). Remaining elements
@@ -423,6 +423,8 @@
 #'     \item{unique_penalty_per_predictor, unique_penalty_per_partition}{Logicals.}
 #'     \item{family}{GLM family object.}
 #'     \item{delta}{Pseudocount for link function stabilization.}
+#'     \item{gcv_gamma}{Modified-GCV inflation factor applied to the
+#'       effective-degrees-of-freedom term in the denominator.}
 #'     \item{meta_penalty}{Meta-penalty coefficient.}
 #'     \item{order_list}{List of observation indices per partition.}
 #'     \item{observation_weights, homogenous_weights}{Observation weighting.}
@@ -462,7 +464,8 @@
 #'   \item{L_predictor_list}{List; predictor-specific penalty matrices.}
 #'   \item{L_partition_list}{List; partition-specific penalty matrices.}
 #'   \item{numerator}{Numeric; sum of squared residuals.}
-#'   \item{denominator}{Numeric; GCV denominator \eqn{N(1 - \bar{W})^{2}}.}
+#'   \item{denominator}{Numeric; modified-GCV denominator
+#'     \eqn{N(1 - \gamma\bar{W})^{2}}.}
 #'   \item{residuals}{List; residual vectors by partition.}
 #'   \item{denom_sq}{Numeric; squared denominator.}
 #'   \item{AGAInv}{Matrix; \eqn{(\mathbf{A}^{\top}\mathbf{G}\mathbf{A})^{-1}}.}
@@ -474,6 +477,7 @@
                           env,
                           ...) {
   verbose <- env$verbose
+  gamma <- env$gcv_gamma
 
   if (verbose) cat("        gcvu_fxn start\n")
 
@@ -597,7 +601,7 @@
   if (verbose) cat("        gcvu_fxn GCVu operations\n")
   numerator   <- sum(unlist(residuals)^2)
   mean_W      <- sum_W / env$N_obs
-  denominator <- env$N_obs * (1 - mean_W)^2
+  denominator <- env$N_obs * (1 - gamma * mean_W)^2
   denom_sq    <- denominator^2
   GCV_u       <- numerator / denominator
 
@@ -636,9 +640,9 @@
 #' Compute Closed-Form Gradient of GCV_u Criterion
 #'
 #' @description
-#' Computes the gradient of the GCV_u criterion with respect to the log-scale
-#' penalty parameters using analytical derivatives of the hat matrix trace
-#' and residual sum of squares.
+#' Computes the gradient of the modified GCV_u criterion with respect to the
+#' log-scale penalty parameters using analytical derivatives of the hat matrix
+#' trace and residual sum of squares.
 #'
 #' @param par Numeric vector; log-scale penalty parameters.
 #' @param log_penalty_vec Numeric vector; log-scale predictor/partition
@@ -663,10 +667,10 @@
 #'     \frac{\partial N}{\partial \theta} D
 #'     - N \frac{\partial D}{\partial \theta}
 #'   \right)}
-#' where \eqn{N = \sum r_{i}^{2}} (numerator), \eqn{D = n(1 - \bar{W})^{2}}
-#' (denominator), \eqn{\theta} is the log-scale penalty parameter, and the
-#' chain rule \eqn{d\lambda / d\theta = \lambda} (exp parameterization) is
-#' applied.
+#' where \eqn{N = \sum r_{i}^{2}} (numerator),
+#' \eqn{D = n(1 - \gamma\bar{W})^{2}} (denominator), \eqn{\theta} is the
+#' log-scale penalty parameter, and the chain rule
+#' \eqn{d\lambda / d\theta = \lambda} (exp parameterization) is applied.
 #'
 #' For predictor- and partition-specific penalties, a trace-ratio heuristic
 #' is used:
@@ -681,6 +685,7 @@
                                    env,
                                    ...) {
   verbose <- env$verbose
+  gamma <- env$gcv_gamma
 
   if (verbose) cat("        gr_fxn start\n")
 
@@ -805,7 +810,7 @@
     if (verbose) cat("        gr fxn compute GCV_u\n")
     numerator   <- sum(unlist(residuals)^2)
     mean_W      <- sum_W / env$N_obs
-    denominator <- env$N_obs * (1 - mean_W)^2
+    denominator <- env$N_obs * (1 - gamma * mean_W)^2
     denom_sq    <- denominator^2
     GCV_u       <- numerator / denominator
 
@@ -934,7 +939,8 @@
 
   ## Quotient rule for GCV_u derivative w.r.t. wiggle penalty
   dnumerator_dlambda1   <- c(neg2tresidX %**% dG_u_dlambda1_Xyr)
-  ddenominator_dlambda1 <- 2 * (1 - outlist$mean_W) * -dW_dlambda
+  ddenominator_dlambda1 <- 2 * (1 - gamma * outlist$mean_W) *
+    (-gamma * dW_dlambda)
   dGCV_u_dlambda1 <- (dnumerator_dlambda1 * outlist$denominator -
                         outlist$numerator * ddenominator_dlambda1) /
     outlist$denom_sq
@@ -1000,12 +1006,12 @@
 # Subfunction: .damped_bfgs
 ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 
-#' Damped BFGS Optimizer for GCV Penalty Tuning
+#' Damped BFGS Optimizer for Modified-GCV Penalty Tuning
 #'
 #' @description
 #' Custom implementation of damped BFGS quasi-Newton optimization for
-#' minimizing the GCV_u criterion. Uses step-size damping with backtracking
-#' and Sherman-Morrison-Woodbury inverse Hessian updates.
+#' minimizing the modified GCV_u criterion. Uses step-size damping with
+#' backtracking and Sherman-Morrison-Woodbury inverse Hessian updates.
 #'
 #' @param par Numeric vector; initial log-scale penalty parameters (first two
 #'   elements are log(wiggle) and log(flat_ridge)).
@@ -1390,6 +1396,8 @@
 #'   in from \code{tune_Lambda} to avoid recomputation).
 #' @param use_blockfit Logical; pre-computed dispatch flag (passed in from
 #'   \code{tune_Lambda}).
+#' @param gcv_gamma Numeric scalar, at least 1; modified-GCV multiplier for the
+#'   effective-degrees-of-freedom term.
 #'
 #' @return Named list (the "tuning environment").
 #'
@@ -1415,12 +1423,12 @@
                               unconstrained_fit_fxn,
                               keep_weighted_Lambda,
                               iterate,
-                              qp_score_function, quadprog,
-                              qp_Amat, qp_bvec, qp_meq,
-                              tol, sd_y,
-                              constraint_value_vectors,
-                              glm_weight_function,
-                              schur_correction_function,
+                               qp_score_function, quadprog,
+                               qp_Amat, qp_bvec, qp_meq,
+                               tol, sd_y, gcv_gamma,
+                               constraint_value_vectors,
+                               glm_weight_function,
+                               schur_correction_function,
                               need_dispersion_for_estimation,
                               dispersion_function,
                               blockfit,
@@ -1470,6 +1478,7 @@
     qp_meq                        = qp_meq,
     tol                           = tol,
     sd_y                          = sd_y,
+    gcv_gamma                     = gcv_gamma,
     constraint_value_vectors      = constraint_value_vectors,
     glm_weight_function           = glm_weight_function,
     schur_correction_function     = schur_correction_function,
@@ -1538,6 +1547,14 @@
 #'   programming parameters (see arguments of \code{\link[lgspline]{lgspline}}).
 #' @param tol Numeric; convergence tolerance.
 #' @param sd_y,delta Response standardization parameters.
+#' @param gcv_gamma Numeric scalar, at least 1. Multiplies the effective
+#'   degrees of freedom in the GCV denominator so that tuning minimizes the
+#'   modified criterion
+#'   \eqn{\sum r_i^2 / \{N(1 - \gamma \bar{W})^2\}}.
+#'   \code{gcv_gamma = 1} recovers ordinary GCV; values above 1 penalize
+#'   complexity more strongly and reduce the occasional severe undersmoothing
+#'   of unmodified GCV. The default \code{1.4} follows Kim and Gu (2004,
+#'   Section 4, equation 4.1), who recommend values in the range 1.2 to 1.4.
 #' @param constraint_value_vectors List; constraint values.
 #' @param parallel Logical; enable parallel computation.
 #' @param parallel_eigen,parallel_trace,parallel_aga Logical; specific parallel
@@ -1602,6 +1619,11 @@
 #'     damped BFGS with closed-form gradients (see \code{.damped_bfgs},
 #'     \code{.compute_gcvu_gradient}) or base R's \code{stats::optim} with
 #'     finite-difference gradients.
+#'   \item \strong{Modified GCV}: Use
+#'     \eqn{N(1 - \gamma\bar{W})^2} in the denominator, where
+#'     \eqn{\gamma = \code{gcv_gamma}}. Setting \eqn{\gamma > 1}
+#'     follows Kim and Gu's modified GCV recommendation and penalizes
+#'     effective degrees of freedom more strongly.
 #'   \item \strong{Inflation}: Apply small inflation factor
 #'     \eqn{((N+2)/(N-2))^{2}} to counteract in-sample bias toward
 #'     underpenalization.
@@ -1772,6 +1794,7 @@ tune_Lambda <- function(
     tol,
     sd_y,
     delta,
+    gcv_gamma,
     constraint_value_vectors,
     parallel,
     parallel_eigen,
@@ -1802,6 +1825,12 @@ tune_Lambda <- function(
 ) {
 
   if (verbose) cat("    Starting tuning\n")
+
+  if (!is.numeric(gcv_gamma) || length(gcv_gamma) != 1 ||
+      !is.finite(gcv_gamma) || gcv_gamma < 1) {
+    stop("gcv_gamma must be a finite numeric scalar >= 1. ",
+         "Set gcv_gamma = 1 to recover ordinary GCV.", call. = FALSE)
+  }
 
   ## ## Step 1: Convert raw-scale inputs to log scale ## ##
   log_initial_wiggle <- log(initial_wiggle)
@@ -1883,6 +1912,7 @@ tune_Lambda <- function(
     qp_score_function = qp_score_function, quadprog = quadprog,
     qp_Amat = qp_Amat, qp_bvec = qp_bvec, qp_meq = qp_meq,
     tol = tol, sd_y = sd_y,
+    gcv_gamma = gcv_gamma,
     constraint_value_vectors = constraint_value_vectors,
     glm_weight_function = glm_weight_function,
     schur_correction_function = schur_correction_function,

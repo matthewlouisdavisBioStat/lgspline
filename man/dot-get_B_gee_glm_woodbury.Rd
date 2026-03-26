@@ -106,8 +106,9 @@ Same structure as \code{.get_B_gee_glm}.
 }
 \description{
 Replacement for \code{.get_B_gee_glm} when the off-diagonal rank
-\eqn{r} is low. At each damped Newton iteration, the Woodbury
-decomposition is recomputed with updated GLM working weights
+\eqn{r} of the weighted cross-partition remainder is low. At each damped
+Newton iteration, the Woodbury decomposition is recomputed with updated
+GLM working weights
 \eqn{\mathbf{W}(\boldsymbol{\beta}^{(s)})} (since the weighted
 cross-partition correction
 \eqn{\mathbf{X}^{\top}\mathrm{diag}(\mathbf{W}(\boldsymbol{\beta}^{(s)}))

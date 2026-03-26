@@ -45,6 +45,7 @@
   qp_meq,
   tol,
   sd_y,
+  gcv_gamma,
   constraint_value_vectors,
   glm_weight_function,
   schur_correction_function,
@@ -61,6 +62,9 @@
 )
 }
 \arguments{
+\item{gcv_gamma}{Numeric scalar, at least 1; modified-GCV multiplier for the
+effective-degrees-of-freedom term.}
+
 \item{flat_cols}{Integer vector; pre-computed flat column indices (passed
 in from \code{tune_Lambda} to avoid recomputation).}
 

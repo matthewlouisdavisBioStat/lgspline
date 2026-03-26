@@ -29,9 +29,9 @@ List containing:
 }
 }
 \description{
-Computes the gradient of the GCV_u criterion with respect to the log-scale
-penalty parameters using analytical derivatives of the hat matrix trace
-and residual sum of squares.
+Computes the gradient of the modified GCV_u criterion with respect to the
+log-scale penalty parameters using analytical derivatives of the hat matrix
+trace and residual sum of squares.
 }
 \details{
 The gradient is computed via:
@@ -40,10 +40,10 @@ The gradient is computed via:
     \frac{\partial N}{\partial \theta} D
     - N \frac{\partial D}{\partial \theta}
   \right)}
-where \eqn{N = \sum r_{i}^{2}} (numerator), \eqn{D = n(1 - \bar{W})^{2}}
-(denominator), \eqn{\theta} is the log-scale penalty parameter, and the
-chain rule \eqn{d\lambda / d\theta = \lambda} (exp parameterization) is
-applied.
+where \eqn{N = \sum r_{i}^{2}} (numerator),
+\eqn{D = n(1 - \gamma\bar{W})^{2}} (denominator), \eqn{\theta} is the
+log-scale penalty parameter, and the chain rule
+\eqn{d\lambda / d\theta = \lambda} (exp parameterization) is applied.
 
 For predictor- and partition-specific penalties, a trace-ratio heuristic
 is used:

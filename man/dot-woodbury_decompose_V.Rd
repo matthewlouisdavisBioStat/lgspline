@@ -56,29 +56,37 @@ A list with components:
   \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.}
   \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{-1/2}}.}
   \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}}.}
-  \item{L}{Off-diagonal low-rank factor (\eqn{P \times r}). In the
-    manuscript this role is denoted by \eqn{\mathbf{E}} to avoid
-    overloading penalty matrices \eqn{\mathbf{L}}.}
-  \item{S_signs}{Length-\eqn{r} vector of \eqn{\pm 1}; equivalently the
-    diagonal entries of the sign matrix \eqn{\mathbf{J}} in manuscript
-    notation.}
+  \item{E}{Off-diagonal low-rank factor (\eqn{P \times r}) from the
+    manuscript factorization
+    \eqn{\mathbf{M}_{\mathrm{off}} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.}
+  \item{J_signs}{Length-\eqn{r} vector of \eqn{\pm 1}; equivalently the
+    diagonal entries of the manuscript sign matrix \eqn{\mathbf{J}}.}
   \item{r}{Integer effective rank.}
-  \item{M}{Precomputed \eqn{r \times r} Woodbury inner inverse. In
+  \item{inner_inv}{Precomputed \eqn{r \times r} Woodbury inner inverse. In
     manuscript notation this is
     \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c
     \mathbf{E})^{-1}}.}
   \item{GL}{List of \eqn{K+1} matrices storing
     \eqn{\mathbf{G}_{c,k}\mathbf{E}[rows_k,]} in manuscript notation,
     each \eqn{p \times r}.}
+  \item{L,S_signs,M}{Legacy internal aliases for
+    \code{E}, \code{J_signs}, and \code{inner_inv}, retained for
+    compatibility within the package code.}
 }
 }
 \description{
 Given \eqn{\mathbf{V}^{-1/2}}, the partition-specific design matrices,
-and the penalty, decomposes the GLS information matrix into a corrected
-block-diagonal part \eqn{\mathbf{G}_c^{-1}} plus an off-diagonal
-cross-partition remainder with effective rank \eqn{r}. In the manuscript,
-that remainder is written as \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
-to avoid overloading existing penalty-matrix notation.
+and the penalty, decomposes the GLS information matrix into the same
+pieces used in Supplement~S.B of the manuscript. Starting from
+\eqn{\mathbf{G}_0^{-1} = \mathbf{X}^{\top}\mathbf{X} +
+\boldsymbol{\Lambda}}, it forms
+\eqn{\mathbf{M} = \mathbf{X}^{\top}(\mathbf{V}^{-1} -
+\mathbf{I})\mathbf{X}}, splits \eqn{\mathbf{M}} into its block-diagonal
+and cross-partition parts, absorbs \eqn{\mathbf{M}_{\mathrm{diag}}} into
+the corrected block-diagonal inverse \eqn{\mathbf{G}_c^{-1}}, and leaves
+the cross-partition remainder \eqn{\mathbf{M}_{\mathrm{off}}} in low-rank
+form. In the manuscript, that remainder is written as
+\eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
 }
 \details{
 More concretely, this helper carries out the first two algebraic steps in

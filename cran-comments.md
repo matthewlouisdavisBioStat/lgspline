@@ -1,7 +1,7 @@
 # CRAN Comments
 
 ## Resubmission
-This is a resubmission addressing numerical stability, interface consistency, and correctness issues identified during JSS review preparation. 
+This is a resubmission addressing numerical stability, interface consistency, and correctness issues identified during JSS review preparation.
 
 In addition to computational and correctness issues found during ongoing package development, this revision also incorporates detailed editorial feedback received during a Journal of Statistical Software (JSS) pre-review on academic software standards, including interface design, S3 method completeness, documentation, examples, and replication-readiness.
 
@@ -43,6 +43,15 @@ Thank you for your time.
 - Fixed bug where `penalty_vec < 0` (a comparison) was used instead of `penalty_vec <- c()` (an assignment) in the empty-vector fallback.
 - Fixed inverted observation weights condition in `gcvu_fxn`: changed `==` to `!=` to prevent double-counting weights already absorbed into pre-scaled Gaussian/identity data.
 - The construction of the cubic smoothing spline penalty matrix was rigorously verified and corrected as needed, see `?lgspline::get_2ndDerivPenalty`.
+
+#### 2a. Modified GCV (`gcv_gamma`)
+- Added a user-facing `gcv_gamma` argument to `lgspline()` and `lgspline.fit()`, defaulting to `1.4`, and threaded it through `tune_Lambda()` so automatic tuning now uses the modified GCV denominator
+  \[
+  N\{1 - \gamma\,\mathrm{tr}(H)/N\}^{2}
+  \]
+  rather than the ordinary `gamma = 1` form. Setting `gcv_gamma = 1` recovers standard GCV exactly.
+- Updated `.compute_gcvu_gradient()` so the denominator derivative includes the same `gcv_gamma` factor, preserving consistency between the objective and the closed-form gradient used by the custom BFGS path.
+- Documented the rationale in `lgspline-details.R` with the primary citation: Kim, Y.-J. and Gu, C. (2004), *Smoothing Spline Gaussian Regression: More Scalable Computation via Efficient Approximation*, *Journal of the Royal Statistical Society: Series B*, 66(2), 337-356, Section 4, equation 4.1. The default `gcv_gamma = 1.4` follows their recommended range for reducing occasional severe undersmoothing.
 
 #### 3. Main Interface (lgspline.R)
 - Several of the following changes respond directly to JSS editor feedback on R interface conventions and user-facing complexity.
@@ -187,4 +196,3 @@ Thank you for your time.
 0 errors | 0 warnings | 0 notes
 
 There are no downstream dependencies for this package.
-

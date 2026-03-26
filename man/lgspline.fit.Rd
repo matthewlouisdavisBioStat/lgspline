@@ -14,6 +14,7 @@ lgspline.fit(predictors, y = NULL, standardize_response = TRUE,
              make_partition_list = NULL, previously_tuned_penalties = NULL,
              smoothing_spline_penalty = NULL, opt = TRUE, use_custom_bfgs = TRUE,
              delta = NULL, tol = 10*sqrt(.Machine$double.eps),
+             gcv_gamma = 1.4,
              initial_wiggle = c(1e-10, 1e-5, 1e-1),
              initial_flat = c(0.1, 10), wiggle_penalty = 2e-07,
              flat_ridge_penalty = 0.5, unique_penalty_per_partition = TRUE,
@@ -126,7 +127,8 @@ components from a previous model fit.}
 matrix.}
 
 \item{opt}{Default: TRUE. Logical switch controlling automatic penalty optimization via
-generalized cross-validation.}
+modified generalized cross-validation; the inflation factor is set by
+\code{gcv_gamma}.}
 
 \item{use_custom_bfgs}{Default: TRUE. Selects between a native damped-BFGS
 implementation with closed-form gradients or base R's BFGS with finite-difference
@@ -136,6 +138,14 @@ gradients.}
 non-identity link function scenarios.}
 
 \item{tol}{Default: \code{10*sqrt(.Machine$double.eps)}. Numeric convergence tolerance.}
+
+\item{gcv_gamma}{Default: 1.4. Numeric scalar, at least 1, multiplying the
+effective degrees of freedom in the GCV denominator during automatic
+penalty tuning. \code{gcv_gamma = 1} recovers ordinary GCV, while values
+above 1 penalize complexity more strongly and can reduce the occasional
+severe undersmoothing of unmodified GCV. The default follows Kim and Gu
+(2004) and matches the common \pkg{mgcv} convention of using
+\code{gamma > 1} for smoother fits.}
 
 \item{initial_wiggle}{Default: \code{c(1e-10, 1e-5, 1e-1)}. Numeric vector of
 initial grid points for wiggle penalty optimization, on the raw (non-negative) scale.}
@@ -557,8 +567,9 @@ formula parsing, factor encoding, and correlation-structure setup.
   \item Knot placement and partitioning (k-means or custom).
   \item Constraint matrix \eqn{\mathbf{A}} construction. Only a linearly
         independent subset of columns is retained via pivoted QR decomposition.
-  \item Penalty tuning via GCV (exponential parameterization) or
-        use of previously tuned penalties.
+  \item Penalty tuning via modified GCV (exponential parameterization;
+        \code{gcv_gamma = 1} recovers ordinary GCV) or use of previously
+        tuned penalties.
   \item Final coefficient estimation via one of three paths:
         \itemize{
           \item \strong{Blockfit option} (when \code{blockfit = TRUE},

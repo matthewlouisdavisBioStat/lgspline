@@ -80,11 +80,13 @@ Same structure as \code{.get_B_gee_gaussian}.
 }
 \description{
 Replacement for \code{.get_B_gee_gaussian} when the off-diagonal rank
-\eqn{r} of the \eqn{\mathbf{V}^{-1}} perturbation is low. Uses the
-conserved \eqn{\mathbf{G}^{1/2}\mathbf{r}^*} OLS trick with
-\eqn{\mathbf{G}_V^{1/2}} expressed as block-diagonal
-\eqn{\mathbf{G}_c^{1/2}} plus rank-\eqn{r} correction through
-\eqn{\mathbf{U}_Q}. The code structure closely mirrors
+\eqn{r} of the cross-partition remainder
+\eqn{\mathbf{M}_{\mathrm{off}} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
+is low. Uses the conserved \eqn{\mathbf{G}^{1/2}\mathbf{r}^*} OLS trick
+with \eqn{\mathbf{G}_V^{1/2} = \mathbf{G}_c^{1/2}\mathbf{F}^{1/2}},
+where the low-rank correction is applied through the basis spanning the
+manuscript \eqn{\mathbf{Q}} subspace (stored internally as
+\code{U_Q}/\code{Q_basis}). The code structure closely mirrors
 \code{.get_B_gaussian_nocorr}.
 }
 \details{
