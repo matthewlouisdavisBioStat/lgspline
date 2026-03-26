@@ -40,7 +40,11 @@ cross-products \eqn{\mathbf{X}_k^{\top}\mathbf{V}^{-1}\mathbf{y}_k}.}
 \item{family}{GLM family object.}
 
 \item{wb_sqrt}{Output of \code{.woodbury_halfsqrt_components},
-containing \code{U_Q}, \code{C}, \code{C_inv}, \code{GchalfUQ}.}
+containing the internal rank-\eqn{r} representation of
+\eqn{\mathbf{F}^{1/2}}: \code{U_Q} (basis for the Woodbury subspace),
+\code{C} and \code{C_inv} (diagonal correction coefficients),
+and \code{GchalfUQ} (partition-wise copies of
+\eqn{\mathbf{G}_{c,k}^{1/2}\mathbf{U}_Q[rows_k,]}).}
 
 \item{parallel_aga, parallel_matmult}{Logical flags.}
 
@@ -53,20 +57,28 @@ A list of \eqn{K+1} coefficient column vectors.
 Performs the constrained Lagrangian projection using the conserved
 \eqn{\mathbf{G}^{1/2}\mathbf{r}^*} OLS trick, with
 \eqn{\mathbf{G}_V^{1/2}} expressed as block-diagonal
-\eqn{\mathbf{G}_c^{1/2}} plus a rank-\eqn{r} correction through
-\eqn{\mathbf{U}_Q}. The structure is identical to
+\eqn{\mathbf{G}_c^{1/2}} plus a rank-\eqn{r} correction.
+}
+\details{
+In the manuscript notation, if
+\eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}} has thin QR
+decomposition \eqn{\mathbf{N} = \mathbf{Q}\mathbf{R}},
+\eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}, and
+\eqn{\mathbf{S} = \mathbf{I}_r + \mathbf{R}\mathbf{J}\mathbf{R}^{\top}},
+then
+\eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{P} +
+\mathbf{Q}\mathbf{S}^{-1/2}\mathbf{Q}^{\top}} and
+\eqn{\mathbf{G}_V^{1/2} = \mathbf{G}_c^{1/2}\mathbf{F}^{1/2}}.
+
+The implementation stores an equivalent rank-\eqn{r} correction in the
+numerically convenient form
+\eqn{\mathbf{F}^{1/2} = \mathbf{I}_P -
+\mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}}, where \eqn{\mathbf{U}_Q}
+spans the same subspace as the manuscript \eqn{\mathbf{Q}} and
+\eqn{\mathbf{C}} is diagonal. The structure is otherwise identical to
 \code{.lagrangian_project}: form \eqn{\mathbf{y}^*}, form
 \eqn{\mathbf{X}^*}, run \code{.lm.fit}, back-transform. Steps 1, 2,
 and 4 each gain an additive rank-\eqn{r} correction at cost
 \eqn{O(Pr)}, while step 3 is literally unchanged.
-}
-\details{
-The correction matrix \eqn{\mathbf{F}} (identity plus rank-\eqn{r}
-modification) factors as
-\eqn{\mathbf{F}^{1/2} = \mathbf{I}_P -
-\mathbf{U}_Q \mathbf{C} \mathbf{U}_Q^{\top}} where \eqn{\mathbf{C}}
-is \eqn{r \times r} diagonal. The inverse square root is
-\eqn{\mathbf{F}^{-1/2} = \mathbf{I}_P +
-\mathbf{U}_Q \mathbf{C}_{\mathrm{inv}} \mathbf{U}_Q^{\top}}.
 }
 \keyword{internal}

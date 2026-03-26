@@ -57,11 +57,14 @@ List containing:
     matrices.}
   \item{G_list}{List; eigendecomposition results from
     \code{compute_G_eigen}.}
-  \item{mean_W}{Numeric; mean of hat matrix diagonal.}
-  \item{sum_W}{Numeric; trace of hat matrix.}
-  \item{Lambda}{Matrix; combined penalty matrix.}
-  \item{L1}{Matrix; smoothing spline penalty component.}
-  \item{L2}{Matrix; ridge penalty component.}
+  \item{mean_W}{Numeric; \eqn{\mathrm{tr}(\mathbf{H})/N}, the average
+    leverage entering the denominator of \eqn{\mathrm{GCV}_u}.}
+  \item{sum_W}{Numeric; \eqn{\mathrm{tr}(\mathbf{H})}, the effective
+    degrees of freedom.}
+  \item{Lambda}{Matrix; combined penalty matrix
+    \eqn{\boldsymbol{\Lambda}}.}
+  \item{L1}{Matrix; baseline smoothness penalty component.}
+  \item{L2}{Matrix; baseline ridge penalty component.}
   \item{L_predictor_list}{List; predictor-specific penalty matrices.}
   \item{L_partition_list}{List; partition-specific penalty matrices.}
   \item{numerator}{Numeric; sum of squared residuals.}

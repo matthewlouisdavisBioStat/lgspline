@@ -204,20 +204,28 @@
 #' Performs the constrained Lagrangian projection using the conserved
 #' \eqn{\mathbf{G}^{1/2}\mathbf{r}^*} OLS trick, with
 #' \eqn{\mathbf{G}_V^{1/2}} expressed as block-diagonal
-#' \eqn{\mathbf{G}_c^{1/2}} plus a rank-\eqn{r} correction through
-#' \eqn{\mathbf{U}_Q}. The structure is identical to
+#' \eqn{\mathbf{G}_c^{1/2}} plus a rank-\eqn{r} correction.
+#'
+#' In the manuscript notation, if
+#' \eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}} has thin QR
+#' decomposition \eqn{\mathbf{N} = \mathbf{Q}\mathbf{R}},
+#' \eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}, and
+#' \eqn{\mathbf{S} = \mathbf{I}_r + \mathbf{R}\mathbf{J}\mathbf{R}^{\top}},
+#' then
+#' \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{P} +
+#' \mathbf{Q}\mathbf{S}^{-1/2}\mathbf{Q}^{\top}} and
+#' \eqn{\mathbf{G}_V^{1/2} = \mathbf{G}_c^{1/2}\mathbf{F}^{1/2}}.
+#'
+#' The implementation stores an equivalent rank-\eqn{r} correction in the
+#' numerically convenient form
+#' \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P -
+#' \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}}, where \eqn{\mathbf{U}_Q}
+#' spans the same subspace as the manuscript \eqn{\mathbf{Q}} and
+#' \eqn{\mathbf{C}} is diagonal. The structure is otherwise identical to
 #' \code{.lagrangian_project}: form \eqn{\mathbf{y}^*}, form
 #' \eqn{\mathbf{X}^*}, run \code{.lm.fit}, back-transform. Steps 1, 2,
 #' and 4 each gain an additive rank-\eqn{r} correction at cost
 #' \eqn{O(Pr)}, while step 3 is literally unchanged.
-#'
-#' The correction matrix \eqn{\mathbf{F}} (identity plus rank-\eqn{r}
-#' modification) factors as
-#' \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P -
-#' \mathbf{U}_Q \mathbf{C} \mathbf{U}_Q^{\top}} where \eqn{\mathbf{C}}
-#' is \eqn{r \times r} diagonal. The inverse square root is
-#' \eqn{\mathbf{F}^{-1/2} = \mathbf{I}_P +
-#' \mathbf{U}_Q \mathbf{C}_{\mathrm{inv}} \mathbf{U}_Q^{\top}}.
 #'
 #' @param GhalfXy_V Numeric column vector of length \eqn{P};
 #'   \eqn{\mathbf{G}_c^{1/2}} applied to the per-partition GLS
@@ -230,7 +238,11 @@
 #'   \eqn{\mathbf{A}^{\top}\boldsymbol{\beta} = \mathbf{c}}.
 #' @param family GLM family object.
 #' @param wb_sqrt Output of \code{.woodbury_halfsqrt_components},
-#'   containing \code{U_Q}, \code{C}, \code{C_inv}, \code{GchalfUQ}.
+#'   containing the internal rank-\eqn{r} representation of
+#'   \eqn{\mathbf{F}^{1/2}}: \code{U_Q} (basis for the Woodbury subspace),
+#'   \code{C} and \code{C_inv} (diagonal correction coefficients),
+#'   and \code{GchalfUQ} (partition-wise copies of
+#'   \eqn{\mathbf{G}_{c,k}^{1/2}\mathbf{U}_Q[rows_k,]}).
 #' @param parallel_aga,parallel_matmult Logical flags.
 #' @param cl,chunk_size,num_chunks,rem_chunks Parallel parameters.
 #'
@@ -254,8 +266,9 @@
   r <- ncol(U_Q)
 
   ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-  ## Step 1: Form y* = F^{1/2} GhalfXy_V
-  ##       = GhalfXy_V - U_Q C U_Q^T GhalfXy_V
+  ## Step 1: Form y* = F^{1/2} GhalfXy_V.
+  ## In manuscript notation F^{1/2} = I - P + Q S^{-1/2} Q^T.
+  ## Internally the same operator is stored as I - U_Q C U_Q^T.
   ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
   v_y <- crossprod(U_Q, GhalfXy_V)         # r x 1
   y_star <- GhalfXy_V - U_Q %**% (C %**% v_y)
@@ -264,8 +277,9 @@
   y_star <- ifelse(is.na(y_star), family$linkinv(0), y_star)
 
   ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-  ## Step 2: Form X* = G_V^{1/2} A = G_c^{1/2} F^{1/2} A
-  ##       = G_c^{1/2} A - G_c^{1/2} U_Q C U_Q^T A
+  ## Step 2: Form X* = G_V^{1/2} A = G_c^{1/2} F^{1/2} A.
+  ## This is the Woodbury-corrected analogue of G^{1/2} A in the
+  ## uncorrelated projection.
   ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 
   ## Block-diagonal part: G_c^{1/2} A.
@@ -274,7 +288,7 @@
                                   R_constraints, parallel_aga, cl,
                                   chunk_size, num_chunks, rem_chunks))
 
-  ## Rank-r correction: G_c^{1/2} U_Q (C U_Q^T A).
+  ## Rank-r correction restricted to the Woodbury subspace.
   UQtA <- crossprod(U_Q, A)                  # r x R
   C_UQtA <- C %**% UQtA                      # r x R
   GchalfUQ_full <- do.call(rbind, GchalfUQ)   # P x r
@@ -308,8 +322,8 @@
   }
 
   ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-  ## Step 4: Back-transform beta_tilde = G_V^{1/2} r*
-  ##       = G_c^{1/2} r* - G_c^{1/2} U_Q C U_Q^T r*
+  ## Step 4: Back-transform beta_tilde = G_V^{1/2} r* with the same
+  ## block-plus-rank-r operator used in Steps 1 and 2.
   ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
   v_r <- crossprod(U_Q, cbind(resids_star))  # r x 1
   C_v_r <- C %**% v_r                        # r x 1
@@ -1022,12 +1036,25 @@
 #' Woodbury Decomposition of Correlation Structure
 #'
 #' Given \eqn{\mathbf{V}^{-1/2}}, the partition-specific design matrices,
-#' and the penalty, decomposes the GLS information matrix as
-#' \eqn{\mathbf{G}_V^{-1} = \mathbf{G}_c^{-1} +
-#' \boldsymbol{\Delta}_{\mathrm{off}}} where \eqn{\mathbf{G}_c} absorbs
-#' within-partition corrections from \eqn{\mathbf{V}^{-1} - \mathbf{I}}
-#' and \eqn{\boldsymbol{\Delta}_{\mathrm{off}}} captures cross-partition
-#' coupling with effective rank \eqn{r}.
+#' and the penalty, decomposes the GLS information matrix into a corrected
+#' block-diagonal part \eqn{\mathbf{G}_c^{-1}} plus an off-diagonal
+#' cross-partition remainder with effective rank \eqn{r}. In the manuscript,
+#' that remainder is written as \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
+#' to avoid overloading existing penalty-matrix notation.
+#'
+#' More concretely, this helper carries out the first two algebraic steps in
+#' Appendix~B of the manuscript:
+#' \enumerate{
+#'   \item build \eqn{\mathbf{M} = \mathbf{X}^{\top}(\mathbf{V}^{-1} -
+#'     \mathbf{I})\mathbf{X}},
+#'   \item absorb the block-diagonal part of \eqn{\mathbf{M}} into
+#'     \eqn{\mathbf{G}_c^{-1}},
+#'   \item factor the remaining cross-partition term at low rank as
+#'     \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
+#' }
+#' The returned objects are then consumed by
+#' \code{.woodbury_halfsqrt_components()} to construct the square-root update
+#' used by \code{.lagrangian_project_woodbury()}.
 #'
 #' When \eqn{r = 0} (no cross-partition coupling) or \eqn{r \ge P/3}
 #' (low-rank approximation not worthwhile), returns
@@ -1055,14 +1082,20 @@
 #'   \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.}
 #'   \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{-1/2}}.}
 #'   \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}}.}
-#'   \item{L}{Off-diagonal low-rank factor (\eqn{P \times r}).}
-#'   \item{S_signs}{Length-\eqn{r} vector of \eqn{\pm 1}.}
+#'   \item{L}{Off-diagonal low-rank factor (\eqn{P \times r}). In the
+#'     manuscript this role is denoted by \eqn{\mathbf{E}} to avoid
+#'     overloading penalty matrices \eqn{\mathbf{L}}.}
+#'   \item{S_signs}{Length-\eqn{r} vector of \eqn{\pm 1}; equivalently the
+#'     diagonal entries of the sign matrix \eqn{\mathbf{J}} in manuscript
+#'     notation.}
 #'   \item{r}{Integer effective rank.}
-#'   \item{M}{Precomputed \eqn{r \times r} Woodbury inner inverse
-#'     \eqn{(\mathrm{diag}(1/S) + \mathbf{L}^{\top}\mathbf{G}_c
-#'     \mathbf{L})^{-1}}.}
-#'   \item{GL}{List of \eqn{K+1} matrices \eqn{\mathbf{G}_{c,k}
-#'     \mathbf{L}[rows_k,]}, each \eqn{p \times r}.}
+#'   \item{M}{Precomputed \eqn{r \times r} Woodbury inner inverse. In
+#'     manuscript notation this is
+#'     \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c
+#'     \mathbf{E})^{-1}}.}
+#'   \item{GL}{List of \eqn{K+1} matrices storing
+#'     \eqn{\mathbf{G}_{c,k}\mathbf{E}[rows_k,]} in manuscript notation,
+#'     each \eqn{p \times r}.}
 #' }
 #'
 #' @keywords internal
@@ -1078,7 +1111,8 @@
 
   P <- p_expansions * (K + 1)
 
-  ## V^{-1} and its deviation from identity.
+  ## Step 1a: form V^{-1} and the correlation-induced perturbation
+  ## V^{-1} - I in partition ordering.
   Vinv <- tcrossprod(VhalfInv_perm)
   N <- nrow(Vinv)
   Delta_V <- Vinv - diag(N)
@@ -1090,11 +1124,12 @@
     return(list(use_woodbury = FALSE))
   }
 
-  ## Assemble X_block and compute Delta_mat = X^T (V^{-1} - I) X.
+  ## Step 1b: assemble M = X^T (V^{-1} - I) X.
   X_block <- collapse_block_diagonal(X)
   Delta_mat <- crossprod(X_block, Delta_V %**% X_block)
 
-  ## Extract and absorb diagonal blocks into per-partition Gram.
+  ## Step 2: absorb the block-diagonal part of M into the corrected
+  ## per-partition Gram matrices defining G_c^{-1}.
   X_gram_corrected <- vector("list", K + 1)
   for (k in 1:(K + 1)) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
@@ -1114,14 +1149,15 @@
                               L_partition_list,
                               keep_G = TRUE, schur_zero)
 
-  ## Zero out diagonal blocks to get off-diagonal remainder.
+  ## Step 3: remove the absorbed diagonal blocks, leaving only the
+  ## cross-partition remainder M_off.
   Delta_offdiag <- Delta_mat
   for (k in 1:(K + 1)) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
     Delta_offdiag[rows_k, rows_k] <- 0
   }
 
-  ## Low-rank factorization of off-diagonal remainder.
+  ## Step 4: eigentruncate M_off and encode it as E J E^T.
   eig_off <- eigen(Delta_offdiag, symmetric = TRUE)
   r <- sum(abs(eig_off$values) >
              max(abs(eig_off$values)) * sqrt(.Machine$double.eps))
@@ -1141,22 +1177,26 @@
     return(list(use_woodbury = FALSE))
   }
 
-  ## Form L and S_signs from truncated eigendecomposition.
+  ## Internal storage names: L corresponds to the manuscript factor E,
+  ## and S_signs stores the diagonal entries of the manuscript sign
+  ## matrix J.
   L <- eig_off$vectors[, 1:r, drop = FALSE] %**%
     diag(sqrt(abs(eig_off$values[1:r])), r, r)
   S_signs <- sign(eig_off$values[1:r])
 
-  ## Compute GL_k = G_corrected_k %*% L[rows_k, ] per partition.
+  ## Precompute G_{c,k} E_k blockwise for the later Woodbury inverse and
+  ## square-root steps.
   GL <- lapply(1:(K + 1), function(k) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
     G_list_c$G[[k]] %**% L[rows_k, , drop = FALSE]
   })
 
-  ## Stack GL and compute L^T G L (r x r).
+  ## Assemble E^T G_c E on the retained subspace.
   GL_full <- do.call(rbind, GL)
   LtGL <- crossprod(L, GL_full)
 
-  ## M = (diag(1/S_signs) + L^T G L)^{-1}, r x r.
+  ## Precompute (J^{-1} + E^T G_c E)^{-1}; this is the only dense inverse
+  ## in the Woodbury correction.
   M <- invert(diag(1 / S_signs, r, r) + LtGL)
 
   list(
@@ -1177,16 +1217,24 @@
 
 #' Per-Iteration Weighted Woodbury Redecomposition
 #'
-#' Given the FIXED \eqn{\boldsymbol{\Delta}_V = \mathbf{V}^{-1} -
-#' \mathbf{I}} and precomputed \eqn{\boldsymbol{\Delta}_V \mathbf{X}}
+#' Given the fixed correlation perturbation
+#' \eqn{\mathbf{V}^{-1} - \mathbf{I}} and the precomputed product
+#' of that perturbation with \eqn{\mathbf{X}}
 #' (both invariant across Newton iterations), together with the current
 #' iteration's GLM working weights \eqn{\mathbf{W}} and weighted Gram
 #' matrices, computes all Woodbury components needed for the constrained
 #' step.
 #'
-#' The weighted perturbation is decomposed as
-#' \eqn{\boldsymbol{\Delta}(\mathbf{W}) = \mathbf{X}^{\top}
-#' \mathrm{diag}(\mathbf{W})(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}},
+#' This helper is the weighted analogue of \code{.woodbury_decompose_V()}.
+#' At each GLM iteration it rebuilds the correlation-induced term
+#' \eqn{\mathbf{X}^{\top}\mathrm{diag}(\mathbf{W})(\mathbf{V}^{-1} -
+#' \mathbf{I})\mathbf{X}}, absorbs its block-diagonal part into
+#' \eqn{\mathbf{G}_c^{-1}}, and refactors the remaining cross-partition term
+#' as \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}} in the manuscript notation.
+#'
+#' The weighted cross-partition perturbation is
+#' \eqn{\mathbf{X}^{\top}\mathrm{diag}(\mathbf{W})(\mathbf{V}^{-1} -
+#' \mathbf{I})\mathbf{X}},
 #' split into block-diagonal corrections (absorbed into the corrected
 #' Gram) and an off-diagonal remainder factored at low rank.
 #'
@@ -1194,7 +1242,7 @@
 #'   \eqn{\mathbf{V}^{-1} - \mathbf{I}}.
 #' @param X_block Full \eqn{N \times P} block-diagonal design matrix.
 #' @param DV_X Precomputed \eqn{N \times P} product
-#'   \eqn{\boldsymbol{\Delta}_V \mathbf{X}}.
+#'   of \eqn{(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}}.
 #' @param W Length-\eqn{N} vector of current GLM working weights.
 #' @param X List of partition-specific design matrices.
 #' @param K,p_expansions Integer dimensions.
@@ -1215,11 +1263,17 @@
 #'   \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.}
 #'   \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{-1/2}}.}
 #'   \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}}.}
-#'   \item{L}{Off-diagonal low-rank factor (\eqn{P \times r}).}
-#'   \item{S_signs}{Length-\eqn{r} sign vector.}
+#'   \item{L}{Off-diagonal low-rank factor (\eqn{P \times r}), denoted by
+#'     \eqn{\mathbf{E}} in the manuscript.}
+#'   \item{S_signs}{Length-\eqn{r} sign vector, i.e.\ the diagonal of the
+#'     manuscript sign matrix \eqn{\mathbf{J}}.}
 #'   \item{r}{Integer effective rank.}
-#'   \item{M}{Precomputed \eqn{r \times r} Woodbury inner inverse.}
-#'   \item{GL}{List of per-partition \eqn{\mathbf{G}_{c,k}\mathbf{L}[rows_k,]}.}
+#'   \item{M}{Precomputed \eqn{r \times r} Woodbury inner inverse; in
+#'     manuscript notation,
+#'     \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c
+#'     \mathbf{E})^{-1}}.}
+#'   \item{GL}{List of per-partition matrices corresponding to
+#'     \eqn{\mathbf{G}_{c,k}\mathbf{E}[rows_k,]} in manuscript notation.}
 #' }
 #'
 #' @keywords internal
@@ -1237,14 +1291,16 @@
 
   P <- p_expansions * (K + 1)
 
-  ## Weighted perturbation: Delta_mat(W) = X^T diag(W) (V^{-1} - I) X.
-  #  Since DV_X = (V^{-1} - I) X is precomputed, this is:
+  ## Weighted analogue of manuscript M:
+  ## X^T diag(W) (V^{-1} - I) X.
+  ## Since DV_X = (V^{-1} - I) X is precomputed, this is:
   #    crossprod(X_block, W * DV_X)
   #  which costs O(N * P^2) -- cheaper than the P^3 eigen that the
   #  dense path requires.
   Delta_mat_W <- crossprod(X_block, c(W) * DV_X)
 
-  ## Extract diagonal blocks and form corrected Gram per partition.
+  ## Absorb the weighted block-diagonal portion into the corrected
+  ## per-partition information defining G_c^{-1} at the current iterate.
   X_gram_corrected <- vector("list", K + 1)
   for (k in 1:(K + 1)) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
@@ -1261,14 +1317,15 @@
                               L_partition_list,
                               keep_G = TRUE, schur_corrections)
 
-  ## Zero out diagonal blocks to get off-diagonal remainder.
+  ## Remove the absorbed diagonal blocks, leaving the weighted
+  ## cross-partition remainder only.
   Delta_offdiag_W <- Delta_mat_W
   for (k in 1:(K + 1)) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
     Delta_offdiag_W[rows_k, rows_k] <- 0
   }
 
-  ## Low-rank factorization of off-diagonal remainder.
+  ## Eigentruncate the weighted remainder and encode it as E J E^T.
   eig_off <- eigen(Delta_offdiag_W, symmetric = TRUE)
   r <- sum(abs(eig_off$values) >
              max(abs(eig_off$values)) * sqrt(.Machine$double.eps))
@@ -1293,22 +1350,23 @@
     return(list(use_woodbury = FALSE))
   }
 
-  ## Form L and S_signs from truncated eigendecomposition.
+  ## Internal storage names: L corresponds to the manuscript factor E,
+  ## and S_signs stores the diagonal of J.
   L <- eig_off$vectors[, 1:r, drop = FALSE] %**%
     diag(sqrt(abs(eig_off$values[1:r])), r, r)
   S_signs <- sign(eig_off$values[1:r])
 
-  ## Compute GL_k = G_corrected_k %*% L[rows_k, ] per partition.
+  ## Precompute G_{c,k} E_k blockwise for the current iterate.
   GL <- lapply(1:(K + 1), function(k) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
     G_list_c$G[[k]] %**% L[rows_k, , drop = FALSE]
   })
 
-  ## Stack GL and compute L^T G L (r x r).
+  ## Assemble E^T G_c E on the retained subspace.
   GL_full <- do.call(rbind, GL)
   LtGL <- crossprod(L, GL_full)
 
-  ## M = (diag(1/S_signs) + L^T G L)^{-1}, r x r.
+  ## Precompute (J^{-1} + E^T G_c E)^{-1} on the retained subspace.
   M <- invert(diag(1 / S_signs, r, r) + LtGL)
 
   list(
@@ -1330,21 +1388,40 @@
 #' Compute Woodbury Half-Square-Root Components
 #'
 #' Given the low-rank Woodbury components from
-#' \code{.woodbury_decompose_V}, precomputes the \eqn{\mathbf{U}_Q},
-#' \eqn{\mathbf{C}}, and \eqn{\mathbf{C}_{\mathrm{inv}}} matrices
-#' needed to express \eqn{\mathbf{G}_V^{1/2}} and
-#' \eqn{\mathbf{G}_V^{-1/2}} as block-diagonal plus rank-\eqn{r}
-#' correction.
+#' \code{.woodbury_decompose_V}, precomputes the orthonormal basis
+#' \eqn{\mathbf{U}_Q} and the internal correction matrices \eqn{\mathbf{C}}
+#' and \eqn{\mathbf{C}_{\mathrm{inv}}} needed to express
+#' \eqn{\mathbf{G}_V^{1/2}} and \eqn{\mathbf{G}_V^{-1/2}} as a
+#' block-diagonal factor plus a rank-\eqn{r} correction.
 #'
-#' The correction matrix \eqn{\mathbf{F}} (identity plus rank-\eqn{r}
-#' modification) satisfies \eqn{\mathbf{G}_V = \mathbf{G}_c^{1/2}
-#' \mathbf{F}\,\mathbf{G}_c^{1/2}} and its square root factors as
+#' In the manuscript, the same algebra is written more cleanly through
+#' \eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}}, the projector
+#' \eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}, and a small
+#' \eqn{r \times r} matrix \eqn{\mathbf{S} = \mathbf{I}_r +
+#' \mathbf{R}\mathbf{J}\mathbf{R}^{\top}} after a thin QR decomposition
+#' \eqn{\mathbf{N} = \mathbf{Q}\mathbf{R}}.
+#'
+#' The internal implementation instead stores the equivalent update in
+#' the form
 #' \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{U}_Q \mathbf{C}
 #' \mathbf{U}_Q^{\top}}.
 #'
+#' This helper therefore bridges the paper notation and the stored solver
+#' objects:
+#' \enumerate{
+#'   \item start from the manuscript factor
+#'     \eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}},
+#'   \item compute an orthonormal basis for its column space,
+#'   \item convert the small-matrix square-root update into the diagonal
+#'     coefficients \code{C} and \code{C_inv} used by
+#'     \code{.lagrangian_project_woodbury()}.
+#' }
+#'
 #' @param Ghalf_corrected List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.
-#' @param L Off-diagonal low-rank factor (\eqn{P \times r}).
-#' @param S_signs Length-\eqn{r} sign vector.
+#' @param L Off-diagonal low-rank factor (\eqn{P \times r}), denoted
+#'   \eqn{\mathbf{E}} in the manuscript.
+#' @param S_signs Length-\eqn{r} sign vector corresponding to the
+#'   diagonal of \eqn{\mathbf{J}} in the manuscript.
 #' @param r Integer effective rank.
 #' @param K,p_expansions Integer dimensions.
 #'
@@ -1353,11 +1430,16 @@
 #'   \item{valid}{Logical; FALSE if \eqn{\mathbf{F}} is not positive
 #'     definite (signals fallback to dense).}
 #'   \item{U_Q}{\eqn{P \times r} left singular vectors of
-#'     \eqn{\mathbf{Q} = \mathbf{G}_c^{1/2}\mathbf{L}}.}
+#'     \eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}}. This spans the same
+#'     subspace as the manuscript QR factor \eqn{\mathbf{Q}}.}
 #'   \item{C}{\eqn{r \times r} diagonal matrix
-#'     \eqn{\mathbf{I}_r - \mathrm{diag}(\sqrt{1 - d_{F,i}})}.}
+#'     encoding the rank-\eqn{r} update in the internal form
+#'     \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{U}_Q\mathbf{C}
+#'     \mathbf{U}_Q^{\top}}.}
 #'   \item{C_inv}{\eqn{r \times r} diagonal matrix
-#'     \eqn{\mathrm{diag}(1/\sqrt{1 - d_{F,i}}) - \mathbf{I}_r}.}
+#'     encoding the inverse update in the internal form
+#'     \eqn{\mathbf{F}^{-1/2} = \mathbf{I}_P +
+#'     \mathbf{U}_Q\mathbf{C}_{\mathrm{inv}}\mathbf{U}_Q^{\top}}.}
 #'   \item{GchalfUQ}{List of \eqn{K+1} matrices, each \eqn{p \times r}:
 #'     \eqn{\mathbf{G}_{c,k}^{1/2} \mathbf{U}_Q[rows_k,]}.}
 #' }
@@ -1382,20 +1464,24 @@
     ))
   }
 
-  ## Q = G_c^{1/2} L, computed block-diagonally.
+  ## Form the manuscript matrix N = G_c^{1/2} E, using the internal
+  ## storage name L for E.
   Q <- matrix(0, P, r)
   for (k in 1:(K + 1)) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
     Q[rows_k, ] <- Ghalf_corrected[[k]] %**% L[rows_k, , drop = FALSE]
   }
 
-  ## Thin SVD of Q.
+  ## Thin SVD of N. The left singular vectors span the same subspace as
+  ## the manuscript QR factor Q, which is all we need for the projector
+  ## and square-root update.
   svd_Q <- svd(Q, nu = r, nv = r)
   U_Q <- svd_Q$u[, 1:r, drop = FALSE]
   sigma_Q <- svd_Q$d[1:r]
 
-  ## Eigenvalues of F = I - Q (S^{-1} + Q^T Q)^{-1} Q^T.
-  #  d_{F,i} = sigma_i^2 / (1/s_i + sigma_i^2)
+  ## The retained eigenvalues of the rank-r correction determine the
+  ## diagonal coefficients in the internal representation
+  ## F^{1/2} = I - U_Q C U_Q^T.
   d_F <- sigma_Q^2 / (1 / S_signs + sigma_Q^2)
 
   ## Check that 1 - d_F > 0 (F is positive definite).
@@ -1407,7 +1493,8 @@
   C <- diag(1 - sqrt(one_minus_dF), r, r)
   C_inv <- diag(1 / sqrt(one_minus_dF) - 1, r, r)
 
-  ## Precompute G_c^{1/2} U_Q partition-wise.
+  ## Precompute G_{c,k}^{1/2} U_Q blockwise so the Woodbury-corrected
+  ## projection can apply the rank-r update partition by partition.
   GchalfUQ <- lapply(1:(K + 1), function(k) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
     Ghalf_corrected[[k]] %**% U_Q[rows_k, , drop = FALSE]
@@ -2229,20 +2316,23 @@
 #' \eqn{r} is low. At each damped Newton iteration, the Woodbury
 #' decomposition is recomputed with updated GLM working weights
 #' \eqn{\mathbf{W}(\boldsymbol{\beta}^{(s)})} (since the weighted
-#' perturbation \eqn{\boldsymbol{\Delta}(\mathbf{W})} changes), and
+#' cross-partition correction
+#' \eqn{\mathbf{X}^{\top}\mathrm{diag}(\mathbf{W}(\boldsymbol{\beta}^{(s)}))
+#' (\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}} changes), and
 #' the constrained step is taken via
 #' \code{.lagrangian_project_woodbury}.
 #'
 #' The key precomputation exploited here is that
-#' \eqn{\boldsymbol{\Delta}_V = \mathbf{V}^{-1} - \mathbf{I}} and
-#' \eqn{\boldsymbol{\Delta}_V \mathbf{X}} are fixed across iterations.
+#' \eqn{\mathbf{V}^{-1} - \mathbf{I}} and
+#' \eqn{(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}} are fixed across iterations.
 #' At each step, the weighted perturbation
-#' \eqn{\boldsymbol{\Delta}(\mathbf{W}) = \mathbf{X}^{\top}
+#' \eqn{\mathbf{X}^{\top}
 #' \mathrm{diag}(\mathbf{W})(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}}
 #' is computed in \eqn{O(NP)} using the precomputed
-#' \eqn{\boldsymbol{\Delta}_V \mathbf{X}}, then split into
+#' \eqn{(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}}, then split into
 #' block-diagonal corrections (absorbed into the corrected Gram) and
-#' an off-diagonal low-rank remainder.
+#' a cross-partition low-rank remainder, written as
+#' \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}} in the manuscript.
 #'
 #' Falls back to the dense \code{.get_B_gee_glm} if the Woodbury
 #' decomposition becomes invalid (e.g.\ rank exceeds threshold or

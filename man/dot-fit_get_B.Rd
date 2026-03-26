@@ -28,5 +28,11 @@ Internal wrapper that calls \code{get_B} with all arguments drawn from
 the tuning environment \code{env}. Separated from \code{.fit_coefficients}
 so the fallback path in \code{.fit_coefficients} is clean and does not
 repeat the full argument list.
+
+This helper is the point at which penalty tuning inherits the full
+constrained solver described in \code{lgspline-details}, including GLM
+reweighting, dense correlation whitening, and the structured-correlation
+Woodbury acceleration when available. No additional tuning-specific
+approximation is introduced here beyond whatever \code{get_B} itself uses.
 }
 \keyword{internal}

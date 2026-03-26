@@ -42,5 +42,12 @@ The blockfit condition mirrors \code{lgspline.fit}:
 weight iteration inside \code{get_B} or \code{blockfit_solve}).
 These are needed immediately after this call for \code{AGAmult_wrapper},
 \code{GXX}, and the trace computation.
+
+When correlation structure inputs are supplied, this wrapper does not
+introduce a separate tuning-specific notation or solver path. Instead, the
+same correlated coefficient estimator used in the final model fit is called
+here inside each GCV evaluation. In particular, any structured-correlation
+Woodbury correction is handled inside \code{get_B} and documented in
+\code{lgspline-details}.
 }
 \keyword{internal}

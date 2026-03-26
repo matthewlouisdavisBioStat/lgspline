@@ -220,6 +220,13 @@
 #' These are needed immediately after this call for \code{AGAmult_wrapper},
 #' \code{GXX}, and the trace computation.
 #'
+#' When correlation structure inputs are supplied, this wrapper does not
+#' introduce a separate tuning-specific notation or solver path. Instead, the
+#' same correlated coefficient estimator used in the final model fit is called
+#' here inside each GCV evaluation. In particular, any structured-correlation
+#' Woodbury correction is handled inside \code{get_B} and documented in
+#' \code{lgspline-details}.
+#'
 #' @param G_list List; eigendecomposition results from \code{compute_G_eigen},
 #'   containing \code{Ghalf} and \code{GhalfInv}.
 #' @param Lambda Matrix; current combined penalty matrix.
@@ -318,6 +325,12 @@
 #' the tuning environment \code{env}. Separated from \code{.fit_coefficients}
 #' so the fallback path in \code{.fit_coefficients} is clean and does not
 #' repeat the full argument list.
+#'
+#' This helper is the point at which penalty tuning inherits the full
+#' constrained solver described in \code{lgspline-details}, including GLM
+#' reweighting, dense correlation whitening, and the structured-correlation
+#' Woodbury acceleration when available. No additional tuning-specific
+#' approximation is introduced here beyond whatever \code{get_B} itself uses.
 #'
 #' @inheritParams .fit_coefficients
 #' @keywords internal
@@ -438,11 +451,14 @@
 #'     matrices.}
 #'   \item{G_list}{List; eigendecomposition results from
 #'     \code{compute_G_eigen}.}
-#'   \item{mean_W}{Numeric; mean of hat matrix diagonal.}
-#'   \item{sum_W}{Numeric; trace of hat matrix.}
-#'   \item{Lambda}{Matrix; combined penalty matrix.}
-#'   \item{L1}{Matrix; smoothing spline penalty component.}
-#'   \item{L2}{Matrix; ridge penalty component.}
+#'   \item{mean_W}{Numeric; \eqn{\mathrm{tr}(\mathbf{H})/N}, the average
+#'     leverage entering the denominator of \eqn{\mathrm{GCV}_u}.}
+#'   \item{sum_W}{Numeric; \eqn{\mathrm{tr}(\mathbf{H})}, the effective
+#'     degrees of freedom.}
+#'   \item{Lambda}{Matrix; combined penalty matrix
+#'     \eqn{\boldsymbol{\Lambda}}.}
+#'   \item{L1}{Matrix; baseline smoothness penalty component.}
+#'   \item{L2}{Matrix; baseline ridge penalty component.}
 #'   \item{L_predictor_list}{List; predictor-specific penalty matrices.}
 #'   \item{L_partition_list}{List; partition-specific penalty matrices.}
 #'   \item{numerator}{Numeric; sum of squared residuals.}
@@ -1498,6 +1514,9 @@
 #'   implemented, FALSE for finite differences as implemented by
 #'   \code{stats::optim()}.
 #' @param C Matrix; polynomial expansion matrix (used for initialization).
+#'   This is the monomial expansion design used to derive starting values and
+#'   is not the inequality-constraint matrix sometimes denoted by
+#'   \eqn{\mathbf{C}} elsewhere in the package documentation.
 #' @param colnm_expansions Character vector; column names of the expansion
 #'   matrix.
 #' @param wiggle_penalty,flat_ridge_penalty Fixed penalty values if provided.
@@ -1547,7 +1566,9 @@
 #' @param just_linear_without_interactions Numeric; vector of columns for
 #'   non-spline effects without interactions.
 #' @param Vhalf,VhalfInv Square root and inverse square root correlation
-#'   structure matrices.
+#'   structure matrices. These are passed through to the coefficient-estimation
+#'   step used inside each GCV evaluation, so any dense or Woodbury-accelerated
+#'   correlated solve is the same one used for the final fitted model.
 #' @param verbose Logical; print progress.
 #' @param include_warnings Logical; print warnings/try-errors.
 #' @param ... Additional arguments passed to fitting functions.
@@ -1592,6 +1613,29 @@
 #' (non-negative) scale and converted to natural log-scale internally,
 #' i.e. raw_penalty = exp(theta), so that raw penalties are always positive.
 #' The chain rule factor d(exp(theta))/d(theta) = exp(theta) = raw_penalty.
+#'
+#' The resulting penalty matrix follows the same decomposition used throughout
+#' the paper and package documentation:
+#' \deqn{
+#'   \boldsymbol{\Lambda}
+#'   =
+#'   \lambda_{w}\mathbf{L}_{1}
+#'   +
+#'   \lambda_{r}\mathbf{L}_{2}
+#'   +
+#'   \sum_{j}\nu_{j}\mathbf{L}^{(\mathrm{pred})}_{j}
+#'   +
+#'   \sum_{k}\tau_{k}\mathbf{L}^{(\mathrm{part})}_{k},
+#' }
+#' where the predictor- and partition-specific sums are included only when the
+#' corresponding options are active. Internally these components are returned as
+#' \code{L1}, \code{L2}, \code{L_predictor_list}, and \code{L_partition_list}.
+#'
+#' If correlation structure inputs are supplied, each GCV evaluation calls the
+#' same constrained correlated solver used by the final model fit. In the
+#' structured-correlation case, the low-rank Woodbury correction described in
+#' \code{lgspline-details} is therefore inherited automatically through
+#' \code{get_B}; no separate tuning-specific notation is introduced here.
 #'
 #' @seealso
 #' \itemize{

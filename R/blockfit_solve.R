@@ -469,6 +469,12 @@
 #' This function performs a single closed-form solve that replicates
 #' \code{get_B} Path 1a but in the backfitting context.
 #'
+#' In other words, this is the dense correlated solve on the pooled
+#' coefficient space. The Woodbury acceleration described in
+#' \code{\link{lgspline_details}} is handled in \code{get_B()} rather than in
+#' this backfitting helper, so no additional Woodbury-specific notation is
+#' introduced here.
+#'
 #' @param X List of \eqn{K+1} unwhitened design matrices.
 #' @param y List of \eqn{K+1} response vectors.
 #' @param K Integer; number of interior knots.

@@ -371,12 +371,11 @@ make_partitions <- function(data,
   knots_raw <- if(nrow(knots_std) > 0) std_inv_transf(knots_std) else knots_std
 
   ## Partition-assignment closure
-  #  The returned function accepts RAW-scale new data.  It standardizes
+  #  The returned function accepts RAW-scale new data. It standardizes
   #  internally using the same transform fitted above, then uses nearest-
   #  neighbor lookup against the standardized centers.
-  #  Capture everything needed by value (inside the closure environment).
   #
-  #  [Change 2026-03-14] Binary column mask (train_binary_cols) and excluded
+  #  Binary column mask (train_binary_cols) and excluded
   #  column mask (do_not_cluster_on_these) are captured from the training
   #  data at partition-creation time. Previously is_binary was re-evaluated
   #  on new_data, which misclassified continuous predictors as binary when
@@ -414,7 +413,8 @@ make_partitions <- function(data,
 
   ## Return raw-scale centers/knots together with the assignment closure
   #  and the internal standardization objects used to build them.
-  rownames(initial_points_raw) <- paste0("center_", seq_len(nrow(initial_points_raw)))
+  rownames(initial_points_raw) <- paste0("center_",
+                                         seq_len(nrow(initial_points_raw)))
   return(list(
     centers                = initial_points_raw,   # raw scale
     knots                  = knots_raw,            # raw scale

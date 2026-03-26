@@ -56,26 +56,45 @@ A list with components:
   \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.}
   \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{-1/2}}.}
   \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}}.}
-  \item{L}{Off-diagonal low-rank factor (\eqn{P \times r}).}
-  \item{S_signs}{Length-\eqn{r} vector of \eqn{\pm 1}.}
+  \item{L}{Off-diagonal low-rank factor (\eqn{P \times r}). In the
+    manuscript this role is denoted by \eqn{\mathbf{E}} to avoid
+    overloading penalty matrices \eqn{\mathbf{L}}.}
+  \item{S_signs}{Length-\eqn{r} vector of \eqn{\pm 1}; equivalently the
+    diagonal entries of the sign matrix \eqn{\mathbf{J}} in manuscript
+    notation.}
   \item{r}{Integer effective rank.}
-  \item{M}{Precomputed \eqn{r \times r} Woodbury inner inverse
-    \eqn{(\mathrm{diag}(1/S) + \mathbf{L}^{\top}\mathbf{G}_c
-    \mathbf{L})^{-1}}.}
-  \item{GL}{List of \eqn{K+1} matrices \eqn{\mathbf{G}_{c,k}
-    \mathbf{L}[rows_k,]}, each \eqn{p \times r}.}
+  \item{M}{Precomputed \eqn{r \times r} Woodbury inner inverse. In
+    manuscript notation this is
+    \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c
+    \mathbf{E})^{-1}}.}
+  \item{GL}{List of \eqn{K+1} matrices storing
+    \eqn{\mathbf{G}_{c,k}\mathbf{E}[rows_k,]} in manuscript notation,
+    each \eqn{p \times r}.}
 }
 }
 \description{
 Given \eqn{\mathbf{V}^{-1/2}}, the partition-specific design matrices,
-and the penalty, decomposes the GLS information matrix as
-\eqn{\mathbf{G}_V^{-1} = \mathbf{G}_c^{-1} +
-\boldsymbol{\Delta}_{\mathrm{off}}} where \eqn{\mathbf{G}_c} absorbs
-within-partition corrections from \eqn{\mathbf{V}^{-1} - \mathbf{I}}
-and \eqn{\boldsymbol{\Delta}_{\mathrm{off}}} captures cross-partition
-coupling with effective rank \eqn{r}.
+and the penalty, decomposes the GLS information matrix into a corrected
+block-diagonal part \eqn{\mathbf{G}_c^{-1}} plus an off-diagonal
+cross-partition remainder with effective rank \eqn{r}. In the manuscript,
+that remainder is written as \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
+to avoid overloading existing penalty-matrix notation.
 }
 \details{
+More concretely, this helper carries out the first two algebraic steps in
+Appendix~B of the manuscript:
+\enumerate{
+  \item build \eqn{\mathbf{M} = \mathbf{X}^{\top}(\mathbf{V}^{-1} -
+    \mathbf{I})\mathbf{X}},
+  \item absorb the block-diagonal part of \eqn{\mathbf{M}} into
+    \eqn{\mathbf{G}_c^{-1}},
+  \item factor the remaining cross-partition term at low rank as
+    \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
+}
+The returned objects are then consumed by
+\code{.woodbury_halfsqrt_components()} to construct the square-root update
+used by \code{.lagrangian_project_woodbury()}.
+
 When \eqn{r = 0} (no cross-partition coupling) or \eqn{r \ge P/3}
 (low-rank approximation not worthwhile), returns
 \code{use_woodbury = FALSE} and the caller should use the dense

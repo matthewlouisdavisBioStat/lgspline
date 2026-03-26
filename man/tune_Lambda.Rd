@@ -91,7 +91,10 @@ in higher dimensions.}
 implemented, FALSE for finite differences as implemented by
 \code{stats::optim()}.}
 
-\item{C}{Matrix; polynomial expansion matrix (used for initialization).}
+\item{C}{Matrix; polynomial expansion matrix (used for initialization).
+This is the monomial expansion design used to derive starting values and
+is not the inequality-constraint matrix sometimes denoted by
+\eqn{\mathbf{C}} elsewhere in the package documentation.}
 
 \item{colnm_expansions}{Character vector; column names of the expansion
 matrix.}
@@ -169,7 +172,9 @@ the final fit. Falls back to \code{get_B} automatically on failure.}
 non-spline effects without interactions.}
 
 \item{Vhalf, VhalfInv}{Square root and inverse square root correlation
-structure matrices.}
+structure matrices. These are passed through to the coefficient-estimation
+step used inside each GCV evaluation, so any dense or Woodbury-accelerated
+correlated solve is the same one used for the final fitted model.}
 
 \item{verbose}{Logical; print progress.}
 
@@ -224,6 +229,29 @@ Parameterization: initial penalty values are accepted on the raw
 (non-negative) scale and converted to natural log-scale internally,
 i.e. raw_penalty = exp(theta), so that raw penalties are always positive.
 The chain rule factor d(exp(theta))/d(theta) = exp(theta) = raw_penalty.
+
+The resulting penalty matrix follows the same decomposition used throughout
+the paper and package documentation:
+\deqn{
+  \boldsymbol{\Lambda}
+  =
+  \lambda_{w}\mathbf{L}_{1}
+  +
+  \lambda_{r}\mathbf{L}_{2}
+  +
+  \sum_{j}\nu_{j}\mathbf{L}^{(\mathrm{pred})}_{j}
+  +
+  \sum_{k}\tau_{k}\mathbf{L}^{(\mathrm{part})}_{k},
+}
+where the predictor- and partition-specific sums are included only when the
+corresponding options are active. Internally these components are returned as
+\code{L1}, \code{L2}, \code{L_predictor_list}, and \code{L_partition_list}.
+
+If correlation structure inputs are supplied, each GCV evaluation calls the
+same constrained correlated solver used by the final model fit. In the
+structured-correlation case, the low-rank Woodbury correction described in
+\code{lgspline-details} is therefore inherited automatically through
+\code{get_B}; no separate tuning-specific notation is introduced here.
 }
 \examples{
 \dontrun{

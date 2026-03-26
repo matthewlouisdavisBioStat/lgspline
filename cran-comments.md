@@ -11,7 +11,7 @@ I understand large overhauls such as this aren't preferred; although the changes
 
 I do not expect future changes to the package to be this large in the future, I expect only documentation changes and targeted bug fixes. Hence, this is version 1.0.1.
 
-(A bug of too-long runtimes and mis-spellings accounted for v 1.0.0)
+(A bug of too-long runtimes of examples and mis-spellings accounted for v 1.0.0)
 
 Thank you for your time.
 

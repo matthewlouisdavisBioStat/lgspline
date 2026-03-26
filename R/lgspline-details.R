@@ -400,58 +400,80 @@
 #' GLS information matrix as
 #' \deqn{\mathbf{G}_V^{-1} = \underbrace{(\mathbf{X}^{\top}\mathbf{X} +
 #'   \boldsymbol{\Lambda})}_{\text{block-diagonal}} +
-#'   \underbrace{\mathbf{X}^{\top}(\mathbf{V}^{-1} -
-#'   \mathbf{I})\mathbf{X}}_{\boldsymbol{\Delta}},}
-#' the block-diagonal part of \eqn{\boldsymbol{\Delta}} (within-partition
-#' corrections) is absorbed into per-partition eigendecompositions, yielding a
-#' corrected block-diagonal inverse
-#' \eqn{\mathbf{G}_c}. The off-diagonal remainder
-#' \eqn{\boldsymbol{\Delta}_{\mathrm{off}}} captures cross-partition coupling
-#' and has effective rank \eqn{r} determined numerically by
+#'   \mathbf{X}^{\top}(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X},}
+#' the block-diagonal part of the correlation-induced term is absorbed into
+#' per-partition eigendecompositions, yielding the corrected block-diagonal
+#' inverse \eqn{\mathbf{G}_c}. The remaining cross-partition coupling has
+#' effective rank \eqn{r} determined numerically by
 #' \code{\link{.woodbury_decompose_V}}. For example, AR(1) correlation
 #' partitioned by time gives \eqn{r \approx 2K} since only observation pairs
 #' straddling knot boundaries contribute.
 #'
-#' Factoring
-#' \eqn{\boldsymbol{\Delta}_{\mathrm{off}} \approx
-#' \mathbf{L}\mathbf{S}\mathbf{L}^{\top}} where \eqn{\mathbf{L}} is
-#' \eqn{P \times r} and \eqn{\mathbf{S}} is \eqn{r \times r} diagonal with
-#' entries \eqn{\pm 1}, the Woodbury identity gives
-#' \deqn{\mathbf{G}_V = \mathbf{G}_c - \mathbf{G}_c\mathbf{L}
-#'   (\mathbf{S}^{-1} + \mathbf{L}^{\top}\mathbf{G}_c\mathbf{L})^{-1}
-#'   \mathbf{L}^{\top}\mathbf{G}_c,}
-#' where the inner matrix is only \eqn{r \times r}.
+#' In the manuscript, that off-diagonal remainder is written as
+#' \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}, where \eqn{\mathbf{E}} is
+#' \eqn{P \times r} and \eqn{\mathbf{J}} is a diagonal sign matrix with
+#' entries \eqn{\pm 1}. This avoids overloading the predictor- and
+#' partition-specific penalty matrices \eqn{\mathbf{L}} used elsewhere in
+#' the package and manuscript. The Woodbury identity then gives
+#' \deqn{\mathbf{G}_V = \mathbf{G}_c - \mathbf{G}_c\mathbf{E}
+#'   (\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c\mathbf{E})^{-1}
+#'   \mathbf{E}^{\top}\mathbf{G}_c,}
+#' where the inner inverse is only \eqn{r \times r}.
 #'
 #' The four-step projection is preserved by expressing
-#' \eqn{\mathbf{G}_V^{1/2}} through \eqn{\mathbf{G}_c^{1/2}}. Define
-#' \eqn{\mathbf{Q} = \mathbf{G}_c^{1/2}\mathbf{L}} (computed
-#' block-diagonally) with thin SVD
-#' \eqn{\mathbf{Q} = \mathbf{O}_Q\boldsymbol{\Sigma}_Q\mathbf{R}_Q^{\top}}.
-#' Then
-#' \deqn{\mathbf{G}_V^{1/2} = \mathbf{G}_c^{1/2}\mathbf{F}^{1/2}, \quad
-#'   \mathbf{F}^{1/2} = \mathbf{I}_P -
-#'   \mathbf{O}_Q\mathbf{C}\mathbf{O}_Q^{\top},}
-#' where \eqn{\mathbf{C}} is an \eqn{r \times r} diagonal matrix computed
-#' in \code{\link{.woodbury_halfsqrt_components}}. Every step of the
-#' projection decomposes as a block-diagonal operation through
-#' \eqn{\mathbf{G}_c^{1/2}} plus an additive rank-\eqn{r} correction
-#' through \eqn{\mathbf{O}_Q}:
-#' \deqn{\mathbf{y}^* = \mathbf{G}_c^{1/2}(\mathbf{X}^{\top}
-#'   \mathbf{V}^{-1}\mathbf{y}) -
-#'   \mathbf{G}_c^{1/2}\mathbf{O}_Q\mathbf{C}\mathbf{O}_Q^{\top}
-#'   \mathbf{G}_c^{1/2}(\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{y}),}
-#' and similarly for \eqn{\mathbf{X}^*} and the back-transformation. The
-#' OLS residual step itself is unchanged.
+#' \eqn{\mathbf{G}_V^{1/2}} through \eqn{\mathbf{G}_c^{1/2}}. Let
+#' \eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}} and take a thin QR
+#' decomposition \eqn{\mathbf{N} = \mathbf{Q}\mathbf{R}} with
+#' \eqn{\mathbf{Q}^{\top}\mathbf{Q} = \mathbf{I}_r}. The orthogonal projector
+#' onto \eqn{\operatorname{col}(\mathbf{N})} is
+#' \eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}. Defining
+#' \eqn{\mathbf{S} = \mathbf{I}_r + \mathbf{R}\mathbf{J}\mathbf{R}^{\top}},
+#' one has
+#' \deqn{\mathbf{G}_V = \mathbf{G}_c^{1/2}\mathbf{F}\mathbf{G}_c^{1/2}, \quad
+#'   \mathbf{F} = \mathbf{I}_P - \mathbf{P} +
+#'   \mathbf{Q}\mathbf{S}^{-1}\mathbf{Q}^{\top}.}
+#' Because \eqn{\mathbf{S}} is only \eqn{r \times r}, its square roots are
+#' cheap, and
+#' \deqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{P} +
+#'   \mathbf{Q}\mathbf{S}^{-1/2}\mathbf{Q}^{\top}, \quad
+#'   \mathbf{F}^{-1/2} = \mathbf{I}_P - \mathbf{P} +
+#'   \mathbf{Q}\mathbf{S}^{1/2}\mathbf{Q}^{\top}.}
+#' Every step of the projection therefore decomposes into a block-diagonal
+#' multiplication through \eqn{\mathbf{G}_c^{1/2}} plus a rank-\eqn{r}
+#' correction through \eqn{\mathbf{Q}}.
+#'
+#' \strong{Implementation map.} The manuscript notation is intentionally
+#' cleaner than the internal object names used in \code{get_B()}. The
+#' correspondence is:
+#' \itemize{
+#'   \item manuscript \eqn{\mathbf{E}} \eqn{\leftrightarrow} internal
+#'     object \code{L};
+#'   \item manuscript diagonal sign matrix \eqn{\mathbf{J}}
+#'     \eqn{\leftrightarrow} internal vector \code{S_signs};
+#'   \item manuscript inverse
+#'     \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c\mathbf{E})^{-1}}
+#'     \eqn{\leftrightarrow} internal object \code{M};
+#'   \item manuscript projector basis \eqn{\mathbf{Q}}
+#'     \eqn{\leftrightarrow} internal basis \code{U_Q};
+#'   \item manuscript projector \eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}
+#'     is not stored explicitly, but is represented through rank-\eqn{r}
+#'     multiplies involving \code{U_Q};
+#'   \item manuscript small matrix \eqn{\mathbf{S}} is likewise not stored
+#'     explicitly in the Gaussian path; instead
+#'     \code{.woodbury_halfsqrt_components()} converts its square-root update
+#'     into the diagonal correction matrices \code{C} and \code{C_inv} used by
+#'     \code{.lagrangian_project_woodbury()}.
+#' }
+#' This is why the package code may appear to use different symbols while
+#' implementing the same algebraic steps as the manuscript.
 #'
 #' For the non-Gaussian Woodbury path
-#' (\code{\link{.get_B_gee_glm_woodbury}}), the perturbation
-#' \eqn{\boldsymbol{\Delta}_V = \mathbf{V}^{-1} - \mathbf{I}} and the
-#' product \eqn{\boldsymbol{\Delta}_V\mathbf{X}} are precomputed once
-#' and held fixed across Newton iterations. At each step, the weighted
-#' perturbation
-#' \eqn{\boldsymbol{\Delta}(\mathbf{W}) =
-#' \mathbf{X}^{\top}\mathbf{W}
-#' (\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}} is formed using the
+#' (\code{\link{.get_B_gee_glm_woodbury}}), the fixed correlation
+#' perturbation \eqn{\mathbf{V}^{-1} - \mathbf{I}} and its product with
+#' \eqn{\mathbf{X}} are precomputed once and held fixed
+#' across Newton iterations. At each step, the weighted perturbation
+#' \eqn{\mathbf{X}^{\top}\mathbf{W}(\mathbf{V}^{-1} -
+#' \mathbf{I})\mathbf{X}} is formed using the
 #' precomputed product, then split and re-factored via
 #' \code{\link{.woodbury_redecompose_weighted}}.
 #'
@@ -1818,11 +1840,6 @@
 #'
 #' @name Details
 NULL
-
-
-
-
-
 
 
 

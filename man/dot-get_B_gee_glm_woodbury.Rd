@@ -109,21 +109,24 @@ Replacement for \code{.get_B_gee_glm} when the off-diagonal rank
 \eqn{r} is low. At each damped Newton iteration, the Woodbury
 decomposition is recomputed with updated GLM working weights
 \eqn{\mathbf{W}(\boldsymbol{\beta}^{(s)})} (since the weighted
-perturbation \eqn{\boldsymbol{\Delta}(\mathbf{W})} changes), and
+cross-partition correction
+\eqn{\mathbf{X}^{\top}\mathrm{diag}(\mathbf{W}(\boldsymbol{\beta}^{(s)}))
+(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}} changes), and
 the constrained step is taken via
 \code{.lagrangian_project_woodbury}.
 }
 \details{
 The key precomputation exploited here is that
-\eqn{\boldsymbol{\Delta}_V = \mathbf{V}^{-1} - \mathbf{I}} and
-\eqn{\boldsymbol{\Delta}_V \mathbf{X}} are fixed across iterations.
+\eqn{\mathbf{V}^{-1} - \mathbf{I}} and
+\eqn{(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}} are fixed across iterations.
 At each step, the weighted perturbation
-\eqn{\boldsymbol{\Delta}(\mathbf{W}) = \mathbf{X}^{\top}
+\eqn{\mathbf{X}^{\top}
 \mathrm{diag}(\mathbf{W})(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}}
 is computed in \eqn{O(NP)} using the precomputed
-\eqn{\boldsymbol{\Delta}_V \mathbf{X}}, then split into
+\eqn{(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}}, then split into
 block-diagonal corrections (absorbed into the corrected Gram) and
-an off-diagonal low-rank remainder.
+a cross-partition low-rank remainder, written as
+\eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}} in the manuscript.
 
 Falls back to the dense \code{.get_B_gee_glm} if the Woodbury
 decomposition becomes invalid (e.g.\ rank exceeds threshold or
