@@ -2,7 +2,7 @@
 % Please edit documentation in R/tune_Lambda.R
 \name{.fit_coefficients}
 \alias{.fit_coefficients}
-\title{Fit Coefficients During GCV Tuning: blockfit_solve or get_B}
+\title{Fit Coefficients During Penalty Tuning: blockfit_solve or get_B}
 \usage{
 .fit_coefficients(G_list, Lambda, L_partition_list, env, return_G_getB, ...)
 }
@@ -46,7 +46,7 @@ These are needed immediately after this call for \code{AGAmult_wrapper},
 When correlation structure inputs are supplied, this wrapper does not
 introduce a separate tuning-specific notation or solver path. Instead, the
 same correlated coefficient estimator used in the final model fit is called
-here inside each GCV evaluation. In particular, any structured-correlation
+here inside each tuning-objective evaluation. In particular, any structured-correlation
 Woodbury correction is handled inside \code{get_B} and documented in
 \code{lgspline-details}.
 }

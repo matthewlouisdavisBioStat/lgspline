@@ -45,6 +45,7 @@
   qp_meq,
   tol,
   sd_y,
+  tuning_criterion,
   gcv_gamma,
   constraint_value_vectors,
   glm_weight_function,
@@ -76,7 +77,8 @@ Named list (the "tuning environment").
 }
 \description{
 Assembles a named list containing all pre-computed objects and configuration
-needed by the GCV_u evaluation and gradient functions during penalty tuning.
+needed by the tuning-objective evaluation and gradient functions during
+penalty tuning.
 This avoids deep nesting of closures and makes the dependencies explicit.
 }
 \details{
@@ -90,7 +92,7 @@ pre-computed blockfit dispatch items:
   \item{flat_cols}{Integer vector; column indices of non-interactive linear
     terms derived from \code{just_linear_without_interactions} and
     \code{colnm_expansions}. Pre-computed once here rather than re-derived
-    at every GCV evaluation.}
+    at every tuning-objective evaluation.}
 }
 }
 \keyword{internal}

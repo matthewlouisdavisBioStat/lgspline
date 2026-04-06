@@ -45,10 +45,13 @@ where \eqn{N = \sum r_{i}^{2}} (numerator),
 log-scale penalty parameter, and the chain rule
 \eqn{d\lambda / d\theta = \lambda} (exp parameterization) is applied.
 
-For predictor- and partition-specific penalties, a trace-ratio heuristic
-is used:
-\deqn{\frac{\partial \mathrm{GCV}_u}{\partial \lambda_{j}}
+The shared wiggle and flat directions are differentiated directly from the
+fitted criterion. For predictor- and partition-specific penalties, a
+lower-cost ratio heuristic is used on the log-penalty scale:
+\deqn{\frac{\partial \mathrm{GCV}_u}{\partial \theta_{j}}
   \approx \frac{\mathrm{tr}(\mathbf{L}_{j})}{\mathrm{tr}(\boldsymbol{\Lambda})}
-  \cdot \frac{\partial \mathrm{GCV}_u}{\partial \lambda_{w}}}
+  \cdot \frac{\partial \mathrm{GCV}_u}{\partial \theta_{w}},}
+where \eqn{\mathbf{L}_{j}} denotes the current contribution of that extra
+penalty to \eqn{\boldsymbol{\Lambda}}.
 }
 \keyword{internal}

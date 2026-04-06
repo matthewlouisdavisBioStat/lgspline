@@ -1,21 +1,22 @@
 ## tune_Lambda.R
-## GCV-based tuning for the smoothing and ridge penalties.
-##
+#  Tuning for the smoothing and ridge penalties via exact leave-one-out
+#  or modified generalized cross-validation.
+#
 ## Main pieces:
-##   tune_Lambda()
+#    tune_Lambda()
 #    .compute_gcvu() and .compute_gcvu_gradient()
 #    .damped_bfgs() and .tune_grid_search()
 #    small helpers for predictions, residuals, and meta-penalties
 
 
-## Residuals used in GCV_u
+## Residuals used in tuning criteria
 
-#' Compute Residuals for GCV Criterion During Penalty Tuning
+#' Compute Residuals During Penalty Tuning
 #'
 #' @description
-#' Computes residuals used in the numerator of the GCV criterion. Handles
-#' identity link, general GLM link functions with pseudocount delta, custom
-#' deviance residual functions, and observation weights.
+#' Computes the residuals used by the tuning criteria. Handles identity link,
+#' general GLM link functions with pseudocount delta, custom deviance residual
+#' functions, and observation weights.
 #'
 #' @param y List; response vectors by partition.
 #' @param preds List; prediction vectors by partition.
@@ -86,14 +87,14 @@
 }
 
 
-## Predictions used in GCV_u
+## Predictions used in tuning criteria
 
 #' Compute Predictions During Penalty Tuning
 #'
 #' @description
 #' Wrapper around \code{matmult_block_diagonal} for computing partition-wise
-#' predictions \eqn{\mathbf{X}_{k} \boldsymbol{\beta}_{k}} during GCV
-#' penalty tuning.
+#' predictions \eqn{\mathbf{X}_{k} \boldsymbol{\beta}_{k}} during penalty
+#' tuning.
 #'
 #' @param X List; design matrices by partition.
 #' @param B List; coefficient vectors by partition.
@@ -202,7 +203,7 @@
 
 ## Coefficient fit inside tuning
 
-#' Fit Coefficients During GCV Tuning: blockfit_solve or get_B
+#' Fit Coefficients During Penalty Tuning: blockfit_solve or get_B
 #'
 #' @description
 #' Dispatches to \code{blockfit_solve} when the blockfit conditions are met
@@ -223,7 +224,7 @@
 #' When correlation structure inputs are supplied, this wrapper does not
 #' introduce a separate tuning-specific notation or solver path. Instead, the
 #' same correlated coefficient estimator used in the final model fit is called
-#' here inside each GCV evaluation. In particular, any structured-correlation
+#' here inside each tuning-objective evaluation. In particular, any structured-correlation
 #' Woodbury correction is handled inside \code{get_B} and documented in
 #' \code{lgspline-details}.
 #'
@@ -318,7 +319,7 @@
 
 ## Small get_B wrapper for tuning
 
-#' Call get_B During GCV Tuning
+#' Call get_B During Penalty Tuning
 #'
 #' @description
 #' Internal wrapper that calls \code{get_B} with all arguments drawn from
@@ -508,8 +509,8 @@
   L2     <- Lambda_list[[3]]
 
   ## Compute G matrices via eigendecomposition.
-  ## keep_G = TRUE always: G is needed for the trace computation below
-  ## regardless of whether get_B or blockfit_solve is used for fitting.
+  #  keep_G = TRUE always: G is needed for the trace computation below
+  #  regardless of whether get_B or blockfit_solve is used for fitting.
   if (verbose) cat("        compute_G_eigen\n")
   schur_corrections <- lapply(1:(env$K + 1), function(k) 0)
   G_list <- compute_G_eigen(env$X_gram,
@@ -527,9 +528,9 @@
                             schur_corrections)
 
   ## Fit coefficients: dispatches to blockfit_solve or get_B via
-  ## .fit_coefficients, with automatic fallback on failure.
-  ## return_G_getB = TRUE: B_list$G_list carries the (possibly GLM-iterated)
-  ## G matrices needed for AGAmult_wrapper and trace computations below.
+  #  .fit_coefficients, with automatic fallback on failure.
+  #  return_G_getB = TRUE: B_list$G_list carries the (possibly GLM-iterated)
+  #  G matrices needed for AGAmult_wrapper and trace computations below.
   if (verbose) cat("        gcvu_fxn fit coefficients\n")
   return_G_getB <- TRUE
   B_list <- .fit_coefficients(G_list, Lambda,
@@ -614,7 +615,8 @@
 
   if (verbose) cat("        done GCVu,", GCV_u, "\n")
 
-  return(list(GCV_u       = GCV_u + mp,
+  return(list(criterion_value = GCV_u + mp,
+              GCV_u       = GCV_u + mp,
               B           = B,
               GXX         = GXX,
               G_list      = G_list,
@@ -672,11 +674,14 @@
 #' log-scale penalty parameter, and the chain rule
 #' \eqn{d\lambda / d\theta = \lambda} (exp parameterization) is applied.
 #'
-#' For predictor- and partition-specific penalties, a trace-ratio heuristic
-#' is used:
-#' \deqn{\frac{\partial \mathrm{GCV}_u}{\partial \lambda_{j}}
+#' The shared wiggle and flat directions are differentiated directly from the
+#' fitted criterion. For predictor- and partition-specific penalties, a
+#' lower-cost ratio heuristic is used on the log-penalty scale:
+#' \deqn{\frac{\partial \mathrm{GCV}_u}{\partial \theta_{j}}
 #'   \approx \frac{\mathrm{tr}(\mathbf{L}_{j})}{\mathrm{tr}(\boldsymbol{\Lambda})}
-#'   \cdot \frac{\partial \mathrm{GCV}_u}{\partial \lambda_{w}}}
+#'   \cdot \frac{\partial \mathrm{GCV}_u}{\partial \theta_{w}},}
+#' where \eqn{\mathbf{L}_{j}} denotes the current contribution of that extra
+#' penalty to \eqn{\boldsymbol{\Lambda}}.
 #'
 #' @keywords internal
 .compute_gcvu_gradient <- function(par,
@@ -743,8 +748,8 @@
                               schur_corrections)
 
     ## Fit coefficients: dispatches to blockfit_solve or get_B
-    ## return_G_getB = TRUE: B_list$G_list carries the (possibly GLM-iterated)
-    ## G matrices needed for AGAmult_wrapper and trace computations below.
+    #  return_G_getB = TRUE: B_list$G_list carries the (possibly GLM-iterated)
+    #  G matrices needed for AGAmult_wrapper and trace computations below.
     if (verbose) cat("        gr fxn fit coefficients\n")
     return_G_getB <- TRUE
     B_list <- .fit_coefficients(G_list, Lambda,
@@ -820,7 +825,8 @@
                                 env$unique_penalty_per_partition)
 
     if (verbose) cat("        gr fxn outlist\n")
-    outlist <- list(GCV_u       = GCV_u + mp,
+    outlist <- list(criterion_value = GCV_u + mp,
+                    GCV_u       = GCV_u + mp,
                     B           = B,
                     GXX         = GXX,
                     G_list      = G_list,
@@ -861,12 +867,17 @@
 
   ## dG/dlambda
   if (verbose) cat("        compute_dG_dlambda \n")
+  dPenalty_dlambda1 <- outlist$Lambda / lambda_1
+  dPenalty_partition_dlambda1 <- if (env$unique_penalty_per_partition) {
+    lapply(outlist$L_partition_list, function(L_k) L_k / lambda_1)
+  } else {
+    list()
+  }
   dG_dlambda <- compute_dG_dlambda(outlist$G_list$G,
-                                   outlist$Lambda,
+                                   dPenalty_dlambda1,
                                    env$K,
-                                   lambda_1,
                                    env$unique_penalty_per_partition,
-                                   outlist$L_partition_list,
+                                   dPenalty_partition_dlambda1,
                                    env$parallel & env$parallel_matmult,
                                    env$cl,
                                    env$chunk_size,
@@ -906,22 +917,73 @@
     env$rem_chunks)
 
   ## dW/dlambda (trace derivative)
-  if (verbose) cat("        compute_dW_dlambda_wrapper \n")
-  dW_dlambda <- compute_dW_dlambda_wrapper(
+  #  trace(H) is the sum of the hat diagonals, so differentiate that
+  #  quantity directly rather than relying on the older trace helper.
+  if (verbose) cat("        compute_dhat_diag for dW \n")
+  dW_dlambda <- sum(unlist(
+    .compute_dhat_diag(
+      env$X,
+      outlist$G_list$G,
+      dG_dlambda,
+      env$A,
+      outlist$AGAInv,
+      env$K,
+      env$p_expansions
+    )$dh_diag
+  ))
+  dPenalty_dlambda2 <- (lambda_1 / lambda_2) * outlist$L2
+  dPenalty_partition_dlambda2 <- if (env$unique_penalty_per_partition) {
+    lapply(outlist$L_partition_list, function(L_k) 0 * L_k)
+  } else {
+    list()
+  }
+  dG_dlambda2 <- compute_dG_dlambda(outlist$G_list$G,
+                                    dPenalty_dlambda2,
+                                    env$K,
+                                    env$unique_penalty_per_partition,
+                                    dPenalty_partition_dlambda2,
+                                    env$parallel & env$parallel_matmult,
+                                    env$cl,
+                                    env$chunk_size,
+                                    env$num_chunks,
+                                    env$rem_chunks)
+  dGhalf2 <- compute_dGhalf(dG_dlambda2,
+                            env$p_expansions,
+                            env$K,
+                            env$parallel & env$parallel_eigen,
+                            env$cl,
+                            env$chunk_size,
+                            env$num_chunks,
+                            env$rem_chunks)
+  dG_u_dlambda2_Xyr <- compute_dG_u_dlambda_xy(
+    AGAInvAGXy,
+    outlist$AGAInv,
     outlist$G_list$G,
     env$A,
-    outlist$GXX,
-    outlist$G_list$Ghalf,
-    dG_dlambda,
-    dGhalf,
-    outlist$AGAInv,
+    dG_dlambda2,
     env$p_expansions,
+    env$R_constraints,
     env$K,
+    env$Xy,
+    outlist$G_list$Ghalf,
+    dGhalf2,
+    GhalfXy_temp,
     env$parallel & env$parallel_matmult,
     env$cl,
     env$chunk_size,
     env$num_chunks,
     env$rem_chunks)
+  dW_dlambda2 <- sum(unlist(
+    .compute_dhat_diag(
+      env$X,
+      outlist$G_list$G,
+      dG_dlambda2,
+      env$A,
+      outlist$AGAInv,
+      env$K,
+      env$p_expansions
+    )$dh_diag
+  ))
 
   ## -2 * residuals^T * X
   if (verbose) cat("        neg2tresidX\n")
@@ -945,26 +1007,32 @@
                         outlist$numerator * ddenominator_dlambda1) /
     outlist$denom_sq
 
-  ## Ridge gradient from the same trace-ratio approximation.
-  dGCV_u_dlambda2 <- mean(diag(outlist$L2)) /
-    mean(diag(outlist$Lambda)) *
-    dGCV_u_dlambda1
+  dnumerator_dlambda2   <- c(neg2tresidX %**% dG_u_dlambda2_Xyr)
+  ddenominator_dlambda2 <- 2 * (1 - gamma * outlist$mean_W) *
+    (-gamma * dW_dlambda2)
+  dGCV_u_dlambda2 <- (dnumerator_dlambda2 * outlist$denominator -
+                        outlist$numerator * ddenominator_dlambda2) /
+    outlist$denom_sq
 
-  ## Apply the exp-parameterization chain rule.
+  log_wiggle_gradient <- dGCV_u_dlambda1 * lambda_1
+  log_flat_gradient <- dGCV_u_dlambda2 * lambda_2
+
   if (verbose) cat("        Gradient start \n")
-  gradient <- cbind(c(dGCV_u_dlambda1 * lambda_1,
-                      dGCV_u_dlambda2 * lambda_2))
+  gradient <- cbind(c(log_wiggle_gradient,
+                      log_flat_gradient))
 
   ## The remaining penalty gradients follow the wiggle derivative
-  #  through the same trace-ratio approximation.
+  #  through the same trace-ratio approximation. These are already on the
+  #  log-penalty scale because L_predictor_list/L_partition_list contain the
+  #  current contribution of each penalty to Lambda, so no extra chain-rule
+  #  multiplication by the raw penalty magnitude is needed here.
   if (env$unique_penalty_per_predictor) {
     predictor_penalties <- penalty_vec[grep("predictor", names(penalty_vec))]
     predictor_penalty_gradient <- sapply(
       seq_along(predictor_penalties), function(j) {
         mean(diag(outlist$L_predictor_list[[j]])) /
           mean(diag(outlist$Lambda)) *
-          dGCV_u_dlambda1 *
-          predictor_penalties[j]
+          log_wiggle_gradient
       })
     gradient <- cbind(c(c(gradient), predictor_penalty_gradient))
   }
@@ -977,8 +1045,7 @@
         mean(diag(outlist$L_partition_list[[j]])) /
           mean(diag(outlist$Lambda +
                       outlist$L_partition_list[[j]])) *
-          dGCV_u_dlambda1 *
-          partition_penalties[j]
+          log_wiggle_gradient
       })
     gradient <- cbind(c(gradient, partition_penalty_gradient))
   }
@@ -996,8 +1063,9 @@
 
   if (verbose) cat("        Gradient end \n")
 
-  return(list(GCV_u    = outlist$GCV_u + mp,
-              gradient = env$N_obs * gradient + regularizer,
+  return(list(criterion_value = outlist$criterion_value,
+              GCV_u    = outlist$GCV_u,
+              gradient = gradient + regularizer,
               outlist  = outlist))
 }
 
@@ -1006,34 +1074,30 @@
 # Subfunction: .damped_bfgs
 ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 
-#' Damped BFGS Optimizer for Modified-GCV Penalty Tuning
+#' Damped BFGS Optimizer for Penalty Tuning
 #'
 #' @description
 #' Custom implementation of damped BFGS quasi-Newton optimization for
-#' minimizing the modified GCV_u criterion. Uses step-size damping with
+#' minimizing the selected tuning criterion. Uses step-size damping with
 #' backtracking and Sherman-Morrison-Woodbury inverse Hessian updates.
 #'
 #' @param par Numeric vector; initial log-scale penalty parameters (first two
 #'   elements are log(wiggle) and log(flat_ridge)).
 #' @param log_penalty_vec Numeric vector; log-scale predictor/partition
 #'   penalties appended to the optimization vector.
-#' @param gcvu_fxn Function; GCV_u evaluation function with signature
+#' @param criterion_fxn Function; tuning-objective evaluation function with signature
 #'   \code{function(par, log_penalty_vec, env, ...)}.
 #' @param gr_fxn Function; gradient function with signature
 #'   \code{function(par, log_penalty_vec, outlist, env, ...)}.
-#' @param env List; tuning environment (passed through to gcvu_fxn and
-#'   gr_fxn).
-#' @param tol Numeric; convergence tolerance for both GCV_u change and
+#' @param env List; tuning environment (passed through to
+#'   \code{criterion_fxn} and \code{gr_fxn}).
+#' @param tol Numeric; convergence tolerance for both criterion change and
 #'   parameter change.
 #' @param max_iter Integer; maximum number of BFGS iterations (default 100).
 #' @param ... Additional arguments passed to fitting functions.
 #'
-#' @return List containing:
-#' \describe{
-#'   \item{par}{Numeric vector; best log-scale penalty parameters found.}
-#'   \item{gcv_u}{Numeric; best GCV_u value achieved.}
-#'   \item{iterations}{Integer; number of iterations performed.}
-#' }
+#' @return List containing the best parameter vector found, the corresponding
+#'   criterion value, and the number of iterations performed.
 #'
 #' @details
 #' The optimizer uses the following strategy:
@@ -1053,7 +1117,7 @@
 #' @keywords internal
 .damped_bfgs <- function(par,
                          log_penalty_vec,
-                         gcvu_fxn,
+                         criterion_fxn,
                          gr_fxn,
                          env,
                          tol,
@@ -1061,7 +1125,7 @@
                          ...) {
 
   ## Initialize optimization parameters and storage
-  lambda       <- par
+  lambda       <- cbind(par)
   old_lambda   <- lambda
   new_lambda   <- lambda
   n_params     <- length(lambda)
@@ -1070,19 +1134,29 @@
   damp         <- initial_damp
   prev_gradient <- lambda * 0
   gradient      <- prev_gradient
-  best_gradient <- Inf
+  best_gradient <- prev_gradient
   old_gradient  <- prev_gradient
   outlist       <- NULL
   prev_outlist  <- NULL
-  gcv_u         <- Inf
+  criterion_value <- Inf
   ridge         <- NULL
   dont_skip_gr  <- TRUE
   rho           <- NULL
   Inv           <- diag(n_params)
   best_lambda   <- lambda
-  best_gcv_u    <- gcv_u
+  best_criterion_value <- criterion_value
   prev_lambda   <- old_lambda
   restart       <- TRUE
+
+  ## Evaluate and retain the grid-search start point before taking any
+  # optimizer step. Otherwise a bad first gradient step can displace the
+  # best-known solution even when the initialization was already better.
+  outlist <- criterion_fxn(c(lambda[1], lambda[2], log_penalty_vec),
+                           log_penalty_vec, env, ...)
+  criterion_value <- outlist$criterion_value
+  best_lambda <- lambda
+  best_criterion_value <- criterion_value
+  prev_outlist <- outlist
 
   ## Main optimization loop
   for (iter in 1:max_iter) {
@@ -1091,7 +1165,7 @@
     if (dont_skip_gr) {
       result   <- gr_fxn(c(lambda[1], lambda[2], log_penalty_vec),
                          log_penalty_vec, outlist, env, ...)
-      gradient <- result$gradient
+      gradient <- cbind(result$gradient)
       outlist  <- result$outlist
     }
 
@@ -1164,24 +1238,25 @@
       dont_skip_gr <- FALSE
       damp         <- damp / 2
       if (damp < 2^-12 && iter > 9) {
-        return(list(par        = best_lambda,
-                    gcv_u      = best_gcv_u,
+        return(list(par        = c(best_lambda),
+                    criterion_value = best_criterion_value,
+                    gcv_u      = best_criterion_value,
                     iterations = iter))
       }
       next
     } else {
       prev_outlist <- outlist
-      outlist      <- gcvu_fxn(c(new_lambda[1], new_lambda[2],
-                                 log_penalty_vec),
-                               log_penalty_vec, env, ...)
-      new_gcv_u    <- outlist$GCV_u
-      if (any(is.na(new_gcv_u))) {
-        new_gcv_u <- gcv_u
+      outlist      <- criterion_fxn(c(new_lambda[1], new_lambda[2],
+                                      log_penalty_vec),
+                                    log_penalty_vec, env, ...)
+      new_criterion_value <- outlist$criterion_value
+      if (any(is.na(new_criterion_value))) {
+        new_criterion_value <- criterion_value
       }
     }
 
     ## Accept step if improvement or early iterations
-    if (new_gcv_u <= gcv_u || iter <= 2) {
+    if (new_criterion_value <= criterion_value || iter <= 2) {
       ## Update solution history
       old_gradient  <- prev_gradient
       prev_gradient <- gradient
@@ -1192,36 +1267,41 @@
       lambda        <- new_lambda
       damp          <- 1
 
-      ## Track best solution
-      if (new_gcv_u <= gcv_u || iter == 1) {
-        best_gcv_u  <- new_gcv_u
+      ## Track best solution globally, not just relative to the most recent
+      # accepted iterate. Early damped steps can be exploratory and may be
+      # accepted even when they are worse than the grid-search start.
+      if (new_criterion_value <= best_criterion_value) {
+        best_criterion_value <- new_criterion_value
         best_lambda <- lambda
       }
 
       ## Check convergence
-      if (((abs(new_gcv_u - gcv_u) < tol) ||
+      if (((abs(new_criterion_value - criterion_value) < tol) ||
            (max(abs(lambda - prev_lambda)) < tol)) &&
           (iter > 9)) {
-        return(list(par        = best_lambda,
-                    gcv_u      = best_gcv_u,
+        return(list(par        = c(best_lambda),
+                    criterion_value = best_criterion_value,
+                    gcv_u      = best_criterion_value,
                     iterations = iter))
       }
-      gcv_u <- new_gcv_u
+      criterion_value <- new_criterion_value
     } else {
       ## Reject step and backtrack
       dont_skip_gr <- FALSE
       outlist      <- prev_outlist
       damp         <- damp / 2
       if (damp < 2^(-10) && iter > 0) {
-        return(list(par        = best_lambda,
-                    gcv_u      = best_gcv_u,
+        return(list(par        = c(best_lambda),
+                    criterion_value = best_criterion_value,
+                    gcv_u      = best_criterion_value,
                     iterations = iter))
       }
     }
   }
 
-  return(list(par        = best_lambda,
-              gcv_u      = best_gcv_u,
+  return(list(par        = c(best_lambda),
+              criterion_value = best_criterion_value,
+              gcv_u      = best_criterion_value,
               iterations = iter))
 }
 
@@ -1233,7 +1313,7 @@
 #' Grid Search Initialization for Penalty Tuning
 #'
 #' @description
-#' Evaluates the GCV_u criterion over a grid of initial wiggle and ridge
+#' Evaluates the selected tuning criterion over a grid of initial wiggle and ridge
 #' penalty values to find a good starting point for BFGS optimization.
 #'
 #' @param log_initial_wiggle Numeric vector; log-scale candidate values for
@@ -1242,10 +1322,10 @@
 #'   the flat ridge penalty.
 #' @param log_penalty_vec Numeric vector; log-scale predictor/partition
 #'   penalties.
-#' @param gcvu_fxn Function; GCV_u evaluation function.
+#' @param criterion_fxn Function; tuning-objective evaluation function.
 #' @param env List; tuning environment.
 #' @param include_warnings Logical; whether to print warnings on failure.
-#' @param ... Additional arguments passed to gcvu_fxn.
+#' @param ... Additional arguments passed to \code{criterion_fxn}.
 #'
 #' @return Numeric vector of length 2; the best (log_wiggle, log_flat) found.
 #'
@@ -1253,7 +1333,7 @@
 .tune_grid_search <- function(log_initial_wiggle,
                               log_initial_flat,
                               log_penalty_vec,
-                              gcvu_fxn,
+                              criterion_fxn,
                               env,
                               include_warnings,
                               ...) {
@@ -1262,11 +1342,11 @@
   initial_grid <- expand.grid(wiggle = log_initial_wiggle,
                               flat   = log_initial_flat)
 
-  ## Function to safely evaluate gcv_u
+  ## Function to safely evaluate the selected criterion
   safe_gcvu <- function(par) {
     tryCatch({
-      result <- gcvu_fxn(c(unlist(par), log_penalty_vec),
-                         log_penalty_vec, env, ...)$GCV_u
+      result <- criterion_fxn(c(unlist(par), log_penalty_vec),
+                              log_penalty_vec, env, ...)$criterion_value
       if (is.na(result) || is.nan(result)) {
         return(Inf)
       }
@@ -1279,14 +1359,14 @@
     })
   }
 
-  ## Evaluate GCV_u for each grid point
+  ## Evaluate the criterion for each grid point
   gcv_values <- apply(initial_grid, 1, safe_gcvu)
   bads <- which(is.na(gcv_values) |
                   is.nan(gcv_values) |
                   !is.finite(gcv_values))
 
   if (length(bads) == length(gcv_values)) {
-    stop("All GCV criteria for the initial tuning grid were computed as NA,",
+    stop("All tuning criteria for the initial grid were computed as NA,",
          " NaN, or non-finite: check your data for corrupt or missing values,",
          " try changing initial tuning grid, or try manual tuning instead.",
          " If you are setting no_intercept = TRUE, try experimenting with",
@@ -1312,7 +1392,7 @@
 #'
 #' @description
 #' Determines the pseudocount \eqn{\delta} used to stabilize link function
-#' transformations during GCV penalty tuning. For identity link or when
+#' transformations during penalty tuning. For identity link or when
 #' the response is naturally in the domain of the link function, returns 0.
 #' Otherwise, finds the \eqn{\delta} that makes the transformed response
 #' distribution most closely approximate a t-distribution.
@@ -1375,7 +1455,8 @@
 #'
 #' @description
 #' Assembles a named list containing all pre-computed objects and configuration
-#' needed by the GCV_u evaluation and gradient functions during penalty tuning.
+#' needed by the tuning-objective evaluation and gradient functions during
+#' penalty tuning.
 #' This avoids deep nesting of closures and makes the dependencies explicit.
 #'
 #' @details
@@ -1389,7 +1470,7 @@
 #'   \item{flat_cols}{Integer vector; column indices of non-interactive linear
 #'     terms derived from \code{just_linear_without_interactions} and
 #'     \code{colnm_expansions}. Pre-computed once here rather than re-derived
-#'     at every GCV evaluation.}
+#'     at every tuning-objective evaluation.}
 #' }
 #'
 #' @param flat_cols Integer vector; pre-computed flat column indices (passed
@@ -1423,12 +1504,12 @@
                               unconstrained_fit_fxn,
                               keep_weighted_Lambda,
                               iterate,
-                               qp_score_function, quadprog,
-                               qp_Amat, qp_bvec, qp_meq,
-                               tol, sd_y, gcv_gamma,
-                               constraint_value_vectors,
-                               glm_weight_function,
-                               schur_correction_function,
+                              qp_score_function, quadprog,
+                              qp_Amat, qp_bvec, qp_meq,
+                              tol, sd_y, tuning_criterion, gcv_gamma,
+                              constraint_value_vectors,
+                              glm_weight_function,
+                              schur_correction_function,
                               need_dispersion_for_estimation,
                               dispersion_function,
                               blockfit,
@@ -1478,6 +1559,7 @@
     qp_meq                        = qp_meq,
     tol                           = tol,
     sd_y                          = sd_y,
+    tuning_criterion              = tuning_criterion,
     gcv_gamma                     = gcv_gamma,
     constraint_value_vectors      = constraint_value_vectors,
     glm_weight_function           = glm_weight_function,
@@ -1500,13 +1582,15 @@
 # Main function: tune_Lambda (exported)
 ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 
-#' Tune Smoothing and Ridge Penalties via Generalized Cross Validation
+#' Tune Smoothing and Ridge Penalties via Leave-One-Out or Generalized Cross-Validation
 #'
 #' @description
 #' Optimizes smoothing spline and ridge regression penalties by minimizing the
-#' GCV criterion. Uses BFGS optimization with analytical gradients or finite
-#' differences. This is the top-level entry point that orchestrates grid search
-#' initialization and quasi-Newton optimization via internal subfunctions.
+#' selected tuning criterion, either exact leave-one-out on the transformed
+#' tuning problem or modified GCV. Uses BFGS optimization with analytical
+#' gradients or finite differences. This is the top-level entry point that
+#' orchestrates grid search initialization and quasi-Newton optimization via
+#' internal subfunctions.
 #'
 #' @param y List; response vectors by partition.
 #' @param X List; design matrices by partition.
@@ -1521,7 +1605,10 @@
 #' @param opt Logical; TRUE to optimize penalties, FALSE to use initial values.
 #' @param use_custom_bfgs Logical; TRUE for analytic gradient BFGS as natively
 #'   implemented, FALSE for finite differences as implemented by
-#'   \code{stats::optim()}.
+#'   \code{stats::optim()}. The analytic path is typically faster; however, for
+#'   exact LOO tuning the leverage derivative can be numerically delicate in
+#'   some problems, in which case \code{use_custom_bfgs = FALSE} remains a
+#'   conservative fallback.
 #' @param C Matrix; polynomial expansion matrix (used for initialization).
 #'   This is the monomial expansion design used to derive starting values and
 #'   is not the inequality-constraint matrix sometimes denoted by
@@ -1547,14 +1634,17 @@
 #'   programming parameters (see arguments of \code{\link[lgspline]{lgspline}}).
 #' @param tol Numeric; convergence tolerance.
 #' @param sd_y,delta Response standardization parameters.
-#' @param gcv_gamma Numeric scalar, at least 1. Multiplies the effective
-#'   degrees of freedom in the GCV denominator so that tuning minimizes the
-#'   modified criterion
-#'   \eqn{\sum r_i^2 / \{N(1 - \gamma \bar{W})^2\}}.
-#'   \code{gcv_gamma = 1} recovers ordinary GCV; values above 1 penalize
-#'   complexity more strongly and reduce the occasional severe undersmoothing
-#'   of unmodified GCV. The default \code{1.4} follows Kim and Gu (2004,
-#'   Section 4, equation 4.1), who recommend values in the range 1.2 to 1.4.
+#' @param tuning_criterion Character scalar selecting the tuning objective:
+#'   \code{"loo"} for exact leave-one-out on the transformed tuning problem or
+#'   \code{"gcv"} for generalized cross-validation. The LOO criterion itself is
+#'   still evaluated exactly on that transformed problem; the caveat is that
+#'   its fully analytic leverage derivative can be numerically sensitive in some
+#'   datasets. For very large samples, \code{"gcv"} is often the more practical
+#'   choice; as a rough guideline, it is recommended once the sample size is
+#'   above about 250,000.
+#' @param gcv_gamma Numeric scalar, at least 1, used only when
+#'   \code{tuning_criterion = "gcv"}. Multiplies the effective degrees of
+#'   freedom in the GCV denominator.
 #' @param constraint_value_vectors List; constraint values.
 #' @param parallel Logical; enable parallel computation.
 #' @param parallel_eigen,parallel_trace,parallel_aga Logical; specific parallel
@@ -1575,7 +1665,7 @@
 #' @param homogenous_weights Logical; TRUE if all weights equal.
 #' @param blockfit Logical; when TRUE, the backfitting block decomposition
 #'   (\code{blockfit_solve}) is used in place of \code{get_B} for the
-#'   coefficient estimation step at each GCV evaluation, provided
+#'   coefficient estimation step at each tuning-objective evaluation, provided
 #'   \code{just_linear_without_interactions} is non-empty and \code{K > 0}.
 #'   The dispatch condition is identical to that in \code{lgspline.fit} so
 #'   that penalties are tuned under the same estimator that will be used for
@@ -1584,7 +1674,8 @@
 #'   non-spline effects without interactions.
 #' @param Vhalf,VhalfInv Square root and inverse square root correlation
 #'   structure matrices. These are passed through to the coefficient-estimation
-#'   step used inside each GCV evaluation, so any dense or Woodbury-accelerated
+#'   step used inside each tuning-objective evaluation, so any dense or
+#'   Woodbury-accelerated
 #'   correlated solve is the same one used for the final fitted model.
 #' @param verbose Logical; print progress.
 #' @param include_warnings Logical; print warnings/try-errors.
@@ -1607,26 +1698,30 @@
 #'     compute cross-products, determine pseudocount delta, ensure constraint
 #'     matrix compatibility.
 #'   \item \strong{Blockfit dispatch}: Pre-compute \code{flat_cols} and the
-#'     \code{use_blockfit} flag so that every GCV evaluation uses the same
+#'     \code{use_blockfit} flag so that every tuning-objective evaluation uses the same
 #'     coefficient estimator as the final fit. \code{flat_cols} are identified
 #'     by matching column names against
 #'     \code{paste0("_", just_linear_without_interactions, "_")} in
 #'     \code{colnm_expansions}.
-#'   \item \strong{Grid search}: Evaluate GCV_u over a grid of
+#'   \item \strong{Grid search}: Evaluate the selected tuning criterion over a grid of
 #'     (wiggle, ridge) penalty candidates to find a good starting point
 #'     (see \code{.tune_grid_search}).
-#'   \item \strong{BFGS optimization}: Minimize GCV_u via either the custom
+#'   \item \strong{BFGS optimization}: Minimize the selected tuning criterion via either the custom
 #'     damped BFGS with closed-form gradients (see \code{.damped_bfgs},
-#'     \code{.compute_gcvu_gradient}) or base R's \code{stats::optim} with
-#'     finite-difference gradients.
-#'   \item \strong{Modified GCV}: Use
-#'     \eqn{N(1 - \gamma\bar{W})^2} in the denominator, where
-#'     \eqn{\gamma = \code{gcv_gamma}}. Setting \eqn{\gamma > 1}
-#'     follows Kim and Gu's modified GCV recommendation and penalizes
-#'     effective degrees of freedom more strongly.
-#'   \item \strong{Inflation}: Apply small inflation factor
-#'     \eqn{((N+2)/(N-2))^{2}} to counteract in-sample bias toward
-#'     underpenalization.
+#'     \code{.compute_gcvu_gradient}, \code{.compute_loocv_gradient}) or base R's \code{stats::optim} with
+#'     finite-difference gradients. The GCV gradient is differentiated directly
+#'     in the shared wiggle and flat directions; for LOO, the same direct
+#'     differentiation is used, but the leverage derivative may be numerically
+#'     delicate in some problems and can motivate the finite-difference
+#'     fallback.
+#'   \item \strong{Criterion choice}: \code{"loo"} uses exact per-observation
+#'     leverages on the transformed tuning problem, while \code{"gcv"} uses the
+#'     existing trace-based denominator with optional \code{gcv_gamma}
+#'     inflation.
+#'   \item \strong{Sample-size adjustment}: After optimization, divide the tuned
+#'     penalties by \eqn{((N+2)/(N-2))^{2}} (equivalently multiply by
+#'     \eqn{((N-2)/(N+2))^{2}}) for both GCV- and LOO-based tuning so that the
+#'     final penalties are decreased at small sample sizes.
 #'   \item \strong{Final Lambda}: Compute the final penalty matrix from
 #'     optimized parameters via \code{compute_Lambda}.
 #' }
@@ -1635,6 +1730,12 @@
 #' (non-negative) scale and converted to natural log-scale internally,
 #' i.e. raw_penalty = exp(theta), so that raw penalties are always positive.
 #' The chain rule factor d(exp(theta))/d(theta) = exp(theta) = raw_penalty.
+#'
+#' For predictor- and partition-specific penalties, the current implementation
+#' still uses the existing low-cost ratio approximation rather than a full
+#' direct derivative in each extra penalty direction. Thus the most accurate
+#' closed-form tuning gradients are presently the shared wiggle and flat
+#' directions.
 #'
 #' The resulting penalty matrix follows the same decomposition used throughout
 #' the paper and package documentation:
@@ -1653,7 +1754,7 @@
 #' corresponding options are active. Internally these components are returned as
 #' \code{L1}, \code{L2}, \code{L_predictor_list}, and \code{L_partition_list}.
 #'
-#' If correlation structure inputs are supplied, each GCV evaluation calls the
+#' If correlation structure inputs are supplied, each tuning-objective evaluation calls the
 #' same constrained correlated solver used by the final model fit. In the
 #' structured-correlation case, the low-rank Woodbury correction described in
 #' \code{lgspline-details} is therefore inherited automatically through
@@ -1672,10 +1773,10 @@
 #'
 #' @examples
 #' \dontrun{
-#' ## ## Example 1: Basic usage within lgspline ## ##
+#' ## ## Example 1: Basic usage within lgspline ## ## ## ## ## ## ## ## ## ## ##
 #' ## tune_Lambda is called internally by lgspline; direct calls are
-#' ## for advanced users. Here we verify that the refactored version
-#' ## produces identical output to the original.
+#' #  for advanced users. Here we verify that the refactored version
+#' #  produces identical output to the original.
 #'
 #' set.seed(42)
 #' t <- runif(200, -5, 5)
@@ -1687,17 +1788,17 @@
 #' cat("Ridge penalty:", fit1$penalties$flat_ridge_penalty, "\n")
 #' cat("Trace (edf):", fit1$trace_XUGX, "\n")
 #'
-#' ## ## Example 2: Fixed penalties (no tuning) ## ##
+#' ## ## Example 2: Fixed penalties (no tuning) ## ## ## ## ## ## ## ## ## ## ##
 #' fit2 <- lgspline(t, y, K = 3, opt = FALSE,
 #'                  wiggle_penalty = 1e-4,
 #'                  flat_ridge_penalty = 0.1)
 #' cat("Fixed wiggle:", fit2$penalties$wiggle_penalty, "\n")
 #'
-#' ## ## Example 3: blockfit path ## ##
+#' ## ## Example 3: blockfit path #### ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 #' ## When blockfit = TRUE and just_linear_without_interactions is non-empty,
-#' ## tune_Lambda dispatches to blockfit_solve at each GCV evaluation,
-#' ## ensuring penalties are tuned under the same estimator used in the final
-#' ## fit. Verify that tuned penalties are consistent across both paths.
+#' #  tune_Lambda dispatches to blockfit_solve at each GCV evaluation,
+#' #  ensuring penalties are tuned under the same estimator used in the final
+#' #  fit. Verify that tuned penalties are consistent across both paths.
 #'
 #' set.seed(7)
 #' n  <- 300
@@ -1718,7 +1819,7 @@
 #' ## Penalties may differ slightly; predictions should be close.
 #' cat("Max pred diff:", max(abs(fit_bf$ytilde - fit_std$ytilde)), "\n")
 #'
-#' ## ## Example 4: Verify refactored subfunctions ## ##
+#' ## ## Example 4: Verify refactored subfunctions ## ## ## ## ## ## ## ## ## ##
 #' ## The internal .compute_meta_penalty should match hand calculation
 #' mp <- lgspline:::.compute_meta_penalty(
 #'   wiggle_penalty = 0.5,
@@ -1732,7 +1833,7 @@
 #' stopifnot(abs(mp - expected) < 1e-20)
 #' cat("Meta-penalty check passed.\n")
 #'
-#' ## ## Example 5: Verify gradient of meta-penalty ## ##
+#' ## ## Example 5: Verify gradient of meta-penalty ## ## ## ## ## ## ## ## ## #
 #' gr <- lgspline:::.compute_meta_penalty_gradient(
 #'   wiggle_penalty = 2.0,
 #'   penalty_vec = c(predictor1 = 1.5),
@@ -1740,16 +1841,16 @@
 #'   unique_penalty_per_predictor = TRUE,
 #'   unique_penalty_per_partition = FALSE
 #' )
-#' ## gr[1] should be 1e-32 * (2 - 1) * 2 = 2e-32
-#' ## gr[2] should be 0
-#' ## gr[3] should be 1e-8 * (1.5 - 1) * 1.5 = 7.5e-9
+#' # gr[1] should be 1e-32 * (2 - 1) * 2 = 2e-32
+#' # gr[2] should be 0
+#' # gr[3] should be 1e-8 * (1.5 - 1) * 1.5 = 7.5e-9
 #' stopifnot(abs(gr[1] - 2e-32) < 1e-40)
 #' stopifnot(gr[2] == 0)
 #' stopifnot(abs(gr[3] - 7.5e-9) < 1e-17)
 #' cat("Meta-penalty gradient check passed.\n")
 #'
 #' ## ## Example 6: Residual computation paths ## ##
-#' ## Identity link
+#' ## Identity link ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 #' r1 <- lgspline:::.compute_tuning_residuals(
 #'   y = list(c(1, 2, 3)),
 #'   preds = list(c(1.1, 1.9, 3.2)),
@@ -1794,6 +1895,7 @@ tune_Lambda <- function(
     tol,
     sd_y,
     delta,
+    tuning_criterion,
     gcv_gamma,
     constraint_value_vectors,
     parallel,
@@ -1826,13 +1928,16 @@ tune_Lambda <- function(
 
   if (verbose) cat("    Starting tuning\n")
 
-  if (!is.numeric(gcv_gamma) || length(gcv_gamma) != 1 ||
-      !is.finite(gcv_gamma) || gcv_gamma < 1) {
+  tuning_criterion <- match.arg(tuning_criterion, c("loo", "gcv"))
+
+  if (tuning_criterion == "gcv" &&
+      (!is.numeric(gcv_gamma) || length(gcv_gamma) != 1 ||
+       !is.finite(gcv_gamma) || gcv_gamma < 1)) {
     stop("gcv_gamma must be a finite numeric scalar >= 1. ",
          "Set gcv_gamma = 1 to recover ordinary GCV.", call. = FALSE)
   }
 
-  ## ## Step 1: Convert raw-scale inputs to log scale ## ##
+  ## Step 1: Convert raw-scale inputs to log scale ## ##
   log_initial_wiggle <- log(initial_wiggle)
   log_initial_flat   <- log(initial_flat)
   if (length(penalty_vec) > 0) {
@@ -1843,7 +1948,7 @@ tune_Lambda <- function(
 
   if (verbose) cat("    Xy\n")
 
-  ## ## Step 2: Precompute cross-products and constants ## ##
+  ## Step 2: Precompute cross-products and constants
   sN_obs <- sqrt(N_obs)
   Xy  <- vectorproduct_block_diagonal(X, y, K)
   Xyr <- Reduce("rbind", Xy)
@@ -1851,7 +1956,7 @@ tune_Lambda <- function(
   Xt  <- lapply(X, t)
   unl_y <- unlist(y)
 
-  ## ## Step 3: Compute pseudocount delta ## ##
+  ## Step 3: Compute pseudocount delta
   if (verbose) cat("    Getting pseudocount delta\n")
 
   if (is.null(delta) &&
@@ -1912,6 +2017,7 @@ tune_Lambda <- function(
     qp_score_function = qp_score_function, quadprog = quadprog,
     qp_Amat = qp_Amat, qp_bvec = qp_bvec, qp_meq = qp_meq,
     tol = tol, sd_y = sd_y,
+    tuning_criterion = tuning_criterion,
     gcv_gamma = gcv_gamma,
     constraint_value_vectors = constraint_value_vectors,
     glm_weight_function = glm_weight_function,
@@ -1925,8 +2031,18 @@ tune_Lambda <- function(
     flat_cols = flat_cols, use_blockfit = use_blockfit
   )
 
-  ## ## Step 7: Optimization (if requested) ## ##
+  ## Step 7: Optimization (if requested)
   if (opt) {
+    criterion_fxn <- if (tuning_criterion == "loo") {
+      .compute_loocv
+    } else {
+      .compute_gcvu
+    }
+    gr_fxn <- if (tuning_criterion == "loo") {
+      .compute_loocv_gradient
+    } else {
+      .compute_gcvu_gradient
+    }
 
     if (verbose) cat("    Starting grid search for initialization\n")
 
@@ -1934,7 +2050,7 @@ tune_Lambda <- function(
     best_start <- .tune_grid_search(log_initial_wiggle,
                                     log_initial_flat,
                                     log_penalty_vec,
-                                    .compute_gcvu,
+                                    criterion_fxn,
                                     env,
                                     include_warnings,
                                     ...)
@@ -1950,8 +2066,8 @@ tune_Lambda <- function(
       res <- withCallingHandlers(
         try(.damped_bfgs(c(best_start, log_penalty_vec),
                          log_penalty_vec,
-                         .compute_gcvu,
-                         .compute_gcvu_gradient,
+                         criterion_fxn,
+                         gr_fxn,
                          env,
                          tol,
                          max_iter = 100,
@@ -1982,7 +2098,7 @@ tune_Lambda <- function(
         try({
           optim(c(best_start, log_penalty_vec),
                 fn = function(par) {
-                  .compute_gcvu(par, log_penalty_vec, env, ...)$GCV_u
+                  criterion_fxn(par, log_penalty_vec, env, ...)$criterion_value
                 },
                 method = "BFGS")
         }, silent = TRUE),
@@ -2007,23 +2123,25 @@ tune_Lambda <- function(
 
     if (verbose) cat("    Finished tuning penalties\n")
 
-    ## Inflate penalties to counteract in-sample bias toward underpenalization
-    infl               <- ((N_obs + 2) / ((N_obs - 2)))^2
-    wiggle_penalty     <- exp(par[1]) * infl
-    flat_ridge_penalty <- exp(par[2]) * infl
+    ## Decrease tuned penalties at small sample sizes by dividing the
+    #  optimizer solution by ((N+2)/(N-2))^2 for both tuning criteria.
+    sample_size_adjustment <- ((N_obs - 2) / (N_obs + 2))^2
+    wiggle_penalty     <- exp(par[1]) * sample_size_adjustment
+    flat_ridge_penalty <- exp(par[2]) * sample_size_adjustment
 
     ## Update penalty vec for predictor- and partition-specific penalties
     if (length(log_penalty_vec) > 0) {
-      penalty_vec[1:length(penalty_vec)] <- exp(c(par[-c(1, 2)])) * infl
+      penalty_vec[1:length(penalty_vec)] <-
+        exp(c(par[-c(1, 2)])) * sample_size_adjustment
     }
 
   } else if (length(penalty_vec) == 0) {
     ## No per-predictor or per-partition penalties; nothing to do
   }
   ## When !opt and length(penalty_vec) > 0, penalty_vec is already on raw
-  ## scale from input and used as-is
+  #  scale from input and used as-is
 
-  ## ## Step 8: Compute final penalty matrix ## ##
+  ## Step 8: Compute final penalty matrix
   if (verbose) cat("    Final update\n")
 
   Lambda_list <- compute_Lambda(custom_penalty_mat,

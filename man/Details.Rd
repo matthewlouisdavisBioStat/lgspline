@@ -657,8 +657,7 @@ and a fully custom criterion can replace REML through
 demonstrates how to supply custom correlation structures with user-defined
 gradient functions. Optimization over these working correlation parameters is
 then carried out by the same quasi-Newton engine used elsewhere in the
-package, namely \code{\link{efficient_bfgs}} with fallback to
-\code{\link{approx_grad}} when needed. In the user-facing interface, this
+package, with a finite-difference fallback when needed. In the user-facing interface, this
 machinery is activated through \code{correlation_structure},
 \code{correlation_id}, \code{spacetime}, \code{VhalfInv}, \code{Vhalf},
 \code{VhalfInv_fxn}, \code{Vhalf_fxn}, \code{VhalfInv_par_init},
@@ -1467,12 +1466,13 @@ of \eqn{K+1} \eqn{p \times p} square, symmetric, positive semi-definite
 matrices.
 }
 
-\subsection{Penalty Optimization via Modified Generalized Cross-Validation}{
+\subsection{Penalty Optimization via Leave-One-Out or Generalized Cross-Validation}{
 After the structural pieces of the model are fixed, the main remaining
 question is how much smoothing to apply. In \pkg{lgspline}, that tuning is
-performed with modified generalized cross-validation, controlled by
-\code{gcv_gamma}, but it is carried out using the same constrained
-estimator that will be used in the final model fit.
+performed with exact leave-one-out by default, or with generalized
+cross-validation when \code{tuning_criterion = "gcv"}. In either case, the
+criterion is evaluated using the same constrained estimator that will be
+used in the final model fit.
 Penalty parameters are estimated on the log scale via exponential
 parameterization (\eqn{\lambda = \exp(\theta)},
 \eqn{\theta \in \mathbb{R}}), ensuring positivity. The chain rule factor
@@ -1497,23 +1497,33 @@ scalars \eqn{\lambda_w} (\code{wiggle_penalty}), \eqn{\lambda_r}
 (\code{flat_ridge_penalty}), \eqn{\{\nu_j\}}
 (\code{predictor_penalties}), and \eqn{\{\tau_k\}}
 (\code{partition_penalties}) are tuned.
-The default tuning criterion is a modified generalized cross-validation
-score,
+With \code{tuning_criterion = "loo"}, the criterion is
+\deqn{\mathrm{LOO}
+  = \frac{1}{N}\sum_{i=1}^{N}\left(\frac{r_i}{1-h_{ii}}\right)^2,}
+where \eqn{h_{ii}} is the diagonal of the tuning hat matrix. For Gaussian
+identity-link tuning with fixed transformed design, this is exact. With
+correlation structure and/or non-identity links, \pkg{lgspline} applies the
+same transformed or linearized tuning problem already used by GCV, so the
+leave-one-out calculation is carried out on that working scale. In empirical
+diagnostics, the criterion itself behaves stably, while the fully analytic
+derivative of the observation-wise leverage term can be numerically delicate
+in some problems; when that sensitivity matters in practice, the finite-
+difference optimizer path (\code{use_custom_bfgs = FALSE}) remains
+available. This exact observation-wise calculation is also the main reason
+LOO tuning becomes more expensive than GCV as \eqn{N} grows; in routine use,
+\code{tuning_criterion = "gcv"} is often the more practical choice once the
+sample size is above about 250,000.
+
+With \code{tuning_criterion = "gcv"}, the package instead uses
 \deqn{\mathrm{GCV}_{u,\gamma}
   = \frac{\sum_{i=1}^{N}D_{ii}\,r_i^{2}}
           {N(1 - \gamma\bar{W})^{2}},}
-where \eqn{r_i} are residuals on the link scale and
-\eqn{\bar{W} = \mathrm{tr}(\mathbf{H})/N} is the mean of the hat-matrix
-diagonal. Here \eqn{\gamma = \code{gcv_gamma}} is a user-facing tuning
-parameter, with \code{gcv_gamma = 1} recovering ordinary GCV. The default
-\code{gcv_gamma = 1.4} follows the modified-GCV recommendation of Kim and
-Gu (2004, Section 4, equation 4.1), who propose inflating the effective
-degrees-of-freedom term to reduce the occasional severe undersmoothing of
-standard GCV. This is the same role played by the \code{gamma} argument in
-\pkg{mgcv}; values above 1 favor smoother fits by penalizing model
-complexity more strongly through the denominator. For identity link,
-\eqn{r_i = y_i - \hat{\eta}_i}. For
-non-identity links, the residuals are
+where \eqn{\bar{W} = \mathrm{tr}(\mathbf{H})/N} is the mean of the
+hat-matrix diagonal and \eqn{\gamma = \code{gcv_gamma}} controls optional
+inflation of the effective-degrees-of-freedom term.
+
+For identity link, \eqn{r_i = y_i - \hat{\eta}_i}. For non-identity links,
+the residuals are
 \eqn{r_i = g((y_i + \delta)/(1+2\delta)) - (\hat{\eta}_i + \delta)/(1+2\delta)},
 where \eqn{\delta \geq 0} is a pseudocount that stabilizes the link
 transformation, automatically tuned within \code{\link{tune_Lambda}} if not supplied
@@ -1548,11 +1558,12 @@ scale, incorporating the exp chain rule, is
 \eqn{\partial P_{\mathrm{meta}}/\partial\theta_j = c_{\mathrm{meta}}(\nu_j - 1)\nu_j}
 and
 \eqn{\partial P_{\mathrm{meta}}/\partial\theta_1 = 10^{-32}(\lambda_w - 1)\lambda_w}.
-The total objective is \eqn{\mathrm{GCV}_{u,\gamma} + P_{\mathrm{meta}}}.
+The total objective is the selected tuning criterion plus
+\eqn{P_{\mathrm{meta}}}.
 }
 
-\subsection{Closed-Form Gradient of Modified GCV}{
-The gradient of \eqn{\mathrm{GCV}_{u,\gamma}} with respect to
+\subsection{Closed-Form Gradients for Tuning Criteria}{
+The gradient of the GCV objective with respect to
 \eqn{\theta_1 = \log\lambda_w} is computed analytically via the quotient
 rule:
 \deqn{\frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\theta_1}
@@ -1582,46 +1593,57 @@ In the implementation, these quantities are assembled by a small set of
 helper routines: \code{\link{compute_dG_dlambda}} for
 \eqn{\partial\mathbf{G}/\partial\lambda}, \code{\link{compute_dGhalf}}
 for \eqn{\partial\mathbf{G}^{1/2}/\partial\lambda},
-\code{\link{compute_dW_dlambda_wrapper}} for derivatives of the effective
-degrees-of-freedom term, \code{compute_trace_H} for the
-trace pieces entering modified GCV, and \code{\link{compute_dG_u_dlambda_xy}} for
-the derivative of the fitted-value quadratic form.
+\code{\link{compute_trace_H}} together with the tuning hat-diagonal
+derivative helpers for the effective-degrees-of-freedom term, and
+\code{\link{compute_dG_u_dlambda_xy}} for the derivative of the fitted-value
+quadratic form.
 
-The full gradient is scaled by \eqn{N} before adding the meta-penalty
-gradient.
+For exact leave-one-out, the implementation instead differentiates the
+per-observation PRESS form directly, requiring both
+\eqn{\partial r_i / \partial\lambda_w} and
+\eqn{\partial h_{ii} / \partial\lambda_w}. The latter is assembled
+partition-wise from the same constrained-\eqn{\mathbf{G}} ingredients used
+elsewhere in tuning. The exact LOO path does not explicitly form the full
+projection matrix \eqn{\mathbf{U}} or the full hat matrix \eqn{\mathbf{H}};
+instead it works with blockwise matrices
+\eqn{\mathbf{C}_k = \mathbf{G}_k - \mathbf{G}_k\mathbf{A}_k(\mathbf{A}^\top\mathbf{G}\mathbf{A})^{-1}\mathbf{A}_k^\top\mathbf{G}_k}
+and their derivatives. Empirically, this observation-wise leverage
+derivative is the most numerically delicate part of the analytic LOO
+gradient: most observations are typically well behaved, but a diffuse set of
+small local errors can remain even when the overall LOO objective and the
+corresponding GCV gradient are stable.
 
-For the ridge penalty and predictor-/partition-specific penalties, a
-trace-ratio heuristic is used:
-\deqn{\frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\lambda_l} \approx
+The shared wiggle and flat directions are differentiated directly. For
+predictor- and partition-specific penalties, a lower-cost ratio heuristic is
+used:
+\deqn{\frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\theta_l} \approx
   \frac{\mathrm{mean}(\mathrm{diag}(\mathbf{L}_l))}{\mathrm{mean}(\mathrm{diag}(\boldsymbol{\Lambda}))}
-  \frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\lambda_w},}
-and analogously for predictor- and partition-specific penalties, where
-\eqn{\mathbf{L}_j^{(\mathrm{pred})}} or \eqn{\mathbf{L}_k^{(\mathrm{part})}}
-replaces \eqn{\mathbf{L}_l} in the numerator. This follows from a
-chain-rule argument: by the Leibniz rule and the inverse derivative,
-\eqn{\partial\lambda_w/\partial\lambda_l = (\partial\boldsymbol{\Lambda}/\partial\lambda_l)(\partial\boldsymbol{\Lambda}/\partial\lambda_w)^{-1}}.
-Since the derivative appears as a matrix rather than a scalar, the
-mean-diagonal ratio provides a scalar summary. Once the derivative for
-\eqn{\lambda_w} is in hand, the derivatives of other penalties are cheap
-to compute. The exp chain rule is then applied:
-\eqn{\partial/\partial\theta = (\partial/\partial\lambda)\cdot\lambda}.
+  \frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\theta_w},}
+where \eqn{\theta_l = \log \lambda_l} and
+\eqn{\mathbf{L}_l} denotes the current contribution of the corresponding
+predictor- or partition-specific penalty to \eqn{\boldsymbol{\Lambda}}. This
+keeps the extra penalty directions inexpensive while preserving the direct
+derivatives for the shared wiggle and flat penalties.
 }
 
 \subsection{Optimization Procedure}{
-\strong{Grid search initialization.} The \eqn{\mathrm{GCV}_{u,\gamma}} criterion
-is evaluated over a grid of candidate values for
+\strong{Grid search initialization.} The selected tuning criterion is
+evaluated over a grid of candidate values for
 \eqn{(\lambda_w, \lambda_r)} on the log scale. All combinations of
 user-supplied candidate vectors (\code{initial_wiggle} and
 \code{initial_flat}) are formed, and the combination yielding
-the smallest finite \eqn{\mathrm{GCV}_{u,\gamma}} is selected as the starting
+the smallest finite criterion value is selected as the starting
 point for BFGS optimization. Grid points producing non-finite
-\eqn{\mathrm{GCV}_{u,\gamma}} are discarded. If all grid points fail, an error
+objective values are discarded. If all grid points fail, an error
 is raised advising the user to check the data or adjust the grid.
 
 \strong{Damped BFGS optimizer.} A custom damped BFGS quasi-Newton optimizer,
-implemented in \code{\link{efficient_bfgs}}, minimizes
-\eqn{\mathrm{GCV}_{u,\gamma} + P_{\mathrm{meta}}}. When analytic gradients are
-not usable, the fallback finite-difference helper is \code{\link{approx_grad}}.
+implemented in \code{\link{tune_Lambda}} through
+\code{.damped_bfgs()}, minimizes the selected tuning criterion plus
+\eqn{P_{\mathrm{meta}}}. When analytic gradients are not preferred, or when
+the exact LOO leverage derivative appears too noisy for a given problem, a
+base-R \code{\link[stats]{optim}} call with method \code{"BFGS"} provides
+the finite-difference fallback.
 
 \emph{Iterations 1-2: steepest descent.} The first two iterations use
 steepest descent with a damping factor \eqn{\alpha}:
@@ -1645,26 +1667,27 @@ reset to \eqn{\mathbf{I}} and the iteration is flagged for restart. The
 search direction is
 \eqn{\mathbf{d}^{(t)} = -\mathbf{J}^{(t)}\nabla^{(t)}}.
 
-\emph{Step acceptance.} A step is accepted if
-\eqn{\mathrm{GCV}_{u,\gamma}^{(\mathrm{new})} \leq \mathrm{GCV}_{u,\gamma}^{(\mathrm{old})}}.
+\emph{Step acceptance.} A step is accepted if the new tuning criterion value
+is no larger than the old one.
 On rejection, \eqn{\alpha} is halved. If \eqn{\alpha < 2^{-10}} (early
 iterations) or \eqn{\alpha < 2^{-12}} (later iterations), the optimizer
 terminates with the best solution found.
 
 \emph{Convergence.} The optimizer terminates when
-\eqn{|\mathrm{GCV}_{u,\gamma}^{(t)} - \mathrm{GCV}_{u,\gamma}^{(t-1)}| < \epsilon} or
+the absolute change in the tuning criterion is less than \eqn{\epsilon}, or
 \eqn{\|\boldsymbol{\phi}^{(t)} - \boldsymbol{\phi}^{(t-1)}\|_{\infty} < \epsilon},
 provided at least 10 iterations have elapsed, for penalties
 \eqn{\boldsymbol{\phi} = \lambda_w, \lambda_r, \nu_j, \tau_j, ...}.
 
 \emph{Alternative.} A base-R
 \code{\link[stats]{optim}} call with method \code{"BFGS"} and
-finite-difference gradients can be used used instead via \code{use_custom_bfgs=FALSE},
-which uses \code{stats::optim}.
+finite-difference gradients can be used instead via
+\code{use_custom_bfgs = FALSE}.
 
-\strong{Post-optimization inflation.} After optimization, the penalty
-parameters are inflated by a factor \eqn{((N+2)/(N-2))^{2}} to counteract
-the in-sample bias toward underpenalization inherent in GCV-type criteria.
+\strong{Post-optimization sample-size adjustment.} After optimization, the
+tuned penalty parameters are divided by \eqn{((N+2)/(N-2))^{2}}
+(equivalently multiplied by \eqn{((N-2)/(N+2))^{2}}) for both GCV- and
+LOO-based tuning. This decreases the final penalties at small sample sizes.
 
 The tuning loop is implemented in \code{\link{tune_Lambda}}.
 }

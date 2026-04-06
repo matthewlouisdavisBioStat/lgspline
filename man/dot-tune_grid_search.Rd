@@ -8,7 +8,7 @@
   log_initial_wiggle,
   log_initial_flat,
   log_penalty_vec,
-  gcvu_fxn,
+  criterion_fxn,
   env,
   include_warnings,
   ...
@@ -24,19 +24,19 @@ the flat ridge penalty.}
 \item{log_penalty_vec}{Numeric vector; log-scale predictor/partition
 penalties.}
 
-\item{gcvu_fxn}{Function; GCV_u evaluation function.}
+\item{criterion_fxn}{Function; tuning-objective evaluation function.}
 
 \item{env}{List; tuning environment.}
 
 \item{include_warnings}{Logical; whether to print warnings on failure.}
 
-\item{...}{Additional arguments passed to gcvu_fxn.}
+\item{...}{Additional arguments passed to \code{criterion_fxn}.}
 }
 \value{
 Numeric vector of length 2; the best (log_wiggle, log_flat) found.
 }
 \description{
-Evaluates the GCV_u criterion over a grid of initial wiggle and ridge
+Evaluates the selected tuning criterion over a grid of initial wiggle and ridge
 penalty values to find a good starting point for BFGS optimization.
 }
 \keyword{internal}

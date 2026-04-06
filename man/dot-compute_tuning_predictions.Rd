@@ -33,7 +33,7 @@ List of prediction vectors, one per partition.
 }
 \description{
 Wrapper around \code{matmult_block_diagonal} for computing partition-wise
-predictions \eqn{\mathbf{X}_{k} \boldsymbol{\beta}_{k}} during GCV
-penalty tuning.
+predictions \eqn{\mathbf{X}_{k} \boldsymbol{\beta}_{k}} during penalty
+tuning.
 }
 \keyword{internal}

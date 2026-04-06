@@ -6,11 +6,10 @@
 \usage{
 compute_dG_dlambda(
   G,
-  L,
+  dPenalty_dlambda,
   K,
-  lambda,
   unique_penalty_per_partition,
-  L_partition_list,
+  dPenalty_partition_list,
   parallel,
   cl,
   chunk_size,
@@ -22,15 +21,9 @@ compute_dG_dlambda(
 \item{G}{A list of inverse-information matrices \eqn{\textbf{G}} for each
 partition}
 
-\item{L}{The base penalty matrix \eqn{\textbf{L}}}
-
 \item{K}{Number of partitions minus 1 (\eqn{K})}
 
-\item{lambda}{Smoothing parameter value \eqn{\lambda}}
-
 \item{unique_penalty_per_partition}{Logical indicating partition-specific penalties}
-
-\item{L_partition_list}{Optional list of partition-specific penalty matrices \eqn{\textbf{L}_k}}
 
 \item{parallel}{Logical to enable parallel processing}
 
@@ -41,6 +34,12 @@ partition}
 \item{num_chunks}{Number of chunks}
 
 \item{rem_chunks}{Remainder chunks}
+
+\item{L}{The base penalty matrix \eqn{\textbf{L}}}
+
+\item{lambda}{Smoothing parameter value \eqn{\lambda}}
+
+\item{L_partition_list}{Optional list of partition-specific penalty matrices \eqn{\textbf{L}_k}}
 }
 \value{
 A list of derivative matrices \eqn{d\textbf{G}/d\lambda} for each partition

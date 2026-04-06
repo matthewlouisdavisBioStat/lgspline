@@ -2,12 +2,12 @@
 % Please edit documentation in R/tune_Lambda.R
 \name{.damped_bfgs}
 \alias{.damped_bfgs}
-\title{Damped BFGS Optimizer for Modified-GCV Penalty Tuning}
+\title{Damped BFGS Optimizer for Penalty Tuning}
 \usage{
 .damped_bfgs(
   par,
   log_penalty_vec,
-  gcvu_fxn,
+  criterion_fxn,
   gr_fxn,
   env,
   tol,
@@ -22,16 +22,16 @@ elements are log(wiggle) and log(flat_ridge)).}
 \item{log_penalty_vec}{Numeric vector; log-scale predictor/partition
 penalties appended to the optimization vector.}
 
-\item{gcvu_fxn}{Function; GCV_u evaluation function with signature
+\item{criterion_fxn}{Function; tuning-objective evaluation function with signature
 \code{function(par, log_penalty_vec, env, ...)}.}
 
 \item{gr_fxn}{Function; gradient function with signature
 \code{function(par, log_penalty_vec, outlist, env, ...)}.}
 
-\item{env}{List; tuning environment (passed through to gcvu_fxn and
-gr_fxn).}
+\item{env}{List; tuning environment (passed through to
+\code{criterion_fxn} and \code{gr_fxn}).}
 
-\item{tol}{Numeric; convergence tolerance for both GCV_u change and
+\item{tol}{Numeric; convergence tolerance for both criterion change and
 parameter change.}
 
 \item{max_iter}{Integer; maximum number of BFGS iterations (default 100).}
@@ -39,16 +39,12 @@ parameter change.}
 \item{...}{Additional arguments passed to fitting functions.}
 }
 \value{
-List containing:
-\describe{
-  \item{par}{Numeric vector; best log-scale penalty parameters found.}
-  \item{gcv_u}{Numeric; best GCV_u value achieved.}
-  \item{iterations}{Integer; number of iterations performed.}
-}
+List containing the best parameter vector found, the corresponding
+  criterion value, and the number of iterations performed.
 }
 \description{
 Custom implementation of damped BFGS quasi-Newton optimization for
-minimizing the modified GCV_u criterion. Uses step-size damping with
+minimizing the selected tuning criterion. Uses step-size damping with
 backtracking and Sherman-Morrison-Woodbury inverse Hessian updates.
 }
 \details{

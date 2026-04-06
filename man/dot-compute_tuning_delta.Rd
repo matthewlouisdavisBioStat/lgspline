@@ -23,7 +23,7 @@ Numeric scalar; the pseudocount \eqn{\delta \geq 0}.
 }
 \description{
 Determines the pseudocount \eqn{\delta} used to stabilize link function
-transformations during GCV penalty tuning. For identity link or when
+transformations during penalty tuning. For identity link or when
 the response is naturally in the domain of the link function, returns 0.
 Otherwise, finds the \eqn{\delta} that makes the transformed response
 distribution most closely approximate a t-distribution.

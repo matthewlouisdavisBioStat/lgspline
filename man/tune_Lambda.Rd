@@ -2,7 +2,7 @@
 % Please edit documentation in R/tune_Lambda.R
 \name{tune_Lambda}
 \alias{tune_Lambda}
-\title{Tune Smoothing and Ridge Penalties via Generalized Cross Validation}
+\title{Tune Smoothing and Ridge Penalties via Leave-One-Out or Generalized Cross-Validation}
 \usage{
 tune_Lambda(
   y,
@@ -37,6 +37,7 @@ tune_Lambda(
   tol,
   sd_y,
   delta,
+  tuning_criterion,
   gcv_gamma,
   constraint_value_vectors,
   parallel,
@@ -90,7 +91,10 @@ in higher dimensions.}
 
 \item{use_custom_bfgs}{Logical; TRUE for analytic gradient BFGS as natively
 implemented, FALSE for finite differences as implemented by
-\code{stats::optim()}.}
+\code{stats::optim()}. The analytic path is typically faster; however, for
+exact LOO tuning the leverage derivative can be numerically delicate in
+some problems, in which case \code{use_custom_bfgs = FALSE} remains a
+conservative fallback.}
 
 \item{C}{Matrix; polynomial expansion matrix (used for initialization).
 This is the monomial expansion design used to derive starting values and
@@ -130,14 +134,18 @@ programming parameters (see arguments of \code{\link[lgspline]{lgspline}}).}
 
 \item{sd_y, delta}{Response standardization parameters.}
 
-\item{gcv_gamma}{Numeric scalar, at least 1. Multiplies the effective
-degrees of freedom in the GCV denominator so that tuning minimizes the
-modified criterion
-\eqn{\sum r_i^2 / \{N(1 - \gamma \bar{W})^2\}}.
-\code{gcv_gamma = 1} recovers ordinary GCV; values above 1 penalize
-complexity more strongly and reduce the occasional severe undersmoothing
-of unmodified GCV. The default \code{1.4} follows Kim and Gu (2004,
-Section 4, equation 4.1), who recommend values in the range 1.2 to 1.4.}
+\item{tuning_criterion}{Character scalar selecting the tuning objective:
+\code{"loo"} for exact leave-one-out on the transformed tuning problem or
+\code{"gcv"} for generalized cross-validation. The LOO criterion itself is
+still evaluated exactly on that transformed problem; the caveat is that
+its fully analytic leverage derivative can be numerically sensitive in some
+datasets. For very large samples, \code{"gcv"} is often the more practical
+choice; as a rough guideline, it is recommended once the sample size is
+above about 250,000.}
+
+\item{gcv_gamma}{Numeric scalar, at least 1, used only when
+\code{tuning_criterion = "gcv"}. Multiplies the effective degrees of
+freedom in the GCV denominator.}
 
 \item{constraint_value_vectors}{List; constraint values.}
 
@@ -172,7 +180,7 @@ estimation.}
 
 \item{blockfit}{Logical; when TRUE, the backfitting block decomposition
 (\code{blockfit_solve}) is used in place of \code{get_B} for the
-coefficient estimation step at each GCV evaluation, provided
+coefficient estimation step at each tuning-objective evaluation, provided
 \code{just_linear_without_interactions} is non-empty and \code{K > 0}.
 The dispatch condition is identical to that in \code{lgspline.fit} so
 that penalties are tuned under the same estimator that will be used for
@@ -183,7 +191,8 @@ non-spline effects without interactions.}
 
 \item{Vhalf, VhalfInv}{Square root and inverse square root correlation
 structure matrices. These are passed through to the coefficient-estimation
-step used inside each GCV evaluation, so any dense or Woodbury-accelerated
+step used inside each tuning-objective evaluation, so any dense or
+Woodbury-accelerated
 correlated solve is the same one used for the final fitted model.}
 
 \item{verbose}{Logical; print progress.}
@@ -205,9 +214,11 @@ List containing:
 }
 \description{
 Optimizes smoothing spline and ridge regression penalties by minimizing the
-GCV criterion. Uses BFGS optimization with analytical gradients or finite
-differences. This is the top-level entry point that orchestrates grid search
-initialization and quasi-Newton optimization via internal subfunctions.
+selected tuning criterion, either exact leave-one-out on the transformed
+tuning problem or modified GCV. Uses BFGS optimization with analytical
+gradients or finite differences. This is the top-level entry point that
+orchestrates grid search initialization and quasi-Newton optimization via
+internal subfunctions.
 }
 \details{
 The tuning procedure consists of the following steps:
@@ -216,26 +227,30 @@ The tuning procedure consists of the following steps:
     compute cross-products, determine pseudocount delta, ensure constraint
     matrix compatibility.
   \item \strong{Blockfit dispatch}: Pre-compute \code{flat_cols} and the
-    \code{use_blockfit} flag so that every GCV evaluation uses the same
+    \code{use_blockfit} flag so that every tuning-objective evaluation uses the same
     coefficient estimator as the final fit. \code{flat_cols} are identified
     by matching column names against
     \code{paste0("_", just_linear_without_interactions, "_")} in
     \code{colnm_expansions}.
-  \item \strong{Grid search}: Evaluate GCV_u over a grid of
+  \item \strong{Grid search}: Evaluate the selected tuning criterion over a grid of
     (wiggle, ridge) penalty candidates to find a good starting point
     (see \code{.tune_grid_search}).
-  \item \strong{BFGS optimization}: Minimize GCV_u via either the custom
+  \item \strong{BFGS optimization}: Minimize the selected tuning criterion via either the custom
     damped BFGS with closed-form gradients (see \code{.damped_bfgs},
-    \code{.compute_gcvu_gradient}) or base R's \code{stats::optim} with
-    finite-difference gradients.
-  \item \strong{Modified GCV}: Use
-    \eqn{N(1 - \gamma\bar{W})^2} in the denominator, where
-    \eqn{\gamma = \code{gcv_gamma}}. Setting \eqn{\gamma > 1}
-    follows Kim and Gu's modified GCV recommendation and penalizes
-    effective degrees of freedom more strongly.
-  \item \strong{Inflation}: Apply small inflation factor
-    \eqn{((N+2)/(N-2))^{2}} to counteract in-sample bias toward
-    underpenalization.
+    \code{.compute_gcvu_gradient}, \code{.compute_loocv_gradient}) or base R's \code{stats::optim} with
+    finite-difference gradients. The GCV gradient is differentiated directly
+    in the shared wiggle and flat directions; for LOO, the same direct
+    differentiation is used, but the leverage derivative may be numerically
+    delicate in some problems and can motivate the finite-difference
+    fallback.
+  \item \strong{Criterion choice}: \code{"loo"} uses exact per-observation
+    leverages on the transformed tuning problem, while \code{"gcv"} uses the
+    existing trace-based denominator with optional \code{gcv_gamma}
+    inflation.
+  \item \strong{Sample-size adjustment}: After optimization, divide the tuned
+    penalties by \eqn{((N+2)/(N-2))^{2}} (equivalently multiply by
+    \eqn{((N-2)/(N+2))^{2}}) for both GCV- and LOO-based tuning so that the
+    final penalties are decreased at small sample sizes.
   \item \strong{Final Lambda}: Compute the final penalty matrix from
     optimized parameters via \code{compute_Lambda}.
 }
@@ -244,6 +259,12 @@ Parameterization: initial penalty values are accepted on the raw
 (non-negative) scale and converted to natural log-scale internally,
 i.e. raw_penalty = exp(theta), so that raw penalties are always positive.
 The chain rule factor d(exp(theta))/d(theta) = exp(theta) = raw_penalty.
+
+For predictor- and partition-specific penalties, the current implementation
+still uses the existing low-cost ratio approximation rather than a full
+direct derivative in each extra penalty direction. Thus the most accurate
+closed-form tuning gradients are presently the shared wiggle and flat
+directions.
 
 The resulting penalty matrix follows the same decomposition used throughout
 the paper and package documentation:
@@ -262,7 +283,7 @@ where the predictor- and partition-specific sums are included only when the
 corresponding options are active. Internally these components are returned as
 \code{L1}, \code{L2}, \code{L_predictor_list}, and \code{L_partition_list}.
 
-If correlation structure inputs are supplied, each GCV evaluation calls the
+If correlation structure inputs are supplied, each tuning-objective evaluation calls the
 same constrained correlated solver used by the final model fit. In the
 structured-correlation case, the low-rank Woodbury correction described in
 \code{lgspline-details} is therefore inherited automatically through
@@ -270,10 +291,10 @@ structured-correlation case, the low-rank Woodbury correction described in
 }
 \examples{
 \dontrun{
-## ## Example 1: Basic usage within lgspline ## ##
+## ## Example 1: Basic usage within lgspline ## ## ## ## ## ## ## ## ## ## ##
 ## tune_Lambda is called internally by lgspline; direct calls are
-## for advanced users. Here we verify that the refactored version
-## produces identical output to the original.
+#  for advanced users. Here we verify that the refactored version
+#  produces identical output to the original.
 
 set.seed(42)
 t <- runif(200, -5, 5)
@@ -285,17 +306,17 @@ cat("Wiggle penalty:", fit1$penalties$wiggle_penalty, "\n")
 cat("Ridge penalty:", fit1$penalties$flat_ridge_penalty, "\n")
 cat("Trace (edf):", fit1$trace_XUGX, "\n")
 
-## ## Example 2: Fixed penalties (no tuning) ## ##
+## ## Example 2: Fixed penalties (no tuning) ## ## ## ## ## ## ## ## ## ## ##
 fit2 <- lgspline(t, y, K = 3, opt = FALSE,
                  wiggle_penalty = 1e-4,
                  flat_ridge_penalty = 0.1)
 cat("Fixed wiggle:", fit2$penalties$wiggle_penalty, "\n")
 
-## ## Example 3: blockfit path ## ##
+## ## Example 3: blockfit path #### ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## When blockfit = TRUE and just_linear_without_interactions is non-empty,
-## tune_Lambda dispatches to blockfit_solve at each GCV evaluation,
-## ensuring penalties are tuned under the same estimator used in the final
-## fit. Verify that tuned penalties are consistent across both paths.
+#  tune_Lambda dispatches to blockfit_solve at each GCV evaluation,
+#  ensuring penalties are tuned under the same estimator used in the final
+#  fit. Verify that tuned penalties are consistent across both paths.
 
 set.seed(7)
 n  <- 300
@@ -316,7 +337,7 @@ cat("standard wiggle  :", fit_std$penalties$wiggle_penalty, "\n")
 ## Penalties may differ slightly; predictions should be close.
 cat("Max pred diff:", max(abs(fit_bf$ytilde - fit_std$ytilde)), "\n")
 
-## ## Example 4: Verify refactored subfunctions ## ##
+## ## Example 4: Verify refactored subfunctions ## ## ## ## ## ## ## ## ## ##
 ## The internal .compute_meta_penalty should match hand calculation
 mp <- lgspline:::.compute_meta_penalty(
   wiggle_penalty = 0.5,
@@ -330,7 +351,7 @@ expected <- 0.5 * 1e-8 * ((1.2 - 1)^2 + (0.8 - 1)^2) +
 stopifnot(abs(mp - expected) < 1e-20)
 cat("Meta-penalty check passed.\n")
 
-## ## Example 5: Verify gradient of meta-penalty ## ##
+## ## Example 5: Verify gradient of meta-penalty ## ## ## ## ## ## ## ## ## #
 gr <- lgspline:::.compute_meta_penalty_gradient(
   wiggle_penalty = 2.0,
   penalty_vec = c(predictor1 = 1.5),
@@ -338,16 +359,16 @@ gr <- lgspline:::.compute_meta_penalty_gradient(
   unique_penalty_per_predictor = TRUE,
   unique_penalty_per_partition = FALSE
 )
-## gr[1] should be 1e-32 * (2 - 1) * 2 = 2e-32
-## gr[2] should be 0
-## gr[3] should be 1e-8 * (1.5 - 1) * 1.5 = 7.5e-9
+# gr[1] should be 1e-32 * (2 - 1) * 2 = 2e-32
+# gr[2] should be 0
+# gr[3] should be 1e-8 * (1.5 - 1) * 1.5 = 7.5e-9
 stopifnot(abs(gr[1] - 2e-32) < 1e-40)
 stopifnot(gr[2] == 0)
 stopifnot(abs(gr[3] - 7.5e-9) < 1e-17)
 cat("Meta-penalty gradient check passed.\n")
 
 ## ## Example 6: Residual computation paths ## ##
-## Identity link
+## Identity link ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 r1 <- lgspline:::.compute_tuning_residuals(
   y = list(c(1, 2, 3)),
   preds = list(c(1.1, 1.9, 3.2)),

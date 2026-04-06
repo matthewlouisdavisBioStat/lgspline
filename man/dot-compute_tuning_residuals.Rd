@@ -2,7 +2,7 @@
 % Please edit documentation in R/tune_Lambda.R
 \name{.compute_tuning_residuals}
 \alias{.compute_tuning_residuals}
-\title{Compute Residuals for GCV Criterion During Penalty Tuning}
+\title{Compute Residuals During Penalty Tuning}
 \usage{
 .compute_tuning_residuals(
   y,
@@ -36,9 +36,9 @@
 List of residual vectors, one per partition.
 }
 \description{
-Computes residuals used in the numerator of the GCV criterion. Handles
-identity link, general GLM link functions with pseudocount delta, custom
-deviance residual functions, and observation weights.
+Computes the residuals used by the tuning criteria. Handles identity link,
+general GLM link functions with pseudocount delta, custom deviance residual
+functions, and observation weights.
 }
 \details{
 Three computation paths:

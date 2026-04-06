@@ -1283,22 +1283,22 @@ is_binary <- function(x){
 #' @keywords internal
 #' @export
 compute_dG_dlambda <- function(G,
-                               L,
+                               dPenalty_dlambda,
                                K,
-                               lambda,
                                unique_penalty_per_partition,
-                               L_partition_list,
+                               dPenalty_partition_list,
                                parallel,
                                cl,
                                chunk_size,
                                num_chunks,
                                rem_chunks) {
+  unique_penalty_per_partition <- isTRUE(unique_penalty_per_partition)
+
   if(!unique_penalty_per_partition){
-    ## Compute negL_lambda once
-    negL_lambda <- -lambda * L
+    penalty_derivative <- dPenalty_dlambda
   } else {
-    negL_lambda <- lapply(L_partition_list, function(L_l){
-      -unlist(lambda) * (L + L_l)
+    penalty_derivative <- lapply(dPenalty_partition_list, function(dP_k){
+      dPenalty_dlambda + dP_k
     })
   }
 
@@ -1309,9 +1309,9 @@ compute_dG_dlambda <- function(G,
       rem_indices <- num_chunks*chunk_size + 1:rem_chunks
       rem <- lapply(rem_indices, function(k) {
         if(unique_penalty_per_partition){
-          crossprod(t(G[[k]]), crossprod(t(-negL_lambda[[k]]), G[[k]]))
+          -crossprod(t(G[[k]]), crossprod(t(penalty_derivative[[k]]), G[[k]]))
         } else {
-          crossprod(t(G[[k]]), crossprod(t(negL_lambda), G[[k]]))
+          -crossprod(t(G[[k]]), crossprod(t(penalty_derivative), G[[k]]))
         }
       })
     } else {
@@ -1324,9 +1324,9 @@ compute_dG_dlambda <- function(G,
         inds <- (chunk - 1)*chunk_size + 1:chunk_size
         lapply(inds, function(k) {
           if(unique_penalty_per_partition){
-            crossprod(t(G[[k]]), crossprod(t(-negL_lambda[[k]]), G[[k]]))
+            -crossprod(t(G[[k]]), crossprod(t(penalty_derivative[[k]]), G[[k]]))
           } else {
-            crossprod(t(G[[k]]), crossprod(t(negL_lambda), G[[k]]))
+            -crossprod(t(G[[k]]), crossprod(t(penalty_derivative), G[[k]]))
           }
         })
       })),
@@ -1337,9 +1337,9 @@ compute_dG_dlambda <- function(G,
     ## Sequential computation
     result <- lapply(1:(K+1), function(k){
       if(unique_penalty_per_partition){
-        crossprod(t(G[[k]]), crossprod(t(-negL_lambda[[k]]), G[[k]]))
+        -crossprod(t(G[[k]]), crossprod(t(penalty_derivative[[k]]), G[[k]]))
       } else {
-        crossprod(t(G[[k]]), crossprod(t(negL_lambda), G[[k]]))
+        -crossprod(t(G[[k]]), crossprod(t(penalty_derivative), G[[k]]))
       }
     })
   }
@@ -1373,7 +1373,533 @@ compute_dG_dlambda <- function(G,
 #' Scalar value representing the trace derivative component.
 #'
 #' @keywords internal
-#' @export
+#' Compute the Diagonal of the Tuning Hat Matrix
+#'
+#' @description
+#' Computes the per-observation diagonal of the constrained hat matrix used
+#' during tuning, without forming the full \eqn{N \times N} matrix.
+#'
+#' @param X List of partition-specific design matrices.
+#' @param G List of partition-specific \eqn{\mathbf{G}_k} matrices.
+#' @param A Constraint matrix.
+#' @param AGAInv Inverse of \eqn{\mathbf{A}^{\top}\mathbf{G}\mathbf{A}}.
+#' @param K Number of interior knots.
+#' @param p_expansions Number of columns per partition.
+#' @param eps Numeric floor used to keep \eqn{1 - h_{ii}} away from zero.
+#'
+#' @return List with \code{h_diag} and \code{C_list}, both partition-wise.
+#'
+#' @keywords internal
+.compute_hat_diag <- function(X,
+                              G,
+                              A,
+                              AGAInv,
+                              K,
+                              p_expansions,
+                              eps = 1e-7) {
+
+  n_partitions <- K + 1
+  h_diag <- vector("list", n_partitions)
+  C_list <- vector("list", n_partitions)
+
+  for (k in seq_len(n_partitions)) {
+    rows <- (k - 1) * p_expansions + seq_len(p_expansions)
+    A_k <- A[rows, , drop = FALSE]
+    V_k <- G[[k]] %**% A_k
+    C_k <- G[[k]] - V_k %**% AGAInv %**% t(V_k)
+    h_k <- rowSums((X[[k]] %**% C_k) * X[[k]])
+    h_diag[[k]] <- pmin(pmax(h_k, 0), 1 - eps)
+    C_list[[k]] <- 0.5 * (C_k + t(C_k))
+  }
+
+  list(h_diag = h_diag, C_list = C_list)
+}
+
+
+#' Compute the Derivative of the Tuning Hat Matrix Diagonal
+#'
+#' @description
+#' Computes \eqn{d h_{ii} / d\lambda_1} partition-wise for the exact
+#' leave-one-out tuning criterion.
+#'
+#' @param X List of partition-specific design matrices.
+#' @param G List of partition-specific \eqn{\mathbf{G}_k} matrices.
+#' @param dG_dlambda List of derivatives \eqn{d\mathbf{G}_k / d\lambda_1}.
+#' @param A Constraint matrix.
+#' @param AGAInv Inverse of \eqn{\mathbf{A}^{\top}\mathbf{G}\mathbf{A}}.
+#' @param K Number of interior knots.
+#' @param p_expansions Number of columns per partition.
+#'
+#' @return List with \code{dh_diag} and \code{dC_list}, both partition-wise.
+#'
+#' @keywords internal
+.compute_dhat_diag <- function(X,
+                               G,
+                               dG_dlambda,
+                               A,
+                               AGAInv,
+                               K,
+                               p_expansions) {
+
+  n_partitions <- K + 1
+  V_list <- vector("list", n_partitions)
+  dV_list <- vector("list", n_partitions)
+  D_theta <- matrix(0, ncol(A), ncol(A))
+
+  for (k in seq_len(n_partitions)) {
+    rows <- (k - 1) * p_expansions + seq_len(p_expansions)
+    A_k <- A[rows, , drop = FALSE]
+    V_k <- G[[k]] %**% A_k
+    dV_k <- dG_dlambda[[k]] %**% A_k
+    V_list[[k]] <- V_k
+    dV_list[[k]] <- dV_k
+    D_theta <- D_theta + crossprod(A_k, dV_k)
+  }
+
+  W <- AGAInv %**% D_theta %**% AGAInv
+  dh_diag <- vector("list", n_partitions)
+  dC_list <- vector("list", n_partitions)
+
+  for (k in seq_len(n_partitions)) {
+    X_k <- X[[k]]
+    V_k <- V_list[[k]]
+    dV_k <- dV_list[[k]]
+    dC_k <- dG_dlambda[[k]] -
+      dV_k %**% AGAInv %**% t(V_k) -
+      V_k %**% AGAInv %**% t(dV_k) +
+      V_k %**% W %**% t(V_k)
+    dC_k <- 0.5 * (dC_k + t(dC_k))
+
+    ## Compute the leverage derivative observation-wise rather than taking
+    # diag(X dC X') from the full matrix product. This is algebraically
+    # equivalent, but is more numerically stable for the local terms that are
+    # heavily reweighted inside the exact LOO gradient.
+    q_k <- X_k %**% V_k
+    dq_k <- X_k %**% dV_k
+    dh_diag[[k]] <- rowSums((X_k %**% dG_dlambda[[k]]) * X_k) -
+      2 * rowSums((dq_k %**% AGAInv) * q_k) +
+      rowSums((q_k %**% W) * q_k)
+
+    dC_list[[k]] <- dC_k
+  }
+
+  list(dh_diag = dh_diag, dC_list = dC_list)
+}
+
+
+#' Evaluate Exact Leave-One-Out Criterion at a Given Penalty Configuration
+#'
+#' @description
+#' Computes the exact leave-one-out tuning criterion for the same transformed
+#' linearized problem used elsewhere in the tuning machinery.
+#'
+#' @inheritParams .compute_gcvu
+#'
+#' @return List containing the fitted objects plus \code{criterion_value},
+#'   \code{LOO_u}, \code{h_diag}, and \code{C_list}.
+#'
+#' @keywords internal
+.compute_loocv <- function(par,
+                           log_penalty_vec,
+                           env,
+                           ...) {
+  verbose <- env$verbose
+  eps <- 1e-7
+
+  if (verbose) cat("        loocv_fxn start\n")
+
+  wiggle_penalty <- exp(par[1])
+  flat_ridge_penalty <- exp(par[2])
+  if (env$unique_penalty_per_predictor || env$unique_penalty_per_partition) {
+    penalty_vec <- exp(c(par[-c(1:2)]))
+  } else {
+    penalty_vec <- c()
+  }
+
+  if (verbose) cat("        compute_Lambda\n")
+  Lambda_list <- compute_Lambda(env$custom_penalty_mat,
+                                env$smoothing_spline_penalty,
+                                wiggle_penalty,
+                                flat_ridge_penalty,
+                                env$K,
+                                env$p_expansions,
+                                env$unique_penalty_per_predictor,
+                                env$unique_penalty_per_partition,
+                                penalty_vec,
+                                env$colnm_expansions,
+                                just_Lambda = FALSE)
+  Lambda <- Lambda_list[[1]]
+  L1 <- Lambda_list[[2]]
+  L2 <- Lambda_list[[3]]
+
+  if (verbose) cat("        compute_G_eigen\n")
+  schur_corrections <- lapply(seq_len(env$K + 1), function(k) 0)
+  G_list <- compute_G_eigen(env$X_gram,
+                            Lambda,
+                            env$K,
+                            env$parallel & env$parallel_eigen,
+                            env$cl,
+                            env$chunk_size,
+                            env$num_chunks,
+                            env$rem_chunks,
+                            env$family,
+                            env$unique_penalty_per_partition,
+                            Lambda_list$L_partition_list,
+                            keep_G = TRUE,
+                            schur_corrections)
+
+  if (verbose) cat("        loocv_fxn fit coefficients\n")
+  return_G_getB <- TRUE
+  B_list <- .fit_coefficients(G_list, Lambda,
+                              Lambda_list$L_partition_list,
+                              env, return_G_getB, ...)
+  G_list <- B_list$G_list
+  B <- B_list$B
+
+  if (verbose) cat("        loocv_fxn AGAmult_wrapper\n")
+  AGAInv <- invert(AGAmult_wrapper(G_list$G,
+                                   env$A,
+                                   env$K,
+                                   env$p_expansions,
+                                   env$R_constraints,
+                                   env$parallel & env$parallel_aga,
+                                   env$cl,
+                                   env$chunk_size,
+                                   env$num_chunks,
+                                   env$rem_chunks) +
+                     1e-16 * diag(ncol(env$A)))
+
+  if (verbose) cat("        loocv_fxn get predictions\n")
+  preds <- .compute_tuning_predictions(env$X, B, env$K,
+                                       env$parallel & env$parallel_matmult,
+                                       env$cl,
+                                       env$chunk_size,
+                                       env$num_chunks,
+                                       env$rem_chunks)
+
+  if (verbose) cat("        loocv_fxn residuals\n")
+  residuals <- .compute_tuning_residuals(env$y, preds, env$delta,
+                                         env$family,
+                                         env$observation_weights,
+                                         env$K, env$order_list,
+                                         ...)
+
+  if (verbose) cat("        loocv_fxn hat diagonal\n")
+  hat_result <- .compute_hat_diag(env$X,
+                                  G_list$G,
+                                  env$A,
+                                  AGAInv,
+                                  env$K,
+                                  env$p_expansions,
+                                  eps = eps)
+
+  denom_list <- lapply(hat_result$h_diag, function(h_k) pmax(1 - h_k, eps))
+  loo_resid_sq <- mapply(function(r_k, denom_k) {
+    (r_k / denom_k)^2
+  }, residuals, denom_list, SIMPLIFY = FALSE)
+  LOO_u <- mean(unlist(loo_resid_sq))
+
+  if (verbose) cat("        loocv_fxn penalization operations\n")
+  mp <- .compute_meta_penalty(wiggle_penalty, penalty_vec,
+                              env$meta_penalty,
+                              env$unique_penalty_per_predictor,
+                              env$unique_penalty_per_partition)
+
+  criterion_value <- LOO_u + mp
+
+  if (verbose) cat("        done LOO,", LOO_u, "\n")
+
+  return(list(criterion_value = criterion_value,
+              LOO_u          = LOO_u,
+              B              = B,
+              G_list         = G_list,
+              Lambda         = Lambda,
+              L1             = L1,
+              L2             = L2,
+              L_predictor_list = Lambda_list$L_predictor_list,
+              L_partition_list = Lambda_list$L_partition_list,
+              residuals      = residuals,
+              AGAInv         = AGAInv,
+              h_diag         = hat_result$h_diag,
+              C_list         = hat_result$C_list))
+}
+
+
+#' Compute Closed-Form Gradient of Exact Leave-One-Out Criterion
+#'
+#' @description
+#' Computes the analytical gradient of the exact leave-one-out tuning
+#' criterion with respect to the log penalty parameters.
+#'
+#' @param par Numeric vector; log-scale penalty parameters.
+#' @param log_penalty_vec Numeric vector; log-scale predictor/partition
+#'   penalties.
+#' @param outlist List or NULL; cached results from \code{.compute_loocv()}.
+#' @param env List; tuning environment.
+#' @param ... Additional arguments passed to fitting functions.
+#'
+#' @return List with \code{criterion_value}, \code{gradient}, and
+#'   \code{outlist}.
+#'
+#' @details
+#' The implementation below keeps the exact LOO gradient fully analytic,
+#' including the leverage derivative. In empirical diagnostics, the
+#' observation-wise leverage component can be numerically delicate even when
+#' the aggregate gradient remains informative; see the developer diagnostics in
+#' \code{inst/diagnostics/gradient_diagnostics.R} for inspection tools.
+#'
+#' @keywords internal
+.compute_loocv_gradient <- function(par,
+                                    log_penalty_vec,
+                                    outlist = NULL,
+                                    env,
+                                    ...) {
+  verbose <- env$verbose
+  eps <- 1e-7
+
+  if (verbose) cat("        loo gradient start\n")
+
+  wiggle_penalty <- exp(par[1])
+  flat_ridge_penalty <- exp(par[2])
+  if (env$unique_penalty_per_predictor || env$unique_penalty_per_partition) {
+    penalty_vec <- exp(c(par[-c(1:2)]))
+  } else {
+    penalty_vec <- c()
+  }
+
+  lambda_1 <- wiggle_penalty
+  lambda_2 <- flat_ridge_penalty
+
+  if (any(is.null(outlist))) {
+    outlist <- .compute_loocv(par, log_penalty_vec, env, ...)
+  }
+
+  if (verbose) cat("        GhalfXy_temp_list \n")
+  GhalfXy_temp_list <- compute_GhalfXy_temp_wrapper(
+    outlist$G_list$G,
+    outlist$G_list$Ghalf,
+    env$A,
+    outlist$AGAInv,
+    env$Xy,
+    env$p_expansions,
+    env$K,
+    env$parallel & env$parallel_aga,
+    env$cl,
+    env$chunk_size,
+    env$num_chunks,
+    env$rem_chunks)
+  GhalfXy_temp <- GhalfXy_temp_list[[1]]
+  AGAInvAGXy <- GhalfXy_temp_list[[2]]
+
+  if (verbose) cat("        compute_dG_dlambda \n")
+  dPenalty_dlambda1 <- outlist$Lambda / lambda_1
+  dPenalty_partition_dlambda1 <- if (env$unique_penalty_per_partition) {
+    lapply(outlist$L_partition_list, function(L_k) L_k / lambda_1)
+  } else {
+    list()
+  }
+  dG_dlambda <- compute_dG_dlambda(outlist$G_list$G,
+                                   dPenalty_dlambda1,
+                                   env$K,
+                                   env$unique_penalty_per_partition,
+                                   dPenalty_partition_dlambda1,
+                                   env$parallel & env$parallel_matmult,
+                                   env$cl,
+                                   env$chunk_size,
+                                   env$num_chunks,
+                                   env$rem_chunks)
+
+  if (verbose) cat("        compute_dGhalf \n")
+  dGhalf <- compute_dGhalf(dG_dlambda,
+                           env$p_expansions,
+                           env$K,
+                           env$parallel & env$parallel_eigen,
+                           env$cl,
+                           env$chunk_size,
+                           env$num_chunks,
+                           env$rem_chunks)
+
+  if (verbose) cat("        compute_dG_u_dlambda_xy \n")
+  dG_u_dlambda1_Xyr <- compute_dG_u_dlambda_xy(
+    AGAInvAGXy,
+    outlist$AGAInv,
+    outlist$G_list$G,
+    env$A,
+    dG_dlambda,
+    env$p_expansions,
+    env$R_constraints,
+    env$K,
+    env$Xy,
+    outlist$G_list$Ghalf,
+    dGhalf,
+    GhalfXy_temp,
+    env$parallel & env$parallel_matmult,
+    env$cl,
+    env$chunk_size,
+    env$num_chunks,
+    env$rem_chunks)
+
+  dPenalty_dlambda2 <- (lambda_1 / lambda_2) * outlist$L2
+  dPenalty_partition_dlambda2 <- if (env$unique_penalty_per_partition) {
+    lapply(outlist$L_partition_list, function(L_k) 0 * L_k)
+  } else {
+    list()
+  }
+  dG_dlambda2 <- compute_dG_dlambda(outlist$G_list$G,
+                                    dPenalty_dlambda2,
+                                    env$K,
+                                    env$unique_penalty_per_partition,
+                                    dPenalty_partition_dlambda2,
+                                    env$parallel & env$parallel_matmult,
+                                    env$cl,
+                                    env$chunk_size,
+                                    env$num_chunks,
+                                    env$rem_chunks)
+  dGhalf2 <- compute_dGhalf(dG_dlambda2,
+                            env$p_expansions,
+                            env$K,
+                            env$parallel & env$parallel_eigen,
+                            env$cl,
+                            env$chunk_size,
+                            env$num_chunks,
+                            env$rem_chunks)
+  dG_u_dlambda2_Xyr <- compute_dG_u_dlambda_xy(
+    AGAInvAGXy,
+    outlist$AGAInv,
+    outlist$G_list$G,
+    env$A,
+    dG_dlambda2,
+    env$p_expansions,
+    env$R_constraints,
+    env$K,
+    env$Xy,
+    outlist$G_list$Ghalf,
+    dGhalf2,
+    GhalfXy_temp,
+    env$parallel & env$parallel_matmult,
+    env$cl,
+    env$chunk_size,
+    env$num_chunks,
+    env$rem_chunks)
+
+  if (verbose) cat("        compute_dhat_diag \n")
+  dhat_result <- .compute_dhat_diag(env$X,
+                                    outlist$G_list$G,
+                                    dG_dlambda,
+                                    env$A,
+                                    outlist$AGAInv,
+                                    env$K,
+                                    env$p_expansions)
+  dhat_result2 <- .compute_dhat_diag(env$X,
+                                     outlist$G_list$G,
+                                     dG_dlambda2,
+                                     env$A,
+                                     outlist$AGAInv,
+                                     env$K,
+                                     env$p_expansions)
+
+  ## .compute_loocv() clips h_diag into [0, 1 - eps]. The derivative used in
+  ## the LOO gradient must respect that same clipping; once an observation is
+  ## on a boundary, the derivative of the clipped value is zero.
+  dh_diag_clipped1 <- mapply(
+    function(h_k, dh_k) dh_k * ((h_k > 0) & (h_k < 1 - eps)),
+    outlist$h_diag,
+    dhat_result$dh_diag,
+    SIMPLIFY = FALSE
+  )
+  dh_diag_clipped2 <- mapply(
+    function(h_k, dh_k) dh_k * ((h_k > 0) & (h_k < 1 - eps)),
+    outlist$h_diag,
+    dhat_result2$dh_diag,
+    SIMPLIFY = FALSE
+  )
+
+  dr_list <- vector("list", env$K + 1)
+  for (k in seq_len(env$K + 1)) {
+    rows <- (k - 1) * env$p_expansions + seq_len(env$p_expansions)
+    q_k <- dG_u_dlambda1_Xyr[rows, , drop = FALSE]
+    dr_list[[k]] <- -c(env$X[[k]] %**% q_k)
+  }
+
+  dLOO_dlambda1 <- (2 / env$N_obs) * sum(unlist(mapply(
+    function(r_k, h_k, dr_k, dh_k) {
+      denom_k <- pmax(1 - h_k, eps)
+      w_k <- r_k / denom_k
+      (w_k / denom_k) * (dr_k + w_k * dh_k)
+    },
+    outlist$residuals,
+    outlist$h_diag,
+    dr_list,
+    dh_diag_clipped1,
+    SIMPLIFY = FALSE
+  )))
+
+  dr_list2 <- vector("list", env$K + 1)
+  for (k in seq_len(env$K + 1)) {
+    rows <- (k - 1) * env$p_expansions + seq_len(env$p_expansions)
+    q_k <- dG_u_dlambda2_Xyr[rows, , drop = FALSE]
+    dr_list2[[k]] <- -c(env$X[[k]] %**% q_k)
+  }
+
+  dLOO_dlambda2 <- (2 / env$N_obs) * sum(unlist(mapply(
+    function(r_k, h_k, dr_k, dh_k) {
+      denom_k <- pmax(1 - h_k, eps)
+      w_k <- r_k / denom_k
+      (w_k / denom_k) * (dr_k + w_k * dh_k)
+    },
+    outlist$residuals,
+    outlist$h_diag,
+    dr_list2,
+    dh_diag_clipped2,
+    SIMPLIFY = FALSE
+  )))
+
+  ## The exact LOO gradient is kept fully analytic here. Empirically, the
+  # observation-wise leverage derivative can be numerically delicate even when
+  # the aggregated tuning gradient remains useful; see diagnostics for caveats.
+  log_wiggle_gradient <- dLOO_dlambda1 * lambda_1
+  log_flat_gradient <- dLOO_dlambda2 * lambda_2
+
+  gradient <- cbind(c(log_wiggle_gradient,
+                      log_flat_gradient))
+
+  if (env$unique_penalty_per_predictor) {
+    predictor_penalties <- penalty_vec[grep("predictor", names(penalty_vec))]
+    predictor_penalty_gradient <- sapply(
+      seq_along(predictor_penalties), function(j) {
+        mean(diag(outlist$L_predictor_list[[j]])) /
+          mean(diag(outlist$Lambda)) *
+          log_wiggle_gradient
+      })
+    gradient <- cbind(c(c(gradient), predictor_penalty_gradient))
+  }
+
+  if (env$unique_penalty_per_partition) {
+    partition_penalties <- penalty_vec[grep("partition", names(penalty_vec))]
+    partition_penalty_gradient <- sapply(
+      seq_along(partition_penalties), function(j) {
+        mean(diag(outlist$L_partition_list[[j]])) /
+          mean(diag(outlist$Lambda +
+                      outlist$L_partition_list[[j]])) *
+          log_wiggle_gradient
+      })
+    gradient <- cbind(c(gradient, partition_penalty_gradient))
+  }
+
+  regularizer <- .compute_meta_penalty_gradient(
+    wiggle_penalty, penalty_vec, env$meta_penalty,
+    env$unique_penalty_per_predictor,
+    env$unique_penalty_per_partition)
+
+  if (verbose) cat("        loo gradient end \n")
+
+  return(list(criterion_value = outlist$criterion_value,
+              LOO_u = outlist$LOO_u,
+              gradient = c(gradient) + regularizer,
+              outlist = outlist))
+}
+
+
 compute_dW_dlambda_wrapper <- function(G,
                                        A,
                                        GXX,
@@ -4377,20 +4903,6 @@ safe_replace_var <- function(x, old, new) {
     perl = TRUE
   )
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

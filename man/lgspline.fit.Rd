@@ -14,9 +14,9 @@ lgspline.fit(predictors, y = NULL, standardize_response = TRUE,
              make_partition_list = NULL, previously_tuned_penalties = NULL,
              smoothing_spline_penalty = NULL, opt = TRUE, use_custom_bfgs = TRUE,
              delta = NULL, tol = 10*sqrt(.Machine$double.eps),
-             gcv_gamma = 1.4,
-             initial_wiggle = c(1e-10, 1e-5, 1e-1),
-             initial_flat = c(0.1, 10), wiggle_penalty = 2e-07,
+             tuning_criterion = "loo", gcv_gamma = 1.4,
+             initial_wiggle = c(2e-12, 2e-7, 2e-4, 0.2),
+             initial_flat = c(0.5, 5), wiggle_penalty = 2e-07,
              flat_ridge_penalty = 0.5, unique_penalty_per_partition = TRUE,
              unique_penalty_per_predictor = TRUE, meta_penalty = 1e-08,
              predictor_penalties = NULL, partition_penalties = NULL,
@@ -126,31 +126,44 @@ components from a previous model fit.}
 \item{smoothing_spline_penalty}{Default: NULL. Optional custom smoothing spline penalty
 matrix.}
 
-\item{opt}{Default: TRUE. Logical switch controlling automatic penalty optimization via
-modified generalized cross-validation; the inflation factor is set by
-\code{gcv_gamma}.}
+\item{opt}{Default: TRUE. Logical switch controlling automatic penalty optimization.}
 
 \item{use_custom_bfgs}{Default: TRUE. Selects between a native damped-BFGS
 implementation with closed-form gradients or base R's BFGS with finite-difference
-gradients.}
+gradients. The native path is usually faster, while the finite-difference
+fallback can be preferable when tuning under exact LOO and the leverage
+derivative is numerically noisy.}
 
 \item{delta}{Default: NULL. Numeric pseudocount for stabilizing optimization in
 non-identity link function scenarios.}
 
 \item{tol}{Default: \code{10*sqrt(.Machine$double.eps)}. Numeric convergence tolerance.}
 
-\item{gcv_gamma}{Default: 1.4. Numeric scalar, at least 1, multiplying the
-effective degrees of freedom in the GCV denominator during automatic
-penalty tuning. \code{gcv_gamma = 1} recovers ordinary GCV, while values
-above 1 penalize complexity more strongly and can reduce the occasional
-severe undersmoothing of unmodified GCV. The default follows Kim and Gu
-(2004) and matches the common \pkg{mgcv} convention of using
-\code{gamma > 1} for smoother fits.}
+\item{tuning_criterion}{Default: \code{"loo"}. Character scalar selecting the
+tuning criterion. Use \code{"loo"} for exact leave-one-out on the transformed
+tuning problem, or \code{"gcv"} for the generalized cross-validation
+criterion. The LOO path computes the needed hat-matrix diagonal exactly
+from blockwise constrained-\eqn{\mathbf{G}} quantities, without explicitly
+forming the full projection matrix or full hat matrix. In empirical
+diagnostics, the observation-wise derivative of the LOO leverage term can
+be numerically delicate even when the overall tuning criterion and fitted
+penalties remain well behaved; users who prefer a more conservative
+optimization path can set \code{use_custom_bfgs = FALSE}. Shared wiggle
+and flat tuning directions are differentiated directly, while optional
+predictor- and partition-specific penalties continue to use a lower-cost
+ratio approximation. For very large samples, generalized cross-validation
+is often the more practical choice; as a rough guideline, \code{"gcv"}
+is recommended once the sample size is above about 250,000.}
 
-\item{initial_wiggle}{Default: \code{c(1e-10, 1e-5, 1e-1)}. Numeric vector of
+\item{gcv_gamma}{Default: 1.4. Numeric scalar, at least 1, used only when
+\code{tuning_criterion = "gcv"}. Multiplies the effective degrees of freedom
+in the GCV denominator during automatic penalty tuning. It is accepted but
+ignored when \code{tuning_criterion = "loo"}.}
+
+\item{initial_wiggle}{Default: \code{c(2e-12, 2e-7, 2e-4, 0.2)}. Numeric vector of
 initial grid points for wiggle penalty optimization, on the raw (non-negative) scale.}
 
-\item{initial_flat}{Default: \code{c(0.1, 10)}. Numeric vector of initial grid points
+\item{initial_flat}{Default: \code{c(0.5, 5)}. Numeric vector of initial grid points
 for ridge penalty optimization, on the raw scale (ratio of ridge to wiggle).}
 
 \item{wiggle_penalty}{Default: 2e-7. Numeric penalty on the integrated squared second
@@ -567,9 +580,9 @@ formula parsing, factor encoding, and correlation-structure setup.
   \item Knot placement and partitioning (k-means or custom).
   \item Constraint matrix \eqn{\mathbf{A}} construction. Only a linearly
         independent subset of columns is retained via pivoted QR decomposition.
-  \item Penalty tuning via modified GCV (exponential parameterization;
-        \code{gcv_gamma = 1} recovers ordinary GCV) or use of previously
-        tuned penalties.
+  \item Penalty tuning via exact leave-one-out by default, or generalized
+        cross-validation when \code{tuning_criterion = "gcv"}, or use of
+        previously tuned penalties.
   \item Final coefficient estimation via one of three paths:
         \itemize{
           \item \strong{Blockfit option} (when \code{blockfit = TRUE},

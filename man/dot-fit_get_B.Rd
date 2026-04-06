@@ -2,7 +2,7 @@
 % Please edit documentation in R/tune_Lambda.R
 \name{.fit_get_B}
 \alias{.fit_get_B}
-\title{Call get_B During GCV Tuning}
+\title{Call get_B During Penalty Tuning}
 \usage{
 .fit_get_B(G_list, Lambda, L_partition_list, env, return_G_getB, ...)
 }
