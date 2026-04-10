@@ -167,11 +167,15 @@ When both \code{Vhalf} and \code{VhalfInv} are provided, the full
 \eqn{N \times P} whitened design
 \eqn{\mathbf{X}^{*} = \mathbf{V}_{\mathrm{perm}}^{-1/2}\mathbf{X}} is used
 after permuting observations to partition ordering via \code{order_list}.
-For structured correlation matrices where \eqn{\mathbf{V}^{-1} -
-\mathbf{I}} is sparse, a Woodbury-accelerated path is attempted
-(cost \eqn{O(Kp^3 + Pr^2)} where \eqn{r} is the off-diagonal rank);
-if the rank is too high, the dense \eqn{O(P^3)} path is used as
-fallback.
+For structured correlation, the solver tries the supplement's
+decomposition
+\eqn{\mathbf{G}^{-1} =
+\mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1}}
+with
+\eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
+This gives a Woodbury path with cost \eqn{O(Kp^3 + Pr^2)} when the
+cross-partition rank \eqn{r} is small; otherwise the dense
+\eqn{O(P^3)} path is used.
 Two sub-paths:
 \itemize{
   \item \bold{Path 1a.} Gaussian identity + GEE.

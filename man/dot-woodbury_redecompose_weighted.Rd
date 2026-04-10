@@ -64,45 +64,36 @@ of \eqn{(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}}.}
 A list with the same structure as \code{.woodbury_decompose_V}:
 \describe{
   \item{use_woodbury}{Logical; FALSE if rank exceeds threshold.}
-  \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.}
-  \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{-1/2}}.}
-  \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}}.}
+  \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}}.}
+  \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}^{-1/2}}.}
+  \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}}.}
   \item{E}{Off-diagonal low-rank factor (\eqn{P \times r}), denoted by
-    \eqn{\mathbf{E}} in the manuscript.}
-  \item{J_signs}{Length-\eqn{r} sign vector, i.e.\ the diagonal of the
-    manuscript sign matrix \eqn{\mathbf{J}}.}
+    \eqn{\mathbf{E}} in the supplement.}
+  \item{J_signs}{Length-\eqn{r} sign vector, i.e.\ the diagonal of
+    \eqn{\mathbf{J}}.}
   \item{r}{Integer effective rank.}
   \item{inner_inv}{Precomputed \eqn{r \times r} Woodbury inner inverse; in
-    manuscript notation,
-    \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c
+    supplement notation,
+    \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}
     \mathbf{E})^{-1}}.}
   \item{GL}{List of per-partition matrices corresponding to
-    \eqn{\mathbf{G}_{c,k}\mathbf{E}[rows_k,]} in manuscript notation.}
+    \eqn{\mathbf{G}_{\mathrm{on},k}\mathbf{E}[rows_k,]} in supplement notation.}
   \item{L,S_signs,M}{Legacy internal aliases for
     \code{E}, \code{J_signs}, and \code{inner_inv}.}
 }
 }
 \description{
-Given the fixed correlation perturbation
-\eqn{\mathbf{V}^{-1} - \mathbf{I}} and the precomputed product
-of that perturbation with \eqn{\mathbf{X}}
-(both invariant across Newton iterations), together with the current
-iteration's GLM working weights \eqn{\mathbf{W}} and weighted Gram
-matrices, computes all Woodbury components needed for the constrained
-step.
+Weighted analogue of \code{.woodbury_decompose_V()}. At each GLM
+iteration, this helper rebuilds the current correlated information,
+absorbs the block-diagonal part into
+\eqn{\mathbf{G}_{\mathrm{on}}^{-1}}, and refactors the cross-partition
+remainder as \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
 }
 \details{
-This helper is the weighted analogue of \code{.woodbury_decompose_V()}.
-At each GLM iteration it rebuilds the correlation-induced term
-\eqn{\mathbf{X}^{\top}\mathrm{diag}(\mathbf{W})(\mathbf{V}^{-1} -
-\mathbf{I})\mathbf{X}}, absorbs its block-diagonal part into
-\eqn{\mathbf{G}_c^{-1}}, and refactors the remaining cross-partition term
-as \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}} in the manuscript notation.
-
-The weighted cross-partition perturbation is
-\eqn{\mathbf{X}^{\top}\mathrm{diag}(\mathbf{W})(\mathbf{V}^{-1} -
-\mathbf{I})\mathbf{X}},
-split into block-diagonal corrections (absorbed into the corrected
-Gram) and an off-diagonal remainder factored at low rank.
+It is standalone in the sense that it returns the full Woodbury state
+for the current working weights:
+corrected block-diagonal factors, the low-rank basis, and the small
+inverse \eqn{(\mathbf{J}^{-1} +
+\mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}\mathbf{E})^{-1}}.
 }
 \keyword{internal}

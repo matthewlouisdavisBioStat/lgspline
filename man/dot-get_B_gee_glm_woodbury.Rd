@@ -105,32 +105,18 @@ for interface consistency with the Gaussian Woodbury path).}
 Same structure as \code{.get_B_gee_glm}.
 }
 \description{
-Replacement for \code{.get_B_gee_glm} when the off-diagonal rank
-\eqn{r} of the weighted cross-partition remainder is low. At each damped
-Newton iteration, the Woodbury decomposition is recomputed with updated
-GLM working weights
-\eqn{\mathbf{W}(\boldsymbol{\beta}^{(s)})} (since the weighted
-cross-partition correction
-\eqn{\mathbf{X}^{\top}\mathrm{diag}(\mathbf{W}(\boldsymbol{\beta}^{(s)}))
-(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}} changes), and
-the constrained step is taken via
-\code{.lagrangian_project_woodbury}.
+Non-Gaussian correlated solve using the Woodbury factorization. At each
+damped Newton step, the current weighted information matrix is split into
+a block-diagonal part defining \eqn{\mathbf{G}_{\mathrm{on}}} and a
+low-rank cross-partition part
+\eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
+The constrained step is then taken through
+\code{.lagrangian_project_woodbury()}.
 }
 \details{
-The key precomputation exploited here is that
-\eqn{\mathbf{V}^{-1} - \mathbf{I}} and
-\eqn{(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}} are fixed across iterations.
-At each step, the weighted perturbation
-\eqn{\mathbf{X}^{\top}
-\mathrm{diag}(\mathbf{W})(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}}
-is computed in \eqn{O(NP)} using the precomputed
-\eqn{(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}}, then split into
-block-diagonal corrections (absorbed into the corrected Gram) and
-a cross-partition low-rank remainder, written as
-\eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}} in the manuscript.
-
-Falls back to the dense \code{.get_B_gee_glm} if the Woodbury
-decomposition becomes invalid (e.g.\ rank exceeds threshold or
-\eqn{\mathbf{F}} is not positive definite) at any iteration.
+This function is standalone for the weighted Woodbury path: it carries
+the iteration, repeatedly rebuilds the Woodbury factors at the current
+working weights, and falls back to the dense correlated GLM solver if the
+rank is too large or \eqn{\mathbf{F}} is not positive definite.
 }
 \keyword{internal}

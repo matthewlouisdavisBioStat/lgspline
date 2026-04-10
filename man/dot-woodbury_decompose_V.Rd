@@ -53,21 +53,21 @@ matrices.}
 A list with components:
 \describe{
   \item{use_woodbury}{Logical; FALSE triggers dense Path 1 fallback.}
-  \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.}
-  \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{-1/2}}.}
-  \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}}.}
+  \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}}.}
+  \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}^{-1/2}}.}
+  \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}}.}
   \item{E}{Off-diagonal low-rank factor (\eqn{P \times r}) from the
-    manuscript factorization
-    \eqn{\mathbf{M}_{\mathrm{off}} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.}
-  \item{J_signs}{Length-\eqn{r} vector of \eqn{\pm 1}; equivalently the
-    diagonal entries of the manuscript sign matrix \eqn{\mathbf{J}}.}
+    supplement factorization
+    \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.}
+  \item{J_signs}{Length-\eqn{r} vector giving the diagonal of
+    \eqn{\mathbf{J}}.}
   \item{r}{Integer effective rank.}
   \item{inner_inv}{Precomputed \eqn{r \times r} Woodbury inner inverse. In
-    manuscript notation this is
-    \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c
+    supplement notation this is
+    \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}
     \mathbf{E})^{-1}}.}
   \item{GL}{List of \eqn{K+1} matrices storing
-    \eqn{\mathbf{G}_{c,k}\mathbf{E}[rows_k,]} in manuscript notation,
+    \eqn{\mathbf{G}_{\mathrm{on},k}\mathbf{E}[rows_k,]} in supplement notation,
     each \eqn{p \times r}.}
   \item{L,S_signs,M}{Legacy internal aliases for
     \code{E}, \code{J_signs}, and \code{inner_inv}, retained for
@@ -75,37 +75,28 @@ A list with components:
 }
 }
 \description{
-Given \eqn{\mathbf{V}^{-1/2}}, the partition-specific design matrices,
-and the penalty, decomposes the GLS information matrix into the same
-pieces used in Supplement~S.B of the manuscript. Starting from
-\eqn{\mathbf{G}_0^{-1} = \mathbf{X}^{\top}\mathbf{X} +
-\boldsymbol{\Lambda}}, it forms
-\eqn{\mathbf{M} = \mathbf{X}^{\top}(\mathbf{V}^{-1} -
-\mathbf{I})\mathbf{X}}, splits \eqn{\mathbf{M}} into its block-diagonal
-and cross-partition parts, absorbs \eqn{\mathbf{M}_{\mathrm{diag}}} into
-the corrected block-diagonal inverse \eqn{\mathbf{G}_c^{-1}}, and leaves
-the cross-partition remainder \eqn{\mathbf{M}_{\mathrm{off}}} in low-rank
-form. In the manuscript, that remainder is written as
-\eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
+Builds the Woodbury factors for the correlated solver. The function
+decomposes
+\eqn{\mathbf{G}^{-1} = \mathbf{G}_{\mathrm{on}}^{-1} +
+\mathbf{G}_{\mathrm{off}}^{-1}}
+by absorbing the block-diagonal part of
+\eqn{\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X} + \boldsymbol{\Lambda}}
+into \eqn{\mathbf{G}_{\mathrm{on}}^{-1}}, then factoring the
+cross-partition part as
+\eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
 }
 \details{
-More concretely, this helper carries out the first two algebraic steps in
-Appendix~B of the manuscript:
-\enumerate{
-  \item build \eqn{\mathbf{M} = \mathbf{X}^{\top}(\mathbf{V}^{-1} -
-    \mathbf{I})\mathbf{X}},
-  \item absorb the block-diagonal part of \eqn{\mathbf{M}} into
-    \eqn{\mathbf{G}_c^{-1}},
-  \item factor the remaining cross-partition term at low rank as
-    \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
-}
-The returned objects are then consumed by
-\code{.woodbury_halfsqrt_components()} to construct the square-root update
-used by \code{.lagrangian_project_woodbury()}.
+The output is exactly the information needed by
+\code{.woodbury_halfsqrt_components()} and
+\code{.lagrangian_project_woodbury()}:
+corrected block-diagonal \eqn{\mathbf{G}_{\mathrm{on}}},
+the low-rank factor \eqn{\mathbf{E}}, the sign matrix diagonal
+\eqn{\mathbf{J}}, and the small inverse
+\eqn{(\mathbf{J}^{-1} +
+\mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}\mathbf{E})^{-1}}.
 
-When \eqn{r = 0} (no cross-partition coupling) or \eqn{r \ge P/3}
-(low-rank approximation not worthwhile), returns
-\code{use_woodbury = FALSE} and the caller should use the dense
-Path 1 approach instead.
+When the cross-partition rank is zero or too large to be worthwhile,
+the helper returns \code{use_woodbury = FALSE} so the caller can use
+the dense correlated path instead.
 }
 \keyword{internal}

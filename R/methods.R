@@ -1188,6 +1188,11 @@ generate_posterior_correlation <- function(
 #' @param x A fitted lgspline model object.
 #' @param show_formulas Logical; display partition-level polynomial formulas.
 #'        Default FALSE.
+#' @param include_all_terms_in_formulas Logical; when \code{show_formulas = TRUE}
+#'        and plotting only a subset of predictors via \code{vars}, include all
+#'        fitted terms in the displayed formulas rather than only the terms
+#'        involving the plotted predictor(s). Default FALSE retains the current
+#'        marginal-only formula display.
 #' @param digits Integer; decimal places for formula coefficients. Default 4.
 #' @param legend_pos Character; legend position for 1D plots. Default
 #'        \code{"topright"}.
@@ -1265,6 +1270,7 @@ generate_posterior_correlation <- function(
 #' @export
 plot.lgspline <- function(x,
                           show_formulas = FALSE,
+                          include_all_terms_in_formulas = FALSE,
                           digits = 4,
                           legend_pos = "topright",
                           custom_response_lab = "y",
@@ -1493,6 +1499,7 @@ plot.lgspline <- function(x,
         plot_result <- internal_plot_func(
           model_fit_in = x,
           show_formulas = show_formulas,
+          include_all_terms_in_formulas = include_all_terms_in_formulas,
           digits = digits,
           legend_pos = legend_pos,
           custom_response_lab = custom_response_lab,
@@ -1523,6 +1530,7 @@ plot.lgspline <- function(x,
         plot_result <- internal_plot_func(
           model_fit_in = x,
           show_formulas = show_formulas,
+          include_all_terms_in_formulas = include_all_terms_in_formulas,
           digits = digits,
           legend_pos = legend_pos,
           custom_response_lab = custom_response_lab,
@@ -1550,6 +1558,7 @@ plot.lgspline <- function(x,
       plot_result <- internal_plot_func(
         model_fit_in = x,
         show_formulas = show_formulas,
+        include_all_terms_in_formulas = include_all_terms_in_formulas,
         digits = digits,
         legend_pos = legend_pos,
         custom_response_lab = custom_response_lab,
@@ -3833,7 +3842,6 @@ integrate <- function(f, ...) UseMethod("integrate")
 integrate.default <- function(f, ...){
   stats::integrate(f, ...)
 }
-
 
 
 

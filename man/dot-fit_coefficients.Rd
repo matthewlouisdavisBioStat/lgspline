@@ -46,8 +46,10 @@ These are needed immediately after this call for \code{AGAmult_wrapper},
 When correlation structure inputs are supplied, this wrapper does not
 introduce a separate tuning-specific notation or solver path. Instead, the
 same correlated coefficient estimator used in the final model fit is called
-here inside each tuning-objective evaluation. In particular, any structured-correlation
-Woodbury correction is handled inside \code{get_B} and documented in
-\code{lgspline-details}.
+here inside each tuning-objective evaluation. In particular, any
+structured-correlation Woodbury factorization
+\eqn{\mathbf{G}^{-1} =
+\mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1}}
+is handled inside \code{get_B} and documented in \code{lgspline-details}.
 }
 \keyword{internal}

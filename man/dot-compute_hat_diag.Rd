@@ -2,7 +2,7 @@
 % Please edit documentation in R/HelperFunctions.R
 \name{.compute_hat_diag}
 \alias{.compute_hat_diag}
-\title{Compute Derivative of Inverse-Information Matrix G with Respect to Lambda (Wrapper)}
+\title{Compute the Diagonal of the Tuning Hat Matrix}
 \usage{
 .compute_hat_diag(X, G, A, AGAInv, K, p_expansions, eps = 1e-07)
 }
@@ -20,44 +20,12 @@
 \item{p_expansions}{Number of columns per partition.}
 
 \item{eps}{Numeric floor used to keep \eqn{1 - h_{ii}} away from zero.}
-
-\item{GXX}{List of \eqn{\textbf{G}\textbf{X}^{T}\textbf{X}} products}
-
-\item{Ghalf}{List of \eqn{\textbf{G}^{1/2}} matrices}
-
-\item{dG_dlambda}{List of \eqn{d\textbf{G}/d\lambda} matrices}
-
-\item{dGhalf_dlambda}{List of \eqn{d\textbf{G}^{1/2}/d\lambda} matrices}
-
-\item{nc}{Number of columns}
-
-\item{parallel}{Logical to enable parallel processing}
-
-\item{cl}{Cluster object for parallel computation}
-
-\item{chunk_size}{Size of chunks for parallel processing}
-
-\item{num_chunks}{Number of chunks}
-
-\item{rem_chunks}{Remainder chunks}
 }
 \value{
-Scalar value representing the trace derivative component.
-
 List with \code{h_diag} and \code{C_list}, both partition-wise.
 }
 \description{
-Wrapper for the derivative of the trace term used in GCV / effective-
-degrees-of-freedom calculations with respect to \eqn{\lambda}.
-
 Computes the per-observation diagonal of the constrained hat matrix used
 during tuning, without forming the full \eqn{N \times N} matrix.
 }
-\keyword{Compute}
-\keyword{Diagonal}
-\keyword{Hat}
-\keyword{Matrix}
-\keyword{Tuning}
 \keyword{internal}
-\keyword{of}
-\keyword{the}

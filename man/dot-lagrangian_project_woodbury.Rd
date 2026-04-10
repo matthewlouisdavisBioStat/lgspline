@@ -24,11 +24,11 @@
 }
 \arguments{
 \item{GhalfXy_V}{Numeric column vector of length \eqn{P};
-\eqn{\mathbf{G}_c^{1/2}} applied to the per-partition GLS
+\eqn{\mathbf{G}_{\mathrm{on}}^{1/2}} applied to the per-partition GLS
 cross-products \eqn{\mathbf{X}_k^{\top}\mathbf{V}^{-1}\mathbf{y}_k}.}
 
 \item{Ghalf_corrected}{List of \eqn{K+1} corrected
-\eqn{\mathbf{G}_c^{1/2}} matrices.}
+\eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}} matrices.}
 
 \item{A}{Constraint matrix (\eqn{P \times R}).}
 
@@ -42,10 +42,9 @@ cross-products \eqn{\mathbf{X}_k^{\top}\mathbf{V}^{-1}\mathbf{y}_k}.}
 \item{wb_sqrt}{Output of \code{.woodbury_halfsqrt_components},
 containing the internal rank-\eqn{r} representation of
 \eqn{\mathbf{F}^{1/2}}: \code{U_Q} / \code{Q_basis}
-(basis for the Woodbury subspace, matching manuscript
-\eqn{\mathbf{Q}}), \code{C} and \code{C_inv} (diagonal correction
+(basis matching supplement \eqn{\mathbf{Q}}), \code{C} and \code{C_inv} (diagonal correction
 coefficients), and \code{GchalfUQ} (partition-wise copies of
-\eqn{\mathbf{G}_{c,k}^{1/2}\mathbf{U}_Q[rows_k,]}).}
+\eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}\mathbf{U}_Q[rows_k,]}).}
 
 \item{parallel_aga, parallel_matmult}{Logical flags.}
 
@@ -55,31 +54,23 @@ coefficients), and \code{GchalfUQ} (partition-wise copies of
 A list of \eqn{K+1} coefficient column vectors.
 }
 \description{
-Performs the constrained Lagrangian projection using the conserved
-\eqn{\mathbf{G}^{1/2}\mathbf{r}^*} OLS trick, with
-\eqn{\mathbf{G}_V^{1/2}} expressed as block-diagonal
-\eqn{\mathbf{G}_c^{1/2}} plus a rank-\eqn{r} correction.
+Applies the constrained projection for the structured-correlation
+Woodbury path. In supplement notation,
+\eqn{\mathbf{G}^{1/2} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{F}^{1/2}},
+where \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
+and \eqn{\mathbf{F}^{1/2}} carries the low-rank correction.
 }
 \details{
-In the manuscript notation, if
-\eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}} has thin QR
-decomposition \eqn{\mathbf{N} = \mathbf{Q}\mathbf{R}},
-\eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}, and
-\eqn{\mathbf{S} = \mathbf{I}_r + \mathbf{R}\mathbf{J}\mathbf{R}^{\top}},
-then
-\eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{P} +
-\mathbf{Q}\mathbf{S}^{-1/2}\mathbf{Q}^{\top}} and
-\eqn{\mathbf{G}_V^{1/2} = \mathbf{G}_c^{1/2}\mathbf{F}^{1/2}}.
+The routine follows the same four transformed-OLS steps as
+\code{.lagrangian_project}: form \eqn{\mathbf{y}^{*}},
+form \eqn{\mathbf{X}^{*}}, solve the OLS projection, then back-transform.
+Only steps involving \eqn{\mathbf{G}^{1/2}} differ, and those are handled
+as a block-diagonal multiplication through
+\eqn{\mathbf{G}_{\mathrm{on}}^{1/2}} plus a rank-\eqn{r} update.
 
-The implementation stores an equivalent rank-\eqn{r} correction in the
-numerically convenient form
-\eqn{\mathbf{F}^{1/2} = \mathbf{I}_P -
-\mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}}, where \eqn{\mathbf{U}_Q}
-spans the same subspace as the manuscript \eqn{\mathbf{Q}} and
-\eqn{\mathbf{C}} is diagonal. The structure is otherwise identical to
-\code{.lagrangian_project}: form \eqn{\mathbf{y}^*}, form
-\eqn{\mathbf{X}^*}, run \code{.lm.fit}, back-transform. Steps 1, 2,
-and 4 each gain an additive rank-\eqn{r} correction at cost
-\eqn{O(Pr)}, while step 3 is literally unchanged.
+Internally, \eqn{\mathbf{F}^{1/2}} is stored as
+\eqn{\mathbf{I} - \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}}, where
+\code{U_Q} spans the same subspace as the supplement matrix
+\eqn{\mathbf{Q}} and \code{C} is diagonal.
 }
 \keyword{internal}

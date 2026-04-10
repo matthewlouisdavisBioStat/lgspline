@@ -66,9 +66,10 @@ This function performs a single closed-form solve that replicates
 }
 \details{
 In other words, this is the dense correlated solve on the pooled
-coefficient space. The Woodbury acceleration described in
-\code{\link{lgspline_details}} is handled in \code{get_B()} rather than in
-this backfitting helper, so no additional Woodbury-specific notation is
-introduced here.
+coefficient space. The supplement's Woodbury factorization
+\eqn{\mathbf{G}^{-1} =
+\mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1}}
+is handled in \code{get_B()}, not here, so this helper always uses the
+dense correlated solve.
 }
 \keyword{internal}

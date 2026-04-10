@@ -1266,11 +1266,12 @@ is_binary <- function(x){
 #'
 #' @param G A list of inverse-information matrices \eqn{\textbf{G}} for each
 #'   partition
-#' @param L The base penalty matrix \eqn{\textbf{L}}
+#' @param dPenalty_dlambda Derivative of the shared penalty matrix with
+#'   respect to \eqn{\lambda}.
 #' @param K Number of partitions minus 1 (\eqn{K})
-#' @param lambda Smoothing parameter value \eqn{\lambda}
 #' @param unique_penalty_per_partition Logical indicating partition-specific penalties
-#' @param L_partition_list Optional list of partition-specific penalty matrices \eqn{\textbf{L}_k}
+#' @param dPenalty_partition_list Optional list of derivatives of the
+#'   partition-specific penalty matrices with respect to \eqn{\lambda}.
 #' @param parallel Logical to enable parallel processing
 #' @param cl Cluster object for parallel computation
 #' @param chunk_size Size of chunks for parallel processing
@@ -1347,32 +1348,7 @@ compute_dG_dlambda <- function(G,
   return(result)
 }
 
-#' Compute Derivative of Inverse-Information Matrix G with Respect to Lambda (Wrapper)
-#'
-#' @description
-#' Wrapper for the derivative of the trace term used in GCV / effective-
-#' degrees-of-freedom calculations with respect to \eqn{\lambda}.
-#'
-#' @param G A list of inverse-information matrices \eqn{\textbf{G}} for each
-#'   partition
-#' @param A Constraint matrix \eqn{\textbf{A}}
-#' @param GXX List of \eqn{\textbf{G}\textbf{X}^{T}\textbf{X}} products
-#' @param Ghalf List of \eqn{\textbf{G}^{1/2}} matrices
-#' @param dG_dlambda List of \eqn{d\textbf{G}/d\lambda} matrices
-#' @param dGhalf_dlambda List of \eqn{d\textbf{G}^{1/2}/d\lambda} matrices
-#' @param AGAInv Inverse of \eqn{\textbf{A}^{T}\textbf{G}\textbf{A}}
-#' @param nc Number of columns
-#' @param K Number of partitions minus 1 (\eqn{K})
-#' @param parallel Logical to enable parallel processing
-#' @param cl Cluster object for parallel computation
-#' @param chunk_size Size of chunks for parallel processing
-#' @param num_chunks Number of chunks
-#' @param rem_chunks Remainder chunks
-#'
-#' @return
-#' Scalar value representing the trace derivative component.
-#'
-#' @keywords internal
+## The tuning hat-diagonal helpers below are documented separately.
 #' Compute the Diagonal of the Tuning Hat Matrix
 #'
 #' @description
@@ -4903,7 +4879,6 @@ safe_replace_var <- function(x, old, new) {
     perl = TRUE
   )
 }
-
 
 
 

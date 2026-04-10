@@ -37,6 +37,12 @@ This is a resubmission addressing minor improvements and documentation to the pa
 - The correction now decreases tuned penalties by dividing by `((N+2)/(N-2))^2` (equivalently multiplying by `((N-2)/(N+2))^2`), matching the intended response when small samples show occasional over-smoothing rather than under-smoothing.
 - Added a regression test covering both criteria to verify that the returned penalties equal the optimizer solution times the reciprocal factor and are therefore smaller than the unadjusted optimized values.
 
+#### 6 Plot formula display option for marginal plots
+- Added a new plotting argument `include_all_terms_in_formulas` to `plot.lgspline()` and the internal plotting wrapper in `R/lgspline.R`.
+- The default remains unchanged: when plotting a subset of predictors via `vars`, formula legends/hover text continue to show only the terms involving the plotted predictor(s), which is the more practical display for high-dimensional models.
+- When `include_all_terms_in_formulas = TRUE` and `show_formulas = TRUE`, the plotted marginal curve is still drawn exactly as before, but the displayed formula now retains the full fitted partition equation, including non-plotted standalone linear terms and other fixed-variable terms.
+- This change was made to improve interpretability for low-dimensional marginal plots without changing existing defaults or fitted values.
+
 ## R CMD check results
 
 0 errors | 0 warnings | 0 notes

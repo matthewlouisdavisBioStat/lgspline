@@ -201,37 +201,29 @@
 
 #' Woodbury-Corrected Lagrangian Projection
 #'
-#' Performs the constrained Lagrangian projection using the conserved
-#' \eqn{\mathbf{G}^{1/2}\mathbf{r}^*} OLS trick, with
-#' \eqn{\mathbf{G}_V^{1/2}} expressed as block-diagonal
-#' \eqn{\mathbf{G}_c^{1/2}} plus a rank-\eqn{r} correction.
+#' Applies the constrained projection for the structured-correlation
+#' Woodbury path. In supplement notation,
+#' \eqn{\mathbf{G}^{1/2} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{F}^{1/2}},
+#' where \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
+#' and \eqn{\mathbf{F}^{1/2}} carries the low-rank correction.
 #'
-#' In the manuscript notation, if
-#' \eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}} has thin QR
-#' decomposition \eqn{\mathbf{N} = \mathbf{Q}\mathbf{R}},
-#' \eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}, and
-#' \eqn{\mathbf{S} = \mathbf{I}_r + \mathbf{R}\mathbf{J}\mathbf{R}^{\top}},
-#' then
-#' \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{P} +
-#' \mathbf{Q}\mathbf{S}^{-1/2}\mathbf{Q}^{\top}} and
-#' \eqn{\mathbf{G}_V^{1/2} = \mathbf{G}_c^{1/2}\mathbf{F}^{1/2}}.
+#' The routine follows the same four transformed-OLS steps as
+#' \code{.lagrangian_project}: form \eqn{\mathbf{y}^{*}},
+#' form \eqn{\mathbf{X}^{*}}, solve the OLS projection, then back-transform.
+#' Only steps involving \eqn{\mathbf{G}^{1/2}} differ, and those are handled
+#' as a block-diagonal multiplication through
+#' \eqn{\mathbf{G}_{\mathrm{on}}^{1/2}} plus a rank-\eqn{r} update.
 #'
-#' The implementation stores an equivalent rank-\eqn{r} correction in the
-#' numerically convenient form
-#' \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P -
-#' \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}}, where \eqn{\mathbf{U}_Q}
-#' spans the same subspace as the manuscript \eqn{\mathbf{Q}} and
-#' \eqn{\mathbf{C}} is diagonal. The structure is otherwise identical to
-#' \code{.lagrangian_project}: form \eqn{\mathbf{y}^*}, form
-#' \eqn{\mathbf{X}^*}, run \code{.lm.fit}, back-transform. Steps 1, 2,
-#' and 4 each gain an additive rank-\eqn{r} correction at cost
-#' \eqn{O(Pr)}, while step 3 is literally unchanged.
+#' Internally, \eqn{\mathbf{F}^{1/2}} is stored as
+#' \eqn{\mathbf{I} - \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}}, where
+#' \code{U_Q} spans the same subspace as the supplement matrix
+#' \eqn{\mathbf{Q}} and \code{C} is diagonal.
 #'
 #' @param GhalfXy_V Numeric column vector of length \eqn{P};
-#'   \eqn{\mathbf{G}_c^{1/2}} applied to the per-partition GLS
+#'   \eqn{\mathbf{G}_{\mathrm{on}}^{1/2}} applied to the per-partition GLS
 #'   cross-products \eqn{\mathbf{X}_k^{\top}\mathbf{V}^{-1}\mathbf{y}_k}.
 #' @param Ghalf_corrected List of \eqn{K+1} corrected
-#'   \eqn{\mathbf{G}_c^{1/2}} matrices.
+#'   \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}} matrices.
 #' @param A Constraint matrix (\eqn{P \times R}).
 #' @param K,p_expansions,R_constraints Integer dimensions.
 #' @param constraint_value_vectors Constraint RHS list encoding
@@ -240,10 +232,9 @@
 #' @param wb_sqrt Output of \code{.woodbury_halfsqrt_components},
 #'   containing the internal rank-\eqn{r} representation of
 #'   \eqn{\mathbf{F}^{1/2}}: \code{U_Q} / \code{Q_basis}
-#'   (basis for the Woodbury subspace, matching manuscript
-#'   \eqn{\mathbf{Q}}), \code{C} and \code{C_inv} (diagonal correction
+#'   (basis matching supplement \eqn{\mathbf{Q}}), \code{C} and \code{C_inv} (diagonal correction
 #'   coefficients), and \code{GchalfUQ} (partition-wise copies of
-#'   \eqn{\mathbf{G}_{c,k}^{1/2}\mathbf{U}_Q[rows_k,]}).
+#'   \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}\mathbf{U}_Q[rows_k,]}).
 #' @param parallel_aga,parallel_matmult Logical flags.
 #' @param cl,chunk_size,num_chunks,rem_chunks Parallel parameters.
 #'
@@ -268,7 +259,7 @@
 
   ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
   ## Step 1: Form y* = F^{1/2} GhalfXy_V.
-  ## In manuscript notation F^{1/2} = I - P + Q S^{-1/2} Q^T.
+  ## In supplement notation F^{1/2} = I - P + Q S^{-1/2} Q^T.
   ## Internally the same operator is stored as I - U_Q C U_Q^T.
   ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
   v_y <- crossprod(U_Q, GhalfXy_V)         # r x 1
@@ -278,12 +269,12 @@
   y_star <- ifelse(is.na(y_star), family$linkinv(0), y_star)
 
   ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-  ## Step 2: Form X* = G_V^{1/2} A = G_c^{1/2} F^{1/2} A.
+  ## Step 2: Form X* = G^{1/2} A = G_on^{1/2} F^{1/2} A.
   ## This is the Woodbury-corrected analogue of G^{1/2} A in the
   ## uncorrelated projection.
   ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 
-  ## Block-diagonal part: G_c^{1/2} A.
+  ## Block-diagonal part: G_on^{1/2} A.
   GhalfA <- Reduce("rbind",
                    GAmult_wrapper(Ghalf_corrected, A, K, p_expansions,
                                   R_constraints, parallel_aga, cl,
@@ -323,7 +314,7 @@
   }
 
   ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-  ## Step 4: Back-transform beta_tilde = G_V^{1/2} r* with the same
+  ## Step 4: Back-transform beta_tilde = G^{1/2} r* with the same
   ## block-plus-rank-r operator used in Steps 1 and 2.
   ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
   v_r <- crossprod(U_Q, cbind(resids_star))  # r x 1
@@ -1036,37 +1027,28 @@
 
 #' Woodbury Decomposition of Correlation Structure
 #'
-#' Given \eqn{\mathbf{V}^{-1/2}}, the partition-specific design matrices,
-#' and the penalty, decomposes the GLS information matrix into the same
-#' pieces used in Supplement~S.B of the manuscript. Starting from
-#' \eqn{\mathbf{G}_0^{-1} = \mathbf{X}^{\top}\mathbf{X} +
-#' \boldsymbol{\Lambda}}, it forms
-#' \eqn{\mathbf{M} = \mathbf{X}^{\top}(\mathbf{V}^{-1} -
-#' \mathbf{I})\mathbf{X}}, splits \eqn{\mathbf{M}} into its block-diagonal
-#' and cross-partition parts, absorbs \eqn{\mathbf{M}_{\mathrm{diag}}} into
-#' the corrected block-diagonal inverse \eqn{\mathbf{G}_c^{-1}}, and leaves
-#' the cross-partition remainder \eqn{\mathbf{M}_{\mathrm{off}}} in low-rank
-#' form. In the manuscript, that remainder is written as
-#' \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
+#' Builds the Woodbury factors for the correlated solver. The function
+#' decomposes
+#' \eqn{\mathbf{G}^{-1} = \mathbf{G}_{\mathrm{on}}^{-1} +
+#' \mathbf{G}_{\mathrm{off}}^{-1}}
+#' by absorbing the block-diagonal part of
+#' \eqn{\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X} + \boldsymbol{\Lambda}}
+#' into \eqn{\mathbf{G}_{\mathrm{on}}^{-1}}, then factoring the
+#' cross-partition part as
+#' \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
 #'
-#' More concretely, this helper carries out the first two algebraic steps in
-#' Appendix~B of the manuscript:
-#' \enumerate{
-#'   \item build \eqn{\mathbf{M} = \mathbf{X}^{\top}(\mathbf{V}^{-1} -
-#'     \mathbf{I})\mathbf{X}},
-#'   \item absorb the block-diagonal part of \eqn{\mathbf{M}} into
-#'     \eqn{\mathbf{G}_c^{-1}},
-#'   \item factor the remaining cross-partition term at low rank as
-#'     \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
-#' }
-#' The returned objects are then consumed by
-#' \code{.woodbury_halfsqrt_components()} to construct the square-root update
-#' used by \code{.lagrangian_project_woodbury()}.
+#' The output is exactly the information needed by
+#' \code{.woodbury_halfsqrt_components()} and
+#' \code{.lagrangian_project_woodbury()}:
+#' corrected block-diagonal \eqn{\mathbf{G}_{\mathrm{on}}},
+#' the low-rank factor \eqn{\mathbf{E}}, the sign matrix diagonal
+#' \eqn{\mathbf{J}}, and the small inverse
+#' \eqn{(\mathbf{J}^{-1} +
+#' \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}\mathbf{E})^{-1}}.
 #'
-#' When \eqn{r = 0} (no cross-partition coupling) or \eqn{r \ge P/3}
-#' (low-rank approximation not worthwhile), returns
-#' \code{use_woodbury = FALSE} and the caller should use the dense
-#' Path 1 approach instead.
+#' When the cross-partition rank is zero or too large to be worthwhile,
+#' the helper returns \code{use_woodbury = FALSE} so the caller can use
+#' the dense correlated path instead.
 #'
 #' @param VhalfInv_perm \eqn{\mathbf{V}^{-1/2}} permuted to partition
 #'   ordering.
@@ -1086,21 +1068,21 @@
 #' @return A list with components:
 #' \describe{
 #'   \item{use_woodbury}{Logical; FALSE triggers dense Path 1 fallback.}
-#'   \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.}
-#'   \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{-1/2}}.}
-#'   \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}}.}
+#'   \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}}.}
+#'   \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}^{-1/2}}.}
+#'   \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}}.}
 #'   \item{E}{Off-diagonal low-rank factor (\eqn{P \times r}) from the
-#'     manuscript factorization
-#'     \eqn{\mathbf{M}_{\mathrm{off}} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.}
-#'   \item{J_signs}{Length-\eqn{r} vector of \eqn{\pm 1}; equivalently the
-#'     diagonal entries of the manuscript sign matrix \eqn{\mathbf{J}}.}
+#'     supplement factorization
+#'     \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.}
+#'   \item{J_signs}{Length-\eqn{r} vector giving the diagonal of
+#'     \eqn{\mathbf{J}}.}
 #'   \item{r}{Integer effective rank.}
 #'   \item{inner_inv}{Precomputed \eqn{r \times r} Woodbury inner inverse. In
-#'     manuscript notation this is
-#'     \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c
+#'     supplement notation this is
+#'     \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}
 #'     \mathbf{E})^{-1}}.}
 #'   \item{GL}{List of \eqn{K+1} matrices storing
-#'     \eqn{\mathbf{G}_{c,k}\mathbf{E}[rows_k,]} in manuscript notation,
+#'     \eqn{\mathbf{G}_{\mathrm{on},k}\mathbf{E}[rows_k,]} in supplement notation,
 #'     each \eqn{p \times r}.}
 #'   \item{L,S_signs,M}{Legacy internal aliases for
 #'     \code{E}, \code{J_signs}, and \code{inner_inv}, retained for
@@ -1137,8 +1119,8 @@
   X_block <- collapse_block_diagonal(X)
   Delta_mat <- crossprod(X_block, Delta_V %**% X_block)
 
-  ## Step 2: absorb the block-diagonal part of M into the corrected
-  ## per-partition Gram matrices defining G_c^{-1}.
+  ## Step 2: absorb the block-diagonal part into the corrected
+  ## per-partition matrices defining G_on^{-1}.
   X_gram_corrected <- vector("list", K + 1)
   for (k in 1:(K + 1)) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
@@ -1159,14 +1141,14 @@
                               keep_G = TRUE, schur_zero)
 
   ## Step 3: remove the absorbed diagonal blocks, leaving only the
-  ## cross-partition remainder M_off.
+  ## cross-partition remainder.
   Delta_offdiag <- Delta_mat
   for (k in 1:(K + 1)) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
     Delta_offdiag[rows_k, rows_k] <- 0
   }
 
-  ## Step 4: eigentruncate M_off and encode it as E J E^T.
+  ## Step 4: eigentruncate the remainder and encode it as E J E^T.
   eig_off <- eigen(Delta_offdiag, symmetric = TRUE)
   r <- sum(abs(eig_off$values) >
              max(abs(eig_off$values)) * sqrt(.Machine$double.eps))
@@ -1186,23 +1168,23 @@
     return(list(use_woodbury = FALSE))
   }
 
-  ## Manuscript notation: E J E^T for the retained off-diagonal remainder.
+  ## Supplement notation: E J E^T for the retained off-diagonal remainder.
   E <- eig_off$vectors[, 1:r, drop = FALSE] %**%
     diag(sqrt(abs(eig_off$values[1:r])), r, r)
   J_signs <- sign(eig_off$values[1:r])
 
-  ## Precompute G_{c,k} E_k blockwise for the later Woodbury inverse and
+  ## Precompute G_{on,k} E_k blockwise for the later Woodbury inverse and
   ## square-root steps.
   GL <- lapply(1:(K + 1), function(k) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
     G_list_c$G[[k]] %**% E[rows_k, , drop = FALSE]
   })
 
-  ## Assemble E^T G_c E on the retained subspace.
+  ## Assemble E^T G_on E on the retained subspace.
   GL_full <- do.call(rbind, GL)
   LtGL <- crossprod(E, GL_full)
 
-  ## Precompute (J^{-1} + E^T G_c E)^{-1}; this is the only dense inverse
+  ## Precompute (J^{-1} + E^T G_on E)^{-1}; this is the only dense inverse
   ## in the Woodbury correction.
   inner_inv <- invert(diag(1 / J_signs, r, r) + LtGL)
 
@@ -1227,26 +1209,17 @@
 
 #' Per-Iteration Weighted Woodbury Redecomposition
 #'
-#' Given the fixed correlation perturbation
-#' \eqn{\mathbf{V}^{-1} - \mathbf{I}} and the precomputed product
-#' of that perturbation with \eqn{\mathbf{X}}
-#' (both invariant across Newton iterations), together with the current
-#' iteration's GLM working weights \eqn{\mathbf{W}} and weighted Gram
-#' matrices, computes all Woodbury components needed for the constrained
-#' step.
+#' Weighted analogue of \code{.woodbury_decompose_V()}. At each GLM
+#' iteration, this helper rebuilds the current correlated information,
+#' absorbs the block-diagonal part into
+#' \eqn{\mathbf{G}_{\mathrm{on}}^{-1}}, and refactors the cross-partition
+#' remainder as \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
 #'
-#' This helper is the weighted analogue of \code{.woodbury_decompose_V()}.
-#' At each GLM iteration it rebuilds the correlation-induced term
-#' \eqn{\mathbf{X}^{\top}\mathrm{diag}(\mathbf{W})(\mathbf{V}^{-1} -
-#' \mathbf{I})\mathbf{X}}, absorbs its block-diagonal part into
-#' \eqn{\mathbf{G}_c^{-1}}, and refactors the remaining cross-partition term
-#' as \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}} in the manuscript notation.
-#'
-#' The weighted cross-partition perturbation is
-#' \eqn{\mathbf{X}^{\top}\mathrm{diag}(\mathbf{W})(\mathbf{V}^{-1} -
-#' \mathbf{I})\mathbf{X}},
-#' split into block-diagonal corrections (absorbed into the corrected
-#' Gram) and an off-diagonal remainder factored at low rank.
+#' It is standalone in the sense that it returns the full Woodbury state
+#' for the current working weights:
+#' corrected block-diagonal factors, the low-rank basis, and the small
+#' inverse \eqn{(\mathbf{J}^{-1} +
+#' \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}\mathbf{E})^{-1}}.
 #'
 #' @param Delta_V Fixed \eqn{N \times N} matrix
 #'   \eqn{\mathbf{V}^{-1} - \mathbf{I}}.
@@ -1270,20 +1243,20 @@
 #' @return A list with the same structure as \code{.woodbury_decompose_V}:
 #' \describe{
 #'   \item{use_woodbury}{Logical; FALSE if rank exceeds threshold.}
-#'   \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.}
-#'   \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{-1/2}}.}
-#'   \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}}.}
+#'   \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}}.}
+#'   \item{GhalfInv_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}^{-1/2}}.}
+#'   \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}}.}
 #'   \item{E}{Off-diagonal low-rank factor (\eqn{P \times r}), denoted by
-#'     \eqn{\mathbf{E}} in the manuscript.}
-#'   \item{J_signs}{Length-\eqn{r} sign vector, i.e.\ the diagonal of the
-#'     manuscript sign matrix \eqn{\mathbf{J}}.}
+#'     \eqn{\mathbf{E}} in the supplement.}
+#'   \item{J_signs}{Length-\eqn{r} sign vector, i.e.\ the diagonal of
+#'     \eqn{\mathbf{J}}.}
 #'   \item{r}{Integer effective rank.}
 #'   \item{inner_inv}{Precomputed \eqn{r \times r} Woodbury inner inverse; in
-#'     manuscript notation,
-#'     \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c
+#'     supplement notation,
+#'     \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}
 #'     \mathbf{E})^{-1}}.}
 #'   \item{GL}{List of per-partition matrices corresponding to
-#'     \eqn{\mathbf{G}_{c,k}\mathbf{E}[rows_k,]} in manuscript notation.}
+#'     \eqn{\mathbf{G}_{\mathrm{on},k}\mathbf{E}[rows_k,]} in supplement notation.}
 #'   \item{L,S_signs,M}{Legacy internal aliases for
 #'     \code{E}, \code{J_signs}, and \code{inner_inv}.}
 #' }
@@ -1312,7 +1285,7 @@
   Delta_mat_W <- crossprod(X_block, c(W) * DV_X)
 
   ## Absorb the weighted block-diagonal portion into the corrected
-  ## per-partition information defining G_c^{-1} at the current iterate.
+  ## per-partition information defining G_on^{-1} at the current iterate.
   X_gram_corrected <- vector("list", K + 1)
   for (k in 1:(K + 1)) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
@@ -1365,7 +1338,7 @@
     return(list(use_woodbury = FALSE))
   }
 
-  ## Manuscript notation: E J E^T for the weighted off-diagonal remainder.
+  ## Supplement notation: E J E^T for the weighted off-diagonal remainder.
   E <- eig_off$vectors[, 1:r, drop = FALSE] %**%
     diag(sqrt(abs(eig_off$values[1:r])), r, r)
   J_signs <- sign(eig_off$values[1:r])
@@ -1376,11 +1349,11 @@
     G_list_c$G[[k]] %**% E[rows_k, , drop = FALSE]
   })
 
-  ## Assemble E^T G_c E on the retained subspace.
+  ## Assemble E^T G_on E on the retained subspace.
   GL_full <- do.call(rbind, GL)
   LtGL <- crossprod(E, GL_full)
 
-  ## Precompute (J^{-1} + E^T G_c E)^{-1} on the retained subspace.
+  ## Precompute (J^{-1} + E^T G_on E)^{-1} on the retained subspace.
   inner_inv <- invert(diag(1 / J_signs, r, r) + LtGL)
 
   list(
@@ -1404,41 +1377,22 @@
 
 #' Compute Woodbury Half-Square-Root Components
 #'
-#' Given the low-rank Woodbury components from
-#' \code{.woodbury_decompose_V}, precomputes the orthonormal basis
-#' \eqn{\mathbf{U}_Q} and the internal correction matrices \eqn{\mathbf{C}}
-#' and \eqn{\mathbf{C}_{\mathrm{inv}}} needed to express
-#' \eqn{\mathbf{G}_V^{1/2}} and \eqn{\mathbf{G}_V^{-1/2}} as a
-#' block-diagonal factor plus a rank-\eqn{r} correction.
+#' Converts the low-rank Woodbury decomposition into square-root objects
+#' used directly by the solver. Starting from
+#' \eqn{\mathbf{N} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{E}}, it builds
+#' a basis for the supplement matrix \eqn{\mathbf{Q}} and stores
+#' \eqn{\mathbf{F}^{1/2}} and \eqn{\mathbf{F}^{-1/2}} in the internal forms
+#' \eqn{\mathbf{I} - \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}} and
+#' \eqn{\mathbf{I} + \mathbf{U}_Q\mathbf{C}_{\mathrm{inv}}\mathbf{U}_Q^{\top}}.
 #'
-#' In the manuscript, the same algebra is written more cleanly through
-#' \eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}}, the projector
-#' \eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}, and a small
-#' \eqn{r \times r} matrix \eqn{\mathbf{S} = \mathbf{I}_r +
-#' \mathbf{R}\mathbf{J}\mathbf{R}^{\top}} after a thin QR decomposition
-#' \eqn{\mathbf{N} = \mathbf{Q}\mathbf{R}}.
+#' This helper is standalone: its output is the complete square-root state
+#' consumed by \code{.lagrangian_project_woodbury()}.
 #'
-#' The internal implementation instead stores the equivalent update in
-#' the form
-#' \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{U}_Q \mathbf{C}
-#' \mathbf{U}_Q^{\top}}.
-#'
-#' This helper therefore bridges the paper notation and the stored solver
-#' objects:
-#' \enumerate{
-#'   \item start from the manuscript factor
-#'     \eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}},
-#'   \item compute an orthonormal basis for its column space,
-#'   \item convert the small-matrix square-root update into the diagonal
-#'     coefficients \code{C} and \code{C_inv} used by
-#'     \code{.lagrangian_project_woodbury()}.
-#' }
-#'
-#' @param Ghalf_corrected List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.
+#' @param Ghalf_corrected List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}}.
 #' @param E Off-diagonal low-rank factor (\eqn{P \times r}), denoted
-#'   \eqn{\mathbf{E}} in the manuscript.
+#'   \eqn{\mathbf{E}} in the supplement.
 #' @param J_signs Length-\eqn{r} sign vector corresponding to the
-#'   diagonal of \eqn{\mathbf{J}} in the manuscript.
+#'   diagonal of \eqn{\mathbf{J}}.
 #' @param r Integer effective rank.
 #' @param K,p_expansions Integer dimensions.
 #'
@@ -1447,10 +1401,10 @@
 #'   \item{valid}{Logical; FALSE if \eqn{\mathbf{F}} is not positive
 #'     definite (signals fallback to dense).}
 #'   \item{U_Q}{\eqn{P \times r} left singular vectors of
-#'     \eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}}. This spans the same
-#'     subspace as the manuscript QR factor \eqn{\mathbf{Q}}.}
+#'     \eqn{\mathbf{N} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{E}}. This spans the same
+#'     subspace as the supplement QR factor \eqn{\mathbf{Q}}.}
 #'   \item{Q_basis}{Alias for \code{U_Q}, included so the stored object can
-#'     be read directly against the manuscript notation \eqn{\mathbf{Q}}.}
+#'     be read directly against the supplement notation \eqn{\mathbf{Q}}.}
 #'   \item{C}{\eqn{r \times r} diagonal matrix
 #'     encoding the rank-\eqn{r} update in the internal form
 #'     \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{U}_Q\mathbf{C}
@@ -1460,7 +1414,7 @@
 #'     \eqn{\mathbf{F}^{-1/2} = \mathbf{I}_P +
 #'     \mathbf{U}_Q\mathbf{C}_{\mathrm{inv}}\mathbf{U}_Q^{\top}}.}
 #'   \item{GchalfUQ}{List of \eqn{K+1} matrices, each \eqn{p \times r}:
-#'     \eqn{\mathbf{G}_{c,k}^{1/2} \mathbf{U}_Q[rows_k,]}.}
+#'     \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2} \mathbf{U}_Q[rows_k,]}.}
 #' }
 #'
 #' @keywords internal
@@ -1484,7 +1438,7 @@
     ))
   }
 
-  ## Form the manuscript matrix N = G_c^{1/2} E.
+  ## Form the supplement matrix N = G_on^{1/2} E.
   N_mat <- matrix(0, P, r)
   for (k in 1:(K + 1)) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
@@ -1842,15 +1796,19 @@
 
 #' Path 1a-Woodbury: Gaussian GEE with Woodbury Acceleration
 #'
-#' Replacement for \code{.get_B_gee_gaussian} when the off-diagonal rank
-#' \eqn{r} of the cross-partition remainder
-#' \eqn{\mathbf{M}_{\mathrm{off}} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
-#' is low. Uses the conserved \eqn{\mathbf{G}^{1/2}\mathbf{r}^*} OLS trick
-#' with \eqn{\mathbf{G}_V^{1/2} = \mathbf{G}_c^{1/2}\mathbf{F}^{1/2}},
-#' where the low-rank correction is applied through the basis spanning the
-#' manuscript \eqn{\mathbf{Q}} subspace (stored internally as
-#' \code{U_Q}/\code{Q_basis}). The code structure closely mirrors
-#' \code{.get_B_gaussian_nocorr}.
+#' Gaussian correlated solve using the Woodbury factorization from the
+#' supplement. This replaces the dense GEE path when
+#' \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
+#' has low rank and computes the constrained estimate through the same
+#' transformed OLS projection as the independent case, with
+#' \eqn{\mathbf{G}^{1/2} =
+#' \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{F}^{1/2}}.
+#'
+#' This function is standalone for the Gaussian Woodbury path: it takes the
+#' decomposition from \code{.woodbury_decompose_V()}, the square-root state
+#' from \code{.woodbury_halfsqrt_components()}, performs the constrained
+#' solve, and returns the same object structure as the dense Gaussian GEE
+#' solver.
 #'
 #' Cost is \eqn{O(Kp^3 + Pr^2)} compared to \eqn{O(P^3)} for the dense
 #' Path 1a.
@@ -1897,7 +1855,7 @@
   Xy_V <- .compute_Xy_V(X, y, VhalfInv_perm, K, p_expansions,
                         order_list)
 
-  ## Block-diagonal part of y*: G_c^{1/2} (X^T V^{-1} y).
+  ## Block-diagonal part of y*: G_on^{1/2} (X^T V^{-1} y).
   GhalfXy_V <- cbind(unlist(
     matmult_block_diagonal(wb_decomp$Ghalf_corrected, Xy_V, K,
                            parallel_matmult, cl,
@@ -2334,32 +2292,18 @@
 
 #' Path 1b-Woodbury: Non-Gaussian GEE with Woodbury Acceleration
 #'
-#' Replacement for \code{.get_B_gee_glm} when the off-diagonal rank
-#' \eqn{r} of the weighted cross-partition remainder is low. At each damped
-#' Newton iteration, the Woodbury decomposition is recomputed with updated
-#' GLM working weights
-#' \eqn{\mathbf{W}(\boldsymbol{\beta}^{(s)})} (since the weighted
-#' cross-partition correction
-#' \eqn{\mathbf{X}^{\top}\mathrm{diag}(\mathbf{W}(\boldsymbol{\beta}^{(s)}))
-#' (\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}} changes), and
-#' the constrained step is taken via
-#' \code{.lagrangian_project_woodbury}.
+#' Non-Gaussian correlated solve using the Woodbury factorization. At each
+#' damped Newton step, the current weighted information matrix is split into
+#' a block-diagonal part defining \eqn{\mathbf{G}_{\mathrm{on}}} and a
+#' low-rank cross-partition part
+#' \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
+#' The constrained step is then taken through
+#' \code{.lagrangian_project_woodbury()}.
 #'
-#' The key precomputation exploited here is that
-#' \eqn{\mathbf{V}^{-1} - \mathbf{I}} and
-#' \eqn{(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}} are fixed across iterations.
-#' At each step, the weighted perturbation
-#' \eqn{\mathbf{X}^{\top}
-#' \mathrm{diag}(\mathbf{W})(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}}
-#' is computed in \eqn{O(NP)} using the precomputed
-#' \eqn{(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}}, then split into
-#' block-diagonal corrections (absorbed into the corrected Gram) and
-#' a cross-partition low-rank remainder, written as
-#' \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}} in the manuscript.
-#'
-#' Falls back to the dense \code{.get_B_gee_glm} if the Woodbury
-#' decomposition becomes invalid (e.g.\ rank exceeds threshold or
-#' \eqn{\mathbf{F}} is not positive definite) at any iteration.
+#' This function is standalone for the weighted Woodbury path: it carries
+#' the iteration, repeatedly rebuilds the Woodbury factors at the current
+#' working weights, and falls back to the dense correlated GLM solver if the
+#' rank is too large or \eqn{\mathbf{F}} is not positive definite.
 #'
 #' @inheritParams .get_B_gee_glm
 #' @param X,y Lists of partition-specific design matrices and responses.
@@ -2516,7 +2460,7 @@
       X, X_block, y, result, K, p_expansions,
       family, W, Delta_V, observation_weights)
 
-    ## ##  8. Form GhalfXy_V = G_c^{1/2} score_V ##
+    ## ##  8. Form GhalfXy_V = G_on^{1/2} score_V ##
     GhalfXy_V <- cbind(unlist(
       matmult_block_diagonal(wb$Ghalf_corrected, score_V, K,
                              parallel_matmult, cl,
@@ -3144,11 +3088,15 @@
 #' \eqn{N \times P} whitened design
 #' \eqn{\mathbf{X}^{*} = \mathbf{V}_{\mathrm{perm}}^{-1/2}\mathbf{X}} is used
 #' after permuting observations to partition ordering via \code{order_list}.
-#' For structured correlation matrices where \eqn{\mathbf{V}^{-1} -
-#' \mathbf{I}} is sparse, a Woodbury-accelerated path is attempted
-#' (cost \eqn{O(Kp^3 + Pr^2)} where \eqn{r} is the off-diagonal rank);
-#' if the rank is too high, the dense \eqn{O(P^3)} path is used as
-#' fallback.
+#' For structured correlation, the solver tries the supplement's
+#' decomposition
+#' \eqn{\mathbf{G}^{-1} =
+#' \mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1}}
+#' with
+#' \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
+#' This gives a Woodbury path with cost \eqn{O(Kp^3 + Pr^2)} when the
+#' cross-partition rank \eqn{r} is small; otherwise the dense
+#' \eqn{O(P^3)} path is used.
 #' Two sub-paths:
 #' \itemize{
 #'   \item \bold{Path 1a.} Gaussian identity + GEE.

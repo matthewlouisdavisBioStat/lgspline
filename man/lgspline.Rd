@@ -809,16 +809,15 @@ quantities are retained in the returned fit object.
 
 These arguments enable built-in or custom working-correlation structures for
 longitudinal, clustered, or spatially indexed responses. In the notation
-used throughout \code{\link{lgspline_details}}, the correlated penalized
-information is
-\eqn{\mathbf{G}_V^{-1} = \mathbf{G}_0^{-1} + \mathbf{M}} with
-\eqn{\mathbf{G}_0^{-1} = \mathbf{X}^{\top}\mathbf{X} +
-\boldsymbol{\Lambda}} and
-\eqn{\mathbf{M} = \mathbf{X}^{\top}(\mathbf{V}^{-1} -
-\mathbf{I})\mathbf{X}}. When \eqn{\mathbf{M}_{\mathrm{off}}} is low-rank,
-the internal Woodbury helpers factor it as
-\eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}} and accelerate the correlated
-solve without changing the final estimator.
+used throughout \code{\link{Details}}, the correlated penalized
+information is written as
+\eqn{\mathbf{G}^{-1} =
+\mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1}}.
+When the cross-partition part is low rank, the internal Woodbury helpers
+factor
+\eqn{\mathbf{G}_{\mathrm{off}}^{-1} =
+\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
+and accelerate the correlated solve without changing the final estimator.
 }
 
 \section{Grouped Argument Lists}{

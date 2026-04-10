@@ -7,6 +7,7 @@
 \method{plot}{lgspline}(
   x,
   show_formulas = FALSE,
+  include_all_terms_in_formulas = FALSE,
   digits = 4,
   legend_pos = "topright",
   custom_response_lab = "y",
@@ -38,6 +39,12 @@
 
 \item{show_formulas}{Logical; display partition-level polynomial formulas.
 Default FALSE.}
+
+\item{include_all_terms_in_formulas}{Logical; when \code{show_formulas = TRUE}
+and plotting only a subset of predictors via \code{vars}, include all
+fitted terms in the displayed formulas rather than only the terms
+involving the plotted predictor(s). Default FALSE retains the current
+marginal-only formula display.}
 
 \item{digits}{Integer; decimal places for formula coefficients. Default 4.}
 

@@ -351,16 +351,15 @@
 #' @section Correlation Structures:
 #' These arguments enable built-in or custom working-correlation structures for
 #' longitudinal, clustered, or spatially indexed responses. In the notation
-#' used throughout \code{\link{lgspline_details}}, the correlated penalized
-#' information is
-#' \eqn{\mathbf{G}_V^{-1} = \mathbf{G}_0^{-1} + \mathbf{M}} with
-#' \eqn{\mathbf{G}_0^{-1} = \mathbf{X}^{\top}\mathbf{X} +
-#' \boldsymbol{\Lambda}} and
-#' \eqn{\mathbf{M} = \mathbf{X}^{\top}(\mathbf{V}^{-1} -
-#' \mathbf{I})\mathbf{X}}. When \eqn{\mathbf{M}_{\mathrm{off}}} is low-rank,
-#' the internal Woodbury helpers factor it as
-#' \eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}} and accelerate the correlated
-#' solve without changing the final estimator.
+#' used throughout \code{\link{Details}}, the correlated penalized
+#' information is written as
+#' \eqn{\mathbf{G}^{-1} =
+#' \mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1}}.
+#' When the cross-partition part is low rank, the internal Woodbury helpers
+#' factor
+#' \eqn{\mathbf{G}_{\mathrm{off}}^{-1} =
+#' \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
+#' and accelerate the correlated solve without changing the final estimator.
 #' @param correlation_id,spacetime Default: NULL. N-length vector and N-row matrix of
 #'   cluster ids and longitudinal/spatial variables, respectively.
 #' @param correlation_structure Default: NULL. Native implementations: \code{"exchangeable"},
@@ -3791,6 +3790,7 @@ lgspline <- function(
   # [Change 2026-02-14] Introduced legend_order option
   plot_lgspline_1d <- function(modfit,
                                show_formulas,
+                               formula_B = NULL,
                                digits,
                                legend_pos,
                                custom_ylab,
@@ -3884,11 +3884,13 @@ lgspline <- function(
 
     ## Add formulas if requested - using existing names
     if(show_formulas) {
+      formula_terms <- if(is.null(formula_B)) model_fit$B else formula_B
       formulas <- sapply(1:(model_fit$K+1), function(k) {
-        coefs <- round(model_fit$B[[k]], digits)
+        coefs <- round(formula_terms[[k]], digits)
         names(coefs) <- rownames(coefs)
-        term_names <- rownames(model_fit$B[[k]])
-        term_names <- safe_replace_var(term_names, rownames(model_fit$B[[k]])[2], xlab)
+        term_names <- rownames(formula_terms[[k]])
+        plotted_term_name <- rownames(model_fit$B[[k]])[2]
+        term_names <- safe_replace_var(term_names, plotted_term_name, xlab)
         names(coefs) <- term_names
         names(coefs) <- gsub(v1, custom_predictor_lab, names(coefs))
         paste0(custom_formula_lab, " = ", paste(coefs, names(coefs),
@@ -3947,6 +3949,7 @@ lgspline <- function(
   ## Two-dimensional plotting function
   plot_lgspline_2d <- function(modfit,
                                show_formulas,
+                               formula_B = NULL,
                                digits,
                                custom_zlab,
                                custom_formula_lab,
@@ -4023,13 +4026,14 @@ lgspline <- function(
 
     ## Create formulas for hover text if requested
     if(show_formulas) {
+      formula_terms <- if(is.null(formula_B)) model_fit$B else formula_B
       formulas <- sapply(1:(model_fit$K+1), function(k) {
-        coefs <- round(model_fit$B[[k]], digits)
+        coefs <- round(formula_terms[[k]], digits)
         names(coefs) <- rownames(coefs)
         names(coefs) <- gsub("\\^2", "<sup>2</sup>", names(coefs))
         names(coefs) <- gsub("\\^3", "<sup>3</sup>", names(coefs))
         names(coefs) <- gsub("\\^4", "<sup>4</sup>", names(coefs))
-        term_names <- rownames(model_fit$B[[k]])
+        term_names <- rownames(formula_terms[[k]])
         term_names <- safe_replace_var(
           term_names,
           og_cols[as.numeric(substr(v1, 2, nchar(v1)-1))],
@@ -4086,6 +4090,7 @@ lgspline <- function(
   ## Wrapper
   model_fit$plot <- function(model_fit_in = model_fit,
                              show_formulas = FALSE,
+                             include_all_terms_in_formulas = FALSE,
                              digits = 4,
                              legend_pos = "topright",
                              custom_response_lab = "y",
@@ -4161,6 +4166,14 @@ lgspline <- function(
         model_fit_in$predict(new_predictors = new_predictors)
     }
 
+    ## Keep the full partition equations available for legend / hover text
+    #  when plotting a marginal relationship but requesting the complete
+    #  formula instead of only the displayed predictor terms.
+    formula_B <- NULL
+    if(show_formulas && include_all_terms_in_formulas){
+      formula_B <- model_fit_in$B
+    }
+
     ## 1-D plotting
     if(model_fit_in$q == 1 | length(vars) == 1){
       ## Color function takes in single argument (K+1) and returns colors we use
@@ -4204,6 +4217,7 @@ lgspline <- function(
       }
       plot_lgspline_1d(model_fit_in,
                        show_formulas,
+                       formula_B,
                        digits,
                        legend_pos,
                        custom_response_lab,
@@ -4263,6 +4277,7 @@ lgspline <- function(
       }
       plot_lgspline_2d(model_fit_in,
                        show_formulas,
+                       formula_B,
                        digits,
                        custom_response_lab,
                        custom_formula_lab,

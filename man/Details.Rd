@@ -402,63 +402,58 @@ in \code{\link{.get_B_glm_nocorr}}.
 }
 
 \subsection{Woodbury Acceleration for Structured Correlation}{
-For structured correlation matrices (AR(1), exchangeable, banded), the
-perturbation \eqn{\mathbf{V}^{-1} - \mathbf{I}} is sparse. Writing the
-GLS information matrix as
-\deqn{\mathbf{G}_V^{-1}
-  = \mathbf{G}_0^{-1} + \mathbf{M}, \qquad
-  \mathbf{G}_0^{-1} = \mathbf{X}^{\top}\mathbf{X} + \boldsymbol{\Lambda},
-  \qquad
-  \mathbf{M} = \mathbf{X}^{\top}(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X},}
-the correlation-induced term is split conformably with the partitioned
-coefficient blocks as
-\eqn{\mathbf{M} = \mathbf{M}_{\mathrm{diag}} +
-\mathbf{M}_{\mathrm{off}}}. The block-diagonal part
-\eqn{\mathbf{M}_{\mathrm{diag}}} is absorbed into the corrected
-block-diagonal inverse
-\eqn{\mathbf{G}_c^{-1} = \mathbf{G}_0^{-1} +
-\mathbf{M}_{\mathrm{diag}}}, leaving only the cross-partition remainder
-\eqn{\mathbf{M}_{\mathrm{off}}}. Its effective rank \eqn{r} is determined numerically by
-\code{\link{.woodbury_decompose_V}}. For example, AR(1) correlation
-partitioned by time gives \eqn{r \approx 2K} since only observation pairs
-straddling knot boundaries contribute.
+For structured correlation, write the penalized information as
+\deqn{\mathbf{G}^{-1}
+  = \mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1},}
+where \eqn{\mathbf{G}_{\mathrm{on}}^{-1}} contains the \eqn{K+1}
+block-diagonal \eqn{p \times p} pieces of
+\eqn{\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X} + \boldsymbol{\Lambda}},
+and \eqn{\mathbf{G}_{\mathrm{off}}^{-1}} contains the cross-partition part.
+Without correlation, \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{0}}.
 
-In the manuscript, that off-diagonal remainder is written as
-\eqn{\mathbf{E}\mathbf{J}\mathbf{E}^{\top}}, where \eqn{\mathbf{E}} is
-\eqn{P \times r} and \eqn{\mathbf{J}} is a diagonal sign matrix with
-entries \eqn{\pm 1}. This avoids overloading the predictor- and
-partition-specific penalty matrices \eqn{\mathbf{L}} used elsewhere in
-the package and manuscript. The Woodbury identity then gives
-\deqn{\mathbf{G}_V = \mathbf{G}_c - \mathbf{G}_c\mathbf{E}
-  (\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c\mathbf{E})^{-1}
-  \mathbf{E}^{\top}\mathbf{G}_c,}
-where the inner inverse is only \eqn{r \times r}.
+When the cross-partition part is low rank, the code factors it as
+\deqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top},}
+with \eqn{\mathbf{E}} of size \eqn{P \times r} and \eqn{\mathbf{J}}
+diagonal with entries \eqn{\pm 1}. Then
+\deqn{\mathbf{G}
+  = \mathbf{G}_{\mathrm{on}}
+  - \mathbf{G}_{\mathrm{on}}\mathbf{E}
+  (\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}\mathbf{E})^{-1}
+  \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}.}
+The only dense inverse is the small \eqn{r \times r} matrix
+\eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}\mathbf{E})^{-1}}.
 
-The four-step projection is preserved by expressing
-\eqn{\mathbf{G}_V^{1/2}} through \eqn{\mathbf{G}_c^{1/2}}. Let
-\eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}} and take a thin QR
-decomposition \eqn{\mathbf{N} = \mathbf{Q}\mathbf{R}} with
-\eqn{\mathbf{Q}^{\top}\mathbf{Q} = \mathbf{I}_r}. The orthogonal projector
-onto \eqn{\operatorname{col}(\mathbf{N})} is
-\eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}. Defining
+Define \eqn{\mathbf{N} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{E}} and a
+thin QR decomposition \eqn{\mathbf{N} = \mathbf{Q}\mathbf{R}}. With
+\eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}} and
 \eqn{\mathbf{S} = \mathbf{I}_r + \mathbf{R}\mathbf{J}\mathbf{R}^{\top}},
-one has
-\deqn{\mathbf{G}_V = \mathbf{G}_c^{1/2}\mathbf{F}\mathbf{G}_c^{1/2}, \quad
-  \mathbf{F} = \mathbf{I}_P - \mathbf{P} +
-  \mathbf{Q}\mathbf{S}^{-1}\mathbf{Q}^{\top}.}
-Because \eqn{\mathbf{S}} is only \eqn{r \times r}, its square roots are
-cheap, and
-\deqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{P} +
-  \mathbf{Q}\mathbf{S}^{-1/2}\mathbf{Q}^{\top}, \quad
-  \mathbf{F}^{-1/2} = \mathbf{I}_P - \mathbf{P} +
+the supplement writes
+\deqn{\mathbf{F}
+  = (\mathbf{I}_P + \mathbf{N}\mathbf{J}\mathbf{N}^{\top})^{-1}
+  = \mathbf{I}_P - \mathbf{P} + \mathbf{Q}\mathbf{S}^{-1}\mathbf{Q}^{\top},}
+so that
+\deqn{\mathbf{G}^{1/2}
+  = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{F}^{1/2}, \qquad
+  \mathbf{G}^{-1/2}
+  = \mathbf{F}^{-1/2}\mathbf{G}_{\mathrm{on}}^{-1/2},}
+with
+\deqn{\mathbf{F}^{1/2}
+  = (\mathbf{I}_P - \mathbf{P}) +
+  \mathbf{Q}\mathbf{S}^{-1/2}\mathbf{Q}^{\top}, \qquad
+  \mathbf{F}^{-1/2}
+  = (\mathbf{I}_P - \mathbf{P}) +
   \mathbf{Q}\mathbf{S}^{1/2}\mathbf{Q}^{\top}.}
-Every step of the projection therefore decomposes into a block-diagonal
-multiplication through \eqn{\mathbf{G}_c^{1/2}} plus a rank-\eqn{r}
-correction through \eqn{\mathbf{Q}}.
+This preserves the same transformed OLS projection used in the
+independent case:
+\deqn{\mathbf{y}^{*} = \mathbf{G}^{1/2}\mathbf{w}, \qquad
+  \mathbf{X}^{*} = \mathbf{G}^{1/2}\mathbf{A}, \qquad
+  \tilde{\boldsymbol{\beta}} = \mathbf{G}^{1/2}\mathbf{r}^{*},}
+where \eqn{\mathbf{w} = \mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{y}}.
+The full-space operations remain the QR on \eqn{\mathbf{X}^{*}} and a
+rank-\eqn{r} correction through \eqn{\mathbf{Q}}.
 
-\strong{Implementation map.} The manuscript notation is intentionally
-cleaner than the internal object names used in \code{get_B()}. The
-correspondence is:
+\strong{Implementation map.} The code uses the same algebra but stores a
+numerically convenient representation. The correspondence is:
 \itemize{
   \item manuscript \eqn{\mathbf{E}} \eqn{\leftrightarrow} helper output
     \code{E} (legacy alias \code{L});
@@ -466,7 +461,7 @@ correspondence is:
     \eqn{\leftrightarrow} helper output \code{J_signs}
     (legacy alias \code{S_signs});
   \item manuscript inverse
-    \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_c\mathbf{E})^{-1}}
+    \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}\mathbf{E})^{-1}}
     \eqn{\leftrightarrow} helper output \code{inner_inv}
     (legacy alias \code{M});
   \item manuscript projector basis \eqn{\mathbf{Q}}
@@ -475,14 +470,13 @@ correspondence is:
   \item manuscript projector \eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}
     is not stored explicitly, but is represented through rank-\eqn{r}
     multiplies involving \code{U_Q};
-  \item manuscript small matrix \eqn{\mathbf{S}} is likewise not stored
-    explicitly in the Gaussian path; instead
-    \code{.woodbury_halfsqrt_components()} converts its square-root update
-    into the diagonal correction matrices \code{C} and \code{C_inv} used by
-    \code{.lagrangian_project_woodbury()}.
+  \item manuscript factors \eqn{\mathbf{F}^{1/2}} and
+    \eqn{\mathbf{F}^{-1/2}} are stored internally as
+    \eqn{\mathbf{I} - \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}} and
+    \eqn{\mathbf{I} + \mathbf{U}_Q\mathbf{C}_{\mathrm{inv}}\mathbf{U}_Q^{\top}},
+    where \code{C} and \code{C_inv} are diagonal.
 }
-This is why the package code may appear to use different symbols while
-implementing the same algebraic steps as the manuscript.
+These are just storage choices; the notation matches the supplement.
 
 For the non-Gaussian Woodbury path
 (\code{\link{.get_B_gee_glm_woodbury}}), the fixed correlation
@@ -495,9 +489,8 @@ precomputed product, then split and re-factored via
 \code{\link{.woodbury_redecompose_weighted}}.
 
 The Woodbury path is used when \eqn{r < P/3}; otherwise the code falls
-back to the dense whitened approach. If the correction matrix
-\eqn{\mathbf{F}} is not positive definite at any point, the dense path
-is also used as fallback.
+back to the dense whitened solve. If \eqn{\mathbf{F}} is not positive
+definite, the dense path is also used.
 See \code{\link{.get_B_gee_woodbury}} (Gaussian) and
 \code{\link{.get_B_gee_glm_woodbury}} (non-Gaussian).
 }

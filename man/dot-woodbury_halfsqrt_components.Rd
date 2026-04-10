@@ -7,13 +7,13 @@
 .woodbury_halfsqrt_components(Ghalf_corrected, E, J_signs, r, K, p_expansions)
 }
 \arguments{
-\item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{c,k}^{1/2}}.}
+\item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}}.}
 
 \item{E}{Off-diagonal low-rank factor (\eqn{P \times r}), denoted
-\eqn{\mathbf{E}} in the manuscript.}
+\eqn{\mathbf{E}} in the supplement.}
 
 \item{J_signs}{Length-\eqn{r} sign vector corresponding to the
-diagonal of \eqn{\mathbf{J}} in the manuscript.}
+diagonal of \eqn{\mathbf{J}}.}
 
 \item{r}{Integer effective rank.}
 
@@ -25,10 +25,10 @@ A list with components:
   \item{valid}{Logical; FALSE if \eqn{\mathbf{F}} is not positive
     definite (signals fallback to dense).}
   \item{U_Q}{\eqn{P \times r} left singular vectors of
-    \eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}}. This spans the same
-    subspace as the manuscript QR factor \eqn{\mathbf{Q}}.}
+    \eqn{\mathbf{N} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{E}}. This spans the same
+    subspace as the supplement QR factor \eqn{\mathbf{Q}}.}
   \item{Q_basis}{Alias for \code{U_Q}, included so the stored object can
-    be read directly against the manuscript notation \eqn{\mathbf{Q}}.}
+    be read directly against the supplement notation \eqn{\mathbf{Q}}.}
   \item{C}{\eqn{r \times r} diagonal matrix
     encoding the rank-\eqn{r} update in the internal form
     \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{U}_Q\mathbf{C}
@@ -38,39 +38,20 @@ A list with components:
     \eqn{\mathbf{F}^{-1/2} = \mathbf{I}_P +
     \mathbf{U}_Q\mathbf{C}_{\mathrm{inv}}\mathbf{U}_Q^{\top}}.}
   \item{GchalfUQ}{List of \eqn{K+1} matrices, each \eqn{p \times r}:
-    \eqn{\mathbf{G}_{c,k}^{1/2} \mathbf{U}_Q[rows_k,]}.}
+    \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2} \mathbf{U}_Q[rows_k,]}.}
 }
 }
 \description{
-Given the low-rank Woodbury components from
-\code{.woodbury_decompose_V}, precomputes the orthonormal basis
-\eqn{\mathbf{U}_Q} and the internal correction matrices \eqn{\mathbf{C}}
-and \eqn{\mathbf{C}_{\mathrm{inv}}} needed to express
-\eqn{\mathbf{G}_V^{1/2}} and \eqn{\mathbf{G}_V^{-1/2}} as a
-block-diagonal factor plus a rank-\eqn{r} correction.
+Converts the low-rank Woodbury decomposition into square-root objects
+used directly by the solver. Starting from
+\eqn{\mathbf{N} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{E}}, it builds
+a basis for the supplement matrix \eqn{\mathbf{Q}} and stores
+\eqn{\mathbf{F}^{1/2}} and \eqn{\mathbf{F}^{-1/2}} in the internal forms
+\eqn{\mathbf{I} - \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}} and
+\eqn{\mathbf{I} + \mathbf{U}_Q\mathbf{C}_{\mathrm{inv}}\mathbf{U}_Q^{\top}}.
 }
 \details{
-In the manuscript, the same algebra is written more cleanly through
-\eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}}, the projector
-\eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}, and a small
-\eqn{r \times r} matrix \eqn{\mathbf{S} = \mathbf{I}_r +
-\mathbf{R}\mathbf{J}\mathbf{R}^{\top}} after a thin QR decomposition
-\eqn{\mathbf{N} = \mathbf{Q}\mathbf{R}}.
-
-The internal implementation instead stores the equivalent update in
-the form
-\eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{U}_Q \mathbf{C}
-\mathbf{U}_Q^{\top}}.
-
-This helper therefore bridges the paper notation and the stored solver
-objects:
-\enumerate{
-  \item start from the manuscript factor
-    \eqn{\mathbf{N} = \mathbf{G}_c^{1/2}\mathbf{E}},
-  \item compute an orthonormal basis for its column space,
-  \item convert the small-matrix square-root update into the diagonal
-    coefficients \code{C} and \code{C_inv} used by
-    \code{.lagrangian_project_woodbury()}.
-}
+This helper is standalone: its output is the complete square-root state
+consumed by \code{.lagrangian_project_woodbury()}.
 }
 \keyword{internal}

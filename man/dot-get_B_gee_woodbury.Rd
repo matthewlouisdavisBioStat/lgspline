@@ -79,17 +79,21 @@ interface consistency.}
 Same structure as \code{.get_B_gee_gaussian}.
 }
 \description{
-Replacement for \code{.get_B_gee_gaussian} when the off-diagonal rank
-\eqn{r} of the cross-partition remainder
-\eqn{\mathbf{M}_{\mathrm{off}} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
-is low. Uses the conserved \eqn{\mathbf{G}^{1/2}\mathbf{r}^*} OLS trick
-with \eqn{\mathbf{G}_V^{1/2} = \mathbf{G}_c^{1/2}\mathbf{F}^{1/2}},
-where the low-rank correction is applied through the basis spanning the
-manuscript \eqn{\mathbf{Q}} subspace (stored internally as
-\code{U_Q}/\code{Q_basis}). The code structure closely mirrors
-\code{.get_B_gaussian_nocorr}.
+Gaussian correlated solve using the Woodbury factorization from the
+supplement. This replaces the dense GEE path when
+\eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
+has low rank and computes the constrained estimate through the same
+transformed OLS projection as the independent case, with
+\eqn{\mathbf{G}^{1/2} =
+\mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{F}^{1/2}}.
 }
 \details{
+This function is standalone for the Gaussian Woodbury path: it takes the
+decomposition from \code{.woodbury_decompose_V()}, the square-root state
+from \code{.woodbury_halfsqrt_components()}, performs the constrained
+solve, and returns the same object structure as the dense Gaussian GEE
+solver.
+
 Cost is \eqn{O(Kp^3 + Pr^2)} compared to \eqn{O(P^3)} for the dense
 Path 1a.
 }
