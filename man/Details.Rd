@@ -1510,10 +1510,11 @@ sample size is above about 250,000.
 With \code{tuning_criterion = "gcv"}, the package instead uses
 \deqn{\mathrm{GCV}_{u,\gamma}
   = \frac{\sum_{i=1}^{N}D_{ii}\,r_i^{2}}
-          {N(1 - \gamma\bar{W})^{2}},}
+          {N(1 - \gamma\bar{W})^{2}}}
 where \eqn{\bar{W} = \mathrm{tr}(\mathbf{H})/N} is the mean of the
-hat-matrix diagonal and \eqn{\gamma = \code{gcv_gamma}} controls optional
-inflation of the effective-degrees-of-freedom term.
+hat-matrix diagonal. The symbol \eqn{\gamma} is set by
+\code{gcv_gamma} and controls optional inflation of the
+effective-degrees-of-freedom term.
 
 For identity link, \eqn{r_i = y_i - \hat{\eta}_i}. For non-identity links,
 the residuals are
@@ -1544,7 +1545,7 @@ predictor- and partition-specific penalty parameters toward 1 on the raw
 scale:
 \deqn{P_{\mathrm{meta}}(\lambda_w, \nu_j, \tau_k)
   = \frac{1}{2}c_{\mathrm{meta}}\sum_j(\nu_j - 1)^{2}
-  + \frac{1}{2}\cdot 10^{-32}(\lambda_w - 1)^{2},}
+  + \frac{1}{2}\cdot 10^{-32}(\lambda_w - 1)^{2}}
 where \eqn{c_{\mathrm{meta}}} is a user-specified coefficient
 (\code{meta_penalty}). The gradient of \eqn{P_{\mathrm{meta}}} on the log
 scale, incorporating the exp chain rule, is

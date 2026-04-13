@@ -895,7 +895,6 @@ plot(t, y, main = 'Observed Data vs. Fitted Function, Colored by Partition',
 plot(model_fit, add = TRUE)
 
 \donttest{
-
 ## Repeat using logistic regression, with univariate inference shown
 # and alternative function call
 y <- rbinom(length(y), 1, 1/(1+exp(-std(y))))

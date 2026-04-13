@@ -1,0 +1,2323 @@
+<!DOCTYPE html><html><head><title>R: Lagrangian Multiplier Smoothing Splines: Mathematical Details</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.15.3/dist/katex.min.css">
+<script type="text/javascript">
+const macros = { "\\R": "\\textsf{R}", "\\mbox": "\\text", "\\code": "\\texttt"};
+function processMathHTML() {
+    var l = document.getElementsByClassName('reqn');
+    for (let e of l) { katex.render(e.textContent, e, { throwOnError: false, macros }); }
+    return;
+}</script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.15.3/dist/katex.min.js"
+    onload="processMathHTML();"></script>
+<link rel="stylesheet" type="text/css" href="R.css" />
+</head><body><div class="container"><main>
+
+<table style="width: 100%;"><tr><td>Details</td><td style="text-align: right;">R Documentation</td></tr></table>
+
+<h2>Lagrangian Multiplier Smoothing Splines: Mathematical Details</h2>
+
+<h3>Description</h3>
+
+<p>This document provides the mathematical and implementation details for
+Lagrangian Multiplier Smoothing Splines as implemented in <span class="pkg">lgspline</span>.
+</p>
+<p>This package provides exhaustive resources for fitting multivariate smoothing
+smoothing splines with a monomial basis and analytical form cubic smoothing
+spline penalty.
+</p>
+<p>The material is presented such that a programmer or statistician of
+reasonable experience and background can understand and implement the
+procedure from scratch, and also potentially critique some of the modelling
+choices that went into designing this package.
+</p>
+<p>Informally, <span class="pkg">lgspline</span> answers the following question:
+How can we best adapt a useful functionality of basis splines, under the
+alternative interpretation of smoothing as explicit external constraints instead?
+</p>
+<p>The obvious benefit is a much more flexible and interpretable final model that for
+non-experienced users is simply easier to understand without post-hoc processing, and
+for experienced users can be used to customize models more easily.
+</p>
+<p>The drawback is that the interpretation of constraints as external adds a new layer of complexity
+to each step of the model fitting process, whereas for implicit design matrix
+construction these complications are bypassed.
+</p>
+<p>While it is true a B-spline can always be converted back into monomial form,
+tensor-product splines that generalize this to multiple dimensions often
+explodes the number and degree of interaction terms, the conversion may not
+be computationally stable, and it is not available in standard software.
+</p>
+
+
+<h3>Statistical Problem Formulation</h3>
+
+<p>Consider an <code class="reqn">N \times q</code> matrix of predictors
+<code class="reqn">\mathbf{T} = (\mathbf{t}_1, \dots, \mathbf{t}_N)^{\top}</code> and an
+<code class="reqn">N \times 1</code> response vector <code class="reqn">\mathbf{y} = (y_1, \dots, y_N)^{\top}</code>.
+We assume the relationship follows a generalized linear model with unknown
+smooth function <code class="reqn">f</code>:
+</p>
+<p style="text-align: center;"><code class="reqn">y_i \sim \mathcal{D}(g^{-1}(f(\mathbf{t}_i)),\, \sigma^2)</code>
+</p>
+
+<p>where <code class="reqn">\mathcal{D}</code> is a distribution (e.g. exponential family or related) with mean
+<code class="reqn">\mu_i = g^{-1}(f(\mathbf{t}_i))</code>, link function <code class="reqn">g(\cdot)</code>, and
+dispersion parameter <code class="reqn">\sigma^2</code>. For Gaussian response with identity
+link, observations are independently distributed as
+<code class="reqn">y_i \mid \mathbf{t}_i, \sigma^2 \sim \mathcal{N}(f(\mathbf{t}_i), \sigma^2)</code>.
+</p>
+<p>The objective is to estimate <code class="reqn">f</code> by:
+</p>
+
+<ol>
+<li><p> Partitioning the predictor space into <code class="reqn">K+1</code> mutually exclusive regions.
+</p>
+</li>
+<li><p> Fitting local polynomial models within each partition.
+</p>
+</li>
+<li><p> Enforcing smoothness at partition boundaries via Lagrangian multipliers.
+</p>
+</li>
+<li><p> Penalizing the integrated squared second derivative to discourage roughness.
+</p>
+</li></ol>
+
+<p>Unlike other smoothing spline formulations, no post-fitting algebraic
+rearrangement or disentanglement of a spline basis is needed to obtain
+interpretable models. The polynomial expansions are homogeneous across
+partitions, and the relationship between predictor and response is explicit
+at the coefficient level.
+</p>
+<p>To anchor the notation, in the single-predictor cubic case one would write
+</p>
+<p style="text-align: center;"><code class="reqn">\hat{f}(t_i) = \hat{\beta}_{(0)} + \hat{\beta}_{(1)}t_i +
+  \hat{\beta}_{(2)}t_i^2 + \hat{\beta}_{(3)}t_i^3 =
+  \mathbf{x}_i^{\top}\hat{\boldsymbol{\beta}},</code>
+</p>
+
+<p>where <code class="reqn">\mathbf{x}_i = (1, t_i, t_i^2, t_i^3)^{\top}</code>. The LMSS
+formulation preserves exactly this kind of polynomial representation, but now
+does so within each partition and then forces neighboring pieces to agree in
+the smoothness conditions described below.
+</p>
+<p>Core notation used throughout:
+</p>
+
+<ul>
+<li> <p><code class="reqn">\mathbf{y}_{(N \times 1)}</code>: Response vector.
+</p>
+</li>
+<li> <p><code class="reqn">\mathbf{T}_{(N \times q)}</code>: Matrix of predictors.
+</p>
+</li>
+<li> <p><code class="reqn">\mathbf{X}_{(N \times P)}</code>: Block-diagonal matrix of polynomial
+expansions, with diagonal blocks <code class="reqn">\mathbf{X}_k</code> of dimension
+<code class="reqn">n_k \times p</code>.
+</p>
+</li>
+<li> <p><code class="reqn">\boldsymbol{\Lambda}_{(P \times P)}</code>: Block-diagonal penalty matrix,
+with blocks <code class="reqn">\boldsymbol{\Lambda}_k</code> of dimension <code class="reqn">p \times p</code>.
+</p>
+</li>
+<li> <p><code class="reqn">\hat{\boldsymbol{\beta}}_{(P \times 1)}</code>: Unconstrained penalized
+estimate.
+</p>
+</li>
+<li> <p><code class="reqn">\tilde{\boldsymbol{\beta}}_{(P \times 1)}</code>: Constrained coefficient
+estimates.
+</p>
+</li>
+<li> <p><code class="reqn">\mathbf{G}_{(P \times P)}</code>: Block-diagonal matrix with blocks
+<code class="reqn">\mathbf{G}_k = (\mathbf{X}_k^{\top}\mathbf{W}_k\mathbf{D}_k\mathbf{X}_k + \boldsymbol{\Lambda}_k)^{-1}</code>,
+where <code class="reqn">\mathbf{W}_k</code> and <code class="reqn">\mathbf{D}_k</code> are defined below.
+</p>
+</li>
+<li> <p><code class="reqn">\mathbf{A}_{(P \times r)}</code>: Constraint matrix encoding smoothness
+conditions. Reduced to linearly independent columns via pivoted QR
+decomposition.
+</p>
+</li>
+<li> <p><code class="reqn">\mathbf{U}_{(P \times P)}</code>:
+<code class="reqn">\mathbf{I} - \mathbf{G}\mathbf{A}(\mathbf{A}^{\top}\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^{\top}</code>.
+</p>
+</li>
+<li> <p><code class="reqn">\mathbf{D}_{(N \times N)}</code>: Diagonal matrix of user-supplied
+observation weights (<code>observation_weights</code> or <code>weights</code>).
+Defaults to the identity. These play the role of prior precision on
+individual observations: a weight of 2 is equivalent to seeing that
+observation twice.
+</p>
+</li>
+<li> <p><code class="reqn">\mathbf{W}_{(N \times N)}</code>: Diagonal matrix of GLM working
+weights. In the implementation these diagonal entries are whatever is
+returned by <code>glm_weight_function</code>; by default this is
+<code>family$variance(mu)</code>, optionally multiplied by user-supplied
+observation weights. For Gaussian response with identity link,
+<code class="reqn">\mathbf{W} = \mathbf{I}</code>. For other families,
+<code class="reqn">\mathbf{W}</code> depends on the current fitted values and is updated at
+each Newton-Raphson iteration. For the common canonical families used
+by default, this matches the familiar Fisher-scoring weighting role.
+</p>
+</li>
+<li> <p><code class="reqn">\mathbf{V}_{(N \times N)}</code>: Correlation matrix of errors.
+When no correlation structure is specified, <code class="reqn">\mathbf{V} = \mathbf{I}</code>.
+Otherwise supplied via <code>VhalfInv</code> or estimated through
+<code>VhalfInv_fxn</code>.
+</p>
+</li></ul>
+
+<p>In the Gaussian identity case with unit weights and no correlation,
+<code class="reqn">\mathbf{G}_k = (\mathbf{X}_k^{\top}\mathbf{X}_k + \boldsymbol{\Lambda}_k)^{-1}</code>
+and most formulas simplify accordingly. When <code class="reqn">\mathbf{D}</code> or
+<code class="reqn">\mathbf{W}</code> appear in a formula, the product <code class="reqn">\mathbf{W}\mathbf{D}</code>
+means &ldquo;GLM working weights times observation weights&rdquo;; whenever one of
+them is the identity it drops out.
+</p>
+<p>Before these quantities reach the main fitting stage, the user-facing inputs
+are parsed, standardized, and organized by <code>process_input</code>. When
+the formula interface is used and <code>auto_encode_factors = TRUE</code>, that
+preprocessing step also relies on helpers such as <code>create_onehot</code>
+to encode factor levels before the design reaches <code>lgspline.fit()</code>.
+The notation in the remainder of this document therefore refers to the internal
+objects that actually enter <code>lgspline.fit()</code>, not necessarily the raw
+objects originally supplied by the user.
+</p>
+<p>From the user side, many of the arguments that control these internal objects
+can be supplied either individually or through the grouped lists
+<code>penalty_args</code>, <code>tuning_args</code>, <code>expansion_args</code>,
+<code>constraint_args</code>, <code>qp_args</code>, <code>parallel_args</code>,
+<code>covariance_args</code>, <code>return_args</code>, and <code>glm_args</code>, as
+documented in <code>lgspline</code>. These grouped lists are unpacked before
+dispatch into the same fitting pipeline, so they are a convenience layer
+rather than a separate modeling abstraction. A closely related exploratory
+mode is <code>dummy_fit = TRUE</code> in <code>lgspline</code> or
+<code>lgspline.fit</code>, which runs the preprocessing, partition
+construction, expansion building, and penalty setup without solving for
+nonzero coefficients, making it a practical way to inspect objects such as
+<code>X</code>, <code>A</code>, the returned <code>make_partition_list</code> from
+<code>make_partitions</code>, and the assembled <code>penalties</code> from
+<code>compute_Lambda</code> before a full fit.
+</p>
+
+
+<h3>Model Formulation and Estimation</h3>
+
+
+
+<h4>Piecewise Polynomial Structure</h4>
+
+<p>For <code class="reqn">K</code> knots (one predictor) or <code class="reqn">K+1</code> partitions (multiple
+predictors) there are <code class="reqn">K+1</code> mutually exclusive partitions
+<code class="reqn">\mathcal{P}_0, \dots, \mathcal{P}_{K}</code>. Each observation <code class="reqn">i</code>
+belongs to exactly one partition. Within partition <code class="reqn">k</code>, the function is
+represented as a polynomial of degree <code class="reqn">p-1</code> in each predictor:
+</p>
+<p style="text-align: center;"><code class="reqn">\hat{f}_k(\mathbf{t}) = \mathbf{x}^{\top}\tilde{\boldsymbol{\beta}}_k</code>
+</p>
+
+<p>where <code class="reqn">\mathbf{x}</code> collects the polynomial basis terms (intercept,
+linear, quadratic, cubic, and optionally quartic and interaction terms) and
+<code class="reqn">\tilde{\boldsymbol{\beta}}_k</code> are the corresponding coefficients. In
+one predictor, the same idea can be written more explicitly as
+</p>
+<p style="text-align: center;"><code class="reqn">\hat{f}(t_i) = \sum_{k=0}^{K}
+  \mathbf{x}_{ik}^{\top}\hat{\boldsymbol{\beta}}_k
+  \mathbf{1}(t_i \in \mathcal{P}_k),</code>
+</p>
+
+<p>which highlights that the unconstrained problem is just a collection of
+local polynomial regressions. The expansions are homogeneous across
+partitions, so coefficients are directly comparable. This is implemented via
+<code>get_polynomial_expansions</code>.
+</p>
+<p>The exact contents of <code class="reqn">\mathbf{x}</code> are controlled by the basis-expansion
+arguments documented in <code>lgspline</code>: <code>include_quadratic_terms</code>,
+<code>include_cubic_terms</code>, <code>include_quartic_terms</code>,
+<code>include_2way_interactions</code>, <code>include_3way_interactions</code>,
+<code>include_quadratic_interactions</code>, <code>exclude_interactions_for</code>,
+<code>exclude_these_expansions</code>, and <code>custom_basis_fxn</code>. Likewise,
+<code>just_linear_with_interactions</code> and
+<code>just_linear_without_interactions</code> determine which predictors remain
+structurally linear even though they still participate in the same
+partition-wise polynomial bookkeeping described here.
+</p>
+<p>Letting <code class="reqn">p</code> denote the number of basis terms per partition,
+<code class="reqn">P = p(K+1)</code> is the total number of coefficients. The full design matrix
+<code class="reqn">\mathbf{X}</code> and penalty matrix <code class="reqn">\boldsymbol{\Lambda}</code> are
+block-diagonal with <code class="reqn">K+1</code> blocks, so unconstrained estimation reduces to
+<code class="reqn">K+1</code> independent penalized regressions, which appears as follows for the identity link case:
+</p>
+<p style="text-align: center;"><code class="reqn">\hat{\boldsymbol{\beta}}_k = \mathbf{G}_k \mathbf{X}_k^{\top} \mathbf{W}_k\mathbf{D}_k\mathbf{y}_k, \quad
+  \mathbf{G}_k = (\mathbf{X}_k^{\top}\mathbf{W}_k\mathbf{D}_k\mathbf{X}_k + \boldsymbol{\Lambda}_k)^{-1}.</code>
+</p>
+
+<p>For Gaussian identity with unit weights this reduces to the familiar
+<code class="reqn">\mathbf{G}_k = (\mathbf{X}_k^{\top}\mathbf{X}_k + \boldsymbol{\Lambda}_k)^{-1}</code>.
+The block-diagonal structure means these can be computed in parallel across
+partitions. In the user-facing interface this is realized by supplying a
+cluster through <code>cl</code>, optionally controlling work splitting with
+<code>chunk_size</code>, and enabling stages such as <code>parallel_eigen</code>
+for the eigendecompositions and, in non-Gaussian Path 3, <code>parallel_unconstrained</code>
+for the partition-wise unconstrained fits; nearby stages can likewise use
+<code>parallel_penalty</code> and <code>parallel_make_constraint</code>. The eigenvalue
+decomposition and matrix square roots of each <code class="reqn">\mathbf{G}_k</code> are
+computed by <code>compute_G_eigen</code>, and can be returned in the fitted
+object as <code>G</code> and <code>Ghalf</code> when <code>return_G = TRUE</code> and
+<code>return_Ghalf = TRUE</code>.
+</p>
+<p>Fitted values for the canonical Gaussian case appear as
+<code class="reqn">\tilde{\mathbf{y}} = \mathbf{X}\tilde{\boldsymbol{\beta}} = \mathbf{H}\mathbf{y}</code>
+for <code class="reqn">\mathbf{H} = \mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^{\top}</code>.
+</p>
+
+
+
+<h4>Smoothing Constraints and the Constraint Matrix</h4>
+
+<p>Without further intervention the piecewise polynomial will be discontinuous.
+The central idea of LMSS is that smoothness is not hidden inside a special
+basis, but instead imposed directly where neighboring partitions meet.
+At each knot <code class="reqn">t_{k,k+1}</code> between neighboring partitions <code class="reqn">k</code> and
+<code class="reqn">k+1</code>, up to three smoothing constraints are imposed:
+</p>
+
+<ol>
+<li><p> Continuity: <code class="reqn">\mathbf{x}_{k,k+1}^{\top}\boldsymbol{\beta}_k = \mathbf{x}_{k,k+1}^{\top}\boldsymbol{\beta}_{k+1}</code>.
+</p>
+</li>
+<li><p> First-derivative continuity: <code class="reqn">\mathbf{x}_{k,k+1}^{\prime\top}\boldsymbol{\beta}_k = \mathbf{x}_{k,k+1}^{\prime\top}\boldsymbol{\beta}_{k+1}</code>.
+</p>
+</li>
+<li><p> Second-derivative continuity: <code class="reqn">\mathbf{x}_{k,k+1}^{\prime\prime\top}\boldsymbol{\beta}_k = \mathbf{x}_{k,k+1}^{\prime\prime\top}\boldsymbol{\beta}_{k+1}</code>.
+</p>
+</li></ol>
+
+<p>where <code class="reqn">\mathbf{x}^{\prime}</code> and <code class="reqn">\mathbf{x}^{\prime\prime}</code> are
+elementwise first and second derivatives of the basis with respect to
+<code class="reqn">\mathbf{t}</code>. For the familiar cubic single-predictor basis
+<code class="reqn">\mathbf{x} = (1, t, t^2, t^3)^{\top}</code>, these derivative vectors are
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{x}' = (0, 1, 2t, 3t^2)^{\top}, \qquad
+  \mathbf{x}'' = (0, 0, 2, 6t)^{\top}.</code>
+</p>
+
+<p>With <code class="reqn">K</code> knots this yields up to <code class="reqn">3K</code> scalar
+constraints (for a single predictor; more for multiple predictors with
+interactions), collected as linear equations
+<code class="reqn">\mathbf{A}^{\top}\boldsymbol{\beta} = \mathbf{0}</code>
+in a <code class="reqn">P \times r</code> matrix <code class="reqn">\mathbf{A}</code>. The constraint matrix is
+built by <code>make_constraint_matrix</code> and returned in the fitted
+object as <code>A</code>.
+</p>
+<p>In higher dimensions or with many partitions, the constraints can become
+over-specified and force the model toward a single global polynomial. In these
+cases it is recommended to drop second-derivative constraints or include quartic
+terms, allowing the model to fit a richer surface while maintaining
+perceived smoothness at knots. The appropriate constraint level can be
+controlled via <code>include_constrain_fitted</code>,
+<code>include_constrain_first_deriv</code>, and
+<code>include_constrain_second_deriv</code>.
+The companion flag <code>include_constrain_interactions</code> determines whether
+the analogous mixed-partial constraints are imposed for interaction terms,
+and <code>no_intercept</code> adds the special homogeneous equality constraint that
+fixes the intercept at zero (the same behavior triggered by using
+<code>0 +</code> in the formula interface).
+</p>
+<p>Before computing the projection <code class="reqn">\mathbf{U}</code>, the constraint matrix is
+reduced to a linearly independent subset of columns via pivoted QR
+decomposition. This avoids numerical instability from redundant constraints
+and ensures <code class="reqn">\mathbf{A}^{\top}\mathbf{G}\mathbf{A}</code> is invertible.
+</p>
+
+
+
+<h4>Lagrangian Projection</h4>
+
+<p>The constrained estimate is derived via Lagrangian multipliers. Define the
+<code class="reqn">P \times P</code> projection matrix:
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{U} = \mathbf{I} - \mathbf{G}\mathbf{A}(\mathbf{A}^{\top}\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^{\top}.</code>
+</p>
+
+<p>Then the constrained estimate is:
+</p>
+<p style="text-align: center;"><code class="reqn">\tilde{\boldsymbol{\beta}} = \mathbf{U}\hat{\boldsymbol{\beta}}.</code>
+</p>
+
+<p>The matrix <code class="reqn">\mathbf{U}</code> has the property that
+<code class="reqn">\mathbf{U}\mathbf{G}\mathbf{U}^{\top} = \mathbf{U}\mathbf{G}</code>, which is
+used extensively in variance estimation and posterior draws. In words, the
+unconstrained penalized estimate is projected back into the coefficient space
+that satisfies the smoothness restrictions, and all subsequent uncertainty
+calculations inherit that same projected geometry.
+The projection is computed via <code>get_U</code> and, when requested,
+returned in the fitted object as <code>U</code> through <code>return_U = TRUE</code>.
+</p>
+<p>When the constraints are inhomogeneous
+(<code class="reqn">\mathbf{A}^{\top}\boldsymbol{\beta} = \mathbf{c}</code> with
+<code class="reqn">\mathbf{c} \neq \mathbf{0}</code>), a particular solution
+<code class="reqn">\boldsymbol{\beta}_0</code> satisfying
+<code class="reqn">\mathbf{A}^{\top}\boldsymbol{\beta}_0 = \mathbf{c}</code> is added back
+after projection, yielding the full Lagrangian solution
+<code class="reqn">\mathbf{U}\hat{\boldsymbol{\beta}} + (\mathbf{I} - \mathbf{U})\boldsymbol{\beta}_0</code>.
+In <code>lgspline</code> and <code>lgspline.fit</code>, users realize
+this by supplying extra equality columns in <code>constraint_vectors</code>
+together with matching right-hand sides in <code>constraint_values</code>;
+<code>null_constraint</code> provides the alternate shorthand documented in
+<code>lgspline</code> when <code>constraint_vectors</code> is supplied and
+<code>constraint_values</code> is left empty.
+</p>
+<p>In practice <code class="reqn">\mathbf{U}</code> is never explicitly formed during fitting.
+The constrained estimate is obtained from a transformed OLS residual problem (the
+<code class="reqn">\mathbf{G}^{1/2}\mathbf{r}^{*}</code> trick) in four steps:
+</p>
+
+<ol>
+<li><p> Obtain the unconstrained partition-wise
+unconstrained estimate <code class="reqn">\hat{\boldsymbol{\beta}}</code>.
+</p>
+</li>
+<li><p> Set <code class="reqn">\mathbf{y}^{*} = \mathbf{G}^{-1/2}\hat{\boldsymbol{\beta}}</code> and
+<code class="reqn">\mathbf{X}^{*} = \mathbf{G}^{1/2}\mathbf{A}</code>.
+</p>
+</li>
+<li><p> Fit the linear model <code class="reqn">\mathbb{E}[\mathbf{y}^{*}] = \mathbf{X}^{*}\boldsymbol{\gamma}</code>
+by OLS using QR decomposition.
+</p>
+</li>
+<li><p> Compute the residuals <code class="reqn">\mathbf{r}^{*} = \mathbf{y}^{*} - \mathbf{X}^{*}(\mathbf{X}^{*\top}\mathbf{X}^{*})^{-1}\mathbf{X}^{*\top}\mathbf{y}^{*}</code> from that transformed OLS
+fit and recover the constrained estimate by
+<code class="reqn">\tilde{\boldsymbol{\beta}} = \mathbf{G}^{1/2}\mathbf{r}^{*}</code>.
+</p>
+</li></ol>
+
+<p>A scaling factor <code class="reqn">1/\sqrt{K+1}</code> is applied to both
+<code class="reqn">\mathbf{X}^{*}</code> and <code class="reqn">\mathbf{y}^{*}</code> prior to the OLS call
+and divided out afterward, improving numerical conditioning when the
+constraint matrix has many rows.
+</p>
+<p>The most expensive operation in this approach is the QR decomposition of the
+<code class="reqn">P \times r</code> matrix <code class="reqn">\mathbf{X}^{*} = \mathbf{G}^{1/2}\mathbf{A}</code>,
+which is far cheaper than working with the full <code class="reqn">P \times P</code> system directly.
+Without correlation or SQP constraints, <code class="reqn">\mathbf{G}</code> is stored and operated upon as a
+list of <code class="reqn">K+1</code> small <code class="reqn">p \times p</code> matrices rather than the full
+<code class="reqn">P \times P</code> block-diagonal, saving substantial memory when <code class="reqn">K</code>
+is large and allowing for parallelism.
+</p>
+<p>When correlation is present, <code class="reqn">\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X}</code>
+is no longer block-diagonal, so the full-dimensional system must be handled
+directly unless the Woodbury acceleration
+(see <code>.woodbury_decompose_V</code>) applies.
+When additional inequality constraints are present, the code either augments the equality system with a
+partition-wise active-set refinement (block-separable case) or falls back to
+dense SQP via the Goldfarb-Idnani dual active-set method implemented in
+<code>solve.QP</code>.
+</p>
+
+
+
+<h3>GLM Extension and Iterative Updates</h3>
+
+
+
+<h4>Working Quantities</h4>
+
+<p>For GLM responses with mean <code class="reqn">\mu_i = g^{-1}(\eta_i)</code> and working
+weights <code class="reqn">w_i = [V(\mu_i)\{g'(\mu_i)\}^2]^{-1}</code>, the penalized
+information becomes
+<code class="reqn">\mathbf{G}_k^{-1} = \mathbf{X}_k^{\top}\mathbf{W}_k\mathbf{X}_k
++ \boldsymbol{\Lambda}_k</code> with
+<code class="reqn">\mathbf{W}_k = \mathrm{diag}(w_i : i \in \mathcal{P}_k)</code>.
+Because <code class="reqn">\mathbf{W}</code> is diagonal,
+<code class="reqn">\mathbf{X}^{\top}\mathbf{W}\mathbf{X}</code> remains block-diagonal and
+the four-step procedure carries through with
+<code class="reqn">\mathbf{G}_k = (\mathbf{X}_k^{\top}\mathbf{W}_k\mathbf{X}_k +
+\boldsymbol{\Lambda}_k)^{-1}</code> in place of
+<code class="reqn">(\mathbf{X}_k^{\top}\mathbf{X}_k + \boldsymbol{\Lambda}_k)^{-1}</code>.
+Under the default <code>glm_weight_function</code>, the diagonal entries reduce
+to <code>family$variance(mu)</code> (optionally scaled by observation weights),
+which for canonical families is the usual Fisher scoring weight.
+</p>
+<p>The partition-wise unconstrained estimates are obtained by
+<code>unconstrained_fit_fxn</code>, by default
+<code>unconstrained_fit_default</code>, which initializes via an augmented
+ridge trick (appending <code class="reqn">\boldsymbol{\Lambda}^{1/2}</code> as
+pseudo-observations to <code>glm.fit</code>) then refines using
+<code>damped_newton_r</code> with <code>nr_iterate</code>. For
+non-canonical log-link gamma regression, the <code>keep_weighted_Lambda = TRUE</code>
+option correctly returns the augmented ridge estimate directly.
+</p>
+
+
+
+<h4>Three Fitting Paths</h4>
+
+<p><strong>Path 1: Correlation structure present.</strong>
+When a working correlation <code class="reqn">\mathbf{V}</code> is present, such as for
+marginal means models or generalized estimating equation (GEE)-like models,
+<code class="reqn">\mathbf{V}^{-1}</code> couples observations across partitions, so
+partition-wise fitting is not directly available. Two sub-paths handle
+this.
+</p>
+<p><em>Path 1a</em> (Gaussian identity + GEE) solves the whitened system
+directly via
+<code class="reqn">\tilde{\mathbf{G}} =
+(\tilde{\mathbf{X}}^{\top}\tilde{\mathbf{X}} +
+\boldsymbol{\Lambda}_{\mathrm{block}})^{-1}</code> where
+<code class="reqn">\tilde{\mathbf{X}} = \mathbf{V}^{-1/2}\mathbf{X}</code>, then applies
+the Lagrangian projection in the full <code class="reqn">P</code>-space.
+See <code>.get_B_gee_gaussian</code>.
+</p>
+<p><em>Path 1b</em> (non-Gaussian GEE) uses a damped SQP iteration on the
+whitened system. The first iterate is a constrained Newton step from the
+projection matrix <code class="reqn">\mathbf{U}</code>; subsequent iterates solve the
+quadratic subproblem via <code>solve.QP</code>.
+See <code>.get_B_gee_glm</code>.
+</p>
+<p>Both sub-paths have Woodbury-accelerated variants described below.
+</p>
+<p><strong>Path 2: Gaussian identity, no correlation.</strong>
+The constrained estimate is obtained by a single Lagrangian projection
+from the per-partition penalized least-squares cross-products (the four
+steps in closed form). No outer iteration is needed. When <code class="reqn">K = 0</code> and
+there are no additional constraints, this reduces to the ordinary
+penalized closed form
+<code class="reqn">\hat{\boldsymbol{\beta}} = \mathbf{G}\mathbf{X}^{\top}\mathbf{y}</code>.
+Implemented in <code>.get_B_gaussian_nocorr</code>.
+</p>
+<p><strong>Path 3: Non-Gaussian GLM, no correlation.</strong>
+Unconstrained estimates are obtained separately within each partition,
+then projected onto the constraint space. When the link is non-identity,
+the information <code class="reqn">\mathbf{G}</code> depends on the current fitted values
+through the working weights, so the projection must be iterated. The
+unconstrained anchor <code class="reqn">\hat{\boldsymbol{\beta}}</code> is held fixed while
+<code class="reqn">\mathbf{G}</code> is recomputed at each iterate's constrained estimate:
+</p>
+<p style="text-align: center;"><code class="reqn">\tilde{\boldsymbol{\beta}}^{(s+1)} =
+  \mathbf{U}^{(s)}\hat{\boldsymbol{\beta}}, \quad
+  \mathbf{U}^{(s)} = \mathbf{I} - \mathbf{G}^{(s)}\mathbf{A}
+  (\mathbf{A}^{\top}\mathbf{G}^{(s)}\mathbf{A})^{-1}\mathbf{A}^{\top}.</code>
+</p>
+
+<p>Iteration stops when the mean absolute coefficient change falls below
+<code>tol</code>, or when the update begins increasing (in which case the
+previous iterate is restored). The recomputation of weighted Gram
+matrices, Schur corrections, and square-root information factors at each
+step is handled by <code>.solver_recompute_G_at_estimate</code>. Implemented
+in <code>.get_B_glm_nocorr</code>.
+</p>
+
+
+
+<h4>Woodbury Acceleration for Structured Correlation</h4>
+
+<p>For structured correlation, write the penalized information as
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{G}^{-1}
+  = \mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1},</code>
+</p>
+
+<p>where <code class="reqn">\mathbf{G}_{\mathrm{on}}^{-1}</code> contains the <code class="reqn">K+1</code>
+block-diagonal <code class="reqn">p \times p</code> pieces of
+<code class="reqn">\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X} + \boldsymbol{\Lambda}</code>,
+and <code class="reqn">\mathbf{G}_{\mathrm{off}}^{-1}</code> contains the cross-partition part.
+Without correlation, <code class="reqn">\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{0}</code>.
+</p>
+<p>When the cross-partition part is low rank, the code factors it as
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top},</code>
+</p>
+
+<p>with <code class="reqn">\mathbf{E}</code> of size <code class="reqn">P \times r</code> and <code class="reqn">\mathbf{J}</code>
+diagonal with entries <code class="reqn">\pm 1</code>. Then
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{G}
+  = \mathbf{G}_{\mathrm{on}}
+  - \mathbf{G}_{\mathrm{on}}\mathbf{E}
+  (\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}\mathbf{E})^{-1}
+  \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}.</code>
+</p>
+
+<p>The only dense inverse is the small <code class="reqn">r \times r</code> matrix
+<code class="reqn">(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}\mathbf{E})^{-1}</code>.
+</p>
+<p>Define <code class="reqn">\mathbf{N} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{E}</code> and a
+thin QR decomposition <code class="reqn">\mathbf{N} = \mathbf{Q}\mathbf{R}</code>. With
+<code class="reqn">\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}</code> and
+<code class="reqn">\mathbf{S} = \mathbf{I}_r + \mathbf{R}\mathbf{J}\mathbf{R}^{\top}</code>,
+the supplement writes
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{F}
+  = (\mathbf{I}_P + \mathbf{N}\mathbf{J}\mathbf{N}^{\top})^{-1}
+  = \mathbf{I}_P - \mathbf{P} + \mathbf{Q}\mathbf{S}^{-1}\mathbf{Q}^{\top},</code>
+</p>
+
+<p>so that
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{G}^{1/2}
+  = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{F}^{1/2}, \qquad
+  \mathbf{G}^{-1/2}
+  = \mathbf{F}^{-1/2}\mathbf{G}_{\mathrm{on}}^{-1/2},</code>
+</p>
+
+<p>with
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{F}^{1/2}
+  = (\mathbf{I}_P - \mathbf{P}) +
+  \mathbf{Q}\mathbf{S}^{-1/2}\mathbf{Q}^{\top}, \qquad
+  \mathbf{F}^{-1/2}
+  = (\mathbf{I}_P - \mathbf{P}) +
+  \mathbf{Q}\mathbf{S}^{1/2}\mathbf{Q}^{\top}.</code>
+</p>
+
+<p>This preserves the same transformed OLS projection used in the
+independent case:
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{y}^{*} = \mathbf{G}^{1/2}\mathbf{w}, \qquad
+  \mathbf{X}^{*} = \mathbf{G}^{1/2}\mathbf{A}, \qquad
+  \tilde{\boldsymbol{\beta}} = \mathbf{G}^{1/2}\mathbf{r}^{*},</code>
+</p>
+
+<p>where <code class="reqn">\mathbf{w} = \mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{y}</code>.
+The full-space operations remain the QR on <code class="reqn">\mathbf{X}^{*}</code> and a
+rank-<code class="reqn">r</code> correction through <code class="reqn">\mathbf{Q}</code>.
+</p>
+<p><strong>Implementation map.</strong> The code uses the same algebra but stores a
+numerically convenient representation. The correspondence is:
+</p>
+
+<ul>
+<li><p> manuscript <code class="reqn">\mathbf{E}</code> <code class="reqn">\leftrightarrow</code> helper output
+<code>E</code> (legacy alias <code>L</code>);
+</p>
+</li>
+<li><p> manuscript diagonal sign matrix <code class="reqn">\mathbf{J}</code>
+<code class="reqn">\leftrightarrow</code> helper output <code>J_signs</code>
+(legacy alias <code>S_signs</code>);
+</p>
+</li>
+<li><p> manuscript inverse
+<code class="reqn">(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}\mathbf{E})^{-1}</code>
+<code class="reqn">\leftrightarrow</code> helper output <code>inner_inv</code>
+(legacy alias <code>M</code>);
+</p>
+</li>
+<li><p> manuscript projector basis <code class="reqn">\mathbf{Q}</code>
+<code class="reqn">\leftrightarrow</code> internal basis <code>U_Q</code>
+(alias <code>Q_basis</code>);
+</p>
+</li>
+<li><p> manuscript projector <code class="reqn">\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}</code>
+is not stored explicitly, but is represented through rank-<code class="reqn">r</code>
+multiplies involving <code>U_Q</code>;
+</p>
+</li>
+<li><p> manuscript factors <code class="reqn">\mathbf{F}^{1/2}</code> and
+<code class="reqn">\mathbf{F}^{-1/2}</code> are stored internally as
+<code class="reqn">\mathbf{I} - \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}</code> and
+<code class="reqn">\mathbf{I} + \mathbf{U}_Q\mathbf{C}_{\mathrm{inv}}\mathbf{U}_Q^{\top}</code>,
+where <code>C</code> and <code>C_inv</code> are diagonal.
+</p>
+</li></ul>
+
+<p>These are just storage choices; the notation matches the supplement.
+</p>
+<p>For the non-Gaussian Woodbury path
+(<code>.get_B_gee_glm_woodbury</code>), the fixed correlation
+perturbation <code class="reqn">\mathbf{V}^{-1} - \mathbf{I}</code> and its product with
+<code class="reqn">\mathbf{X}</code> are precomputed once and held fixed
+across Newton iterations. At each step, the weighted perturbation
+<code class="reqn">\mathbf{X}^{\top}\mathbf{W}(\mathbf{V}^{-1} -
+\mathbf{I})\mathbf{X}</code> is formed using the
+precomputed product, then split and re-factored via
+<code>.woodbury_redecompose_weighted</code>.
+</p>
+<p>The Woodbury path is used when <code class="reqn">r &lt; P/3</code>; otherwise the code falls
+back to the dense whitened solve. If <code class="reqn">\mathbf{F}</code> is not positive
+definite, the dense path is also used.
+See <code>.get_B_gee_woodbury</code> (Gaussian) and
+<code>.get_B_gee_glm_woodbury</code> (non-Gaussian).
+</p>
+
+
+
+<h4>Step Control</h4>
+
+<p>Different paths use different step-control strategies.
+</p>
+<p>In the GEE paths (Paths 1a and 1b), the coefficient update is damped:
+</p>
+<p style="text-align: center;"><code class="reqn">\boldsymbol{\beta}^{(s+1)} = (1 - \alpha_s)\boldsymbol{\beta}^{(s)}
+  + \alpha_s\boldsymbol{\beta}_{\mathrm{cand}}^{(s)},</code>
+</p>
+
+<p>with <code class="reqn">\alpha_s = 2^{-d_s}</code> and <code class="reqn">d_s</code> increased whenever the
+candidate gives non-finite or larger deviance. The loop terminates after
+10 consecutive rejections or 100 total iterations, and exits early when
+both coefficient change and deviance improvement fall below <code>tol</code>
+after a burn-in period.
+</p>
+<p>In Path 3 (non-Gaussian, no correlation), the outer projection loop has
+no line search. The algorithm recomputes <code class="reqn">\mathbf{G}</code> at the current
+constrained estimate and applies a fresh projection. If the mean absolute
+coefficient change begins increasing, the previous iterate is restored
+and the loop stops. The partition-wise unconstrained estimates themselves
+are obtained by damped Newton-Raphson inside
+<code>unconstrained_fit_default</code>, where
+<code>damped_newton_r</code> computes a Newton direction once per
+iteration and halves the step size until the penalized log-likelihood
+improves.
+</p>
+
+
+
+<h3>Accommodating Correlation Structures</h3>
+
+
+
+<h4>Parametric Correlation Structures</h4>
+
+<p>Suppose <code class="reqn">\mathrm{Cov}(\mathbf{y}) = \sigma^2\,\mathbf{V}(\boldsymbol{\theta})</code>
+for a known parametric family indexed by <code class="reqn">\boldsymbol{\theta}</code> (e.g.,
+AR(1) with <code class="reqn">\theta = \rho</code>, Matern with
+<code class="reqn">\boldsymbol{\theta} = (\ell, \nu)</code>, exchangeable with
+<code class="reqn">\theta = \rho</code>). The penalized generalized least-squares problem
+becomes
+</p>
+<p style="text-align: center;"><code class="reqn">\min_{\boldsymbol{\beta}}\;
+  (\mathbf{y} - \mathbf{X}\boldsymbol{\beta})^{\top}\mathbf{V}^{-1}
+  (\mathbf{y} - \mathbf{X}\boldsymbol{\beta})
+  + \boldsymbol{\beta}^{\top}\boldsymbol{\Lambda}\boldsymbol{\beta}
+  \quad \text{s.t.}\; \mathbf{A}^{\top}\boldsymbol{\beta} = \mathbf{0}.</code>
+</p>
+
+<p>The correlation matrix <code class="reqn">\mathbf{V}</code> is supplied through the
+fitted-object components <code>Vhalf</code> and <code>VhalfInv</code>, either
+directly or via user functions <code>Vhalf_fxn</code> and <code>VhalfInv_fxn</code>.
+When both are non-<code>NULL</code>, <code>get_B</code> dispatches to the GEE
+paths (Path 1a or 1b). For built-in correlation structures, the required
+square-root matrices are assembled numerically using
+<code>matsqrt</code>, <code>matinvsqrt</code>, and <code>invert</code>.
+</p>
+
+
+
+<h4>Whitening and Permutation</h4>
+
+<p>Because the data are stored in partition ordering (all observations from
+partition 0, then partition 1, etc.) while <code class="reqn">\mathbf{V}</code> is in the
+original observation ordering, a permutation is applied internally:
+<code class="reqn">\mathbf{V}_{\mathrm{perm}}^{-1/2} =
+\mathbf{V}^{-1/2}[\boldsymbol{\pi}, \boldsymbol{\pi}]</code>, where
+<code class="reqn">\boldsymbol{\pi} = \texttt{unlist(order\_list)}</code> maps original
+indices to partition-ordered indices. The whitened design and response are
+<code class="reqn">\tilde{\mathbf{X}} =
+\mathbf{V}_{\mathrm{perm}}^{-1/2}\mathbf{X}_{\mathrm{block}}</code> and
+<code class="reqn">\tilde{\mathbf{y}} =
+\mathbf{V}_{\mathrm{perm}}^{-1/2}\mathbf{y}</code>.
+</p>
+<p>The <code class="reqn">\mathbf{X}</code> and <code class="reqn">\mathbf{y}</code> inputs to
+<code>lgspline.fit</code> are preserved in their unwhitened form.
+Whitening is applied inside <code>get_B</code> and
+<code>blockfit_solve</code> where the full <code class="reqn">N \times P</code>
+block-diagonal design is available, since applying
+<code class="reqn">\mathbf{V}^{-1/2}</code> to only the diagonal blocks of the partitioned
+design would silently discard cross-partition contributions and corrupt
+the Gram matrix.
+</p>
+
+
+
+<h4>Loss of Block-Diagonal Structure</h4>
+
+<p>Unlike the independent-errors case,
+<code class="reqn">\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X}</code> is not block-diagonal
+because <code class="reqn">\mathbf{V}^{-1}</code> introduces cross-partition coupling. The
+unconstrained estimator
+</p>
+<p style="text-align: center;"><code class="reqn">\hat{\boldsymbol{\beta}} =
+  (\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X} +
+  \boldsymbol{\Lambda})^{-1}
+  \mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{y}</code>
+</p>
+
+<p>requires a full <code class="reqn">P \times P</code> solve, and the constraint projection
+proceeds with
+<code class="reqn">\mathbf{G} = (\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X} +
+\boldsymbol{\Lambda})^{-1}</code>.
+</p>
+<p>For structured correlation matrices (AR(1), exchangeable, banded), the
+perturbation <code class="reqn">\mathbf{V}^{-1} - \mathbf{I}</code> is sparse and the
+cross-partition coupling has low effective rank. In these cases the
+Woodbury-accelerated paths
+(<code>.get_B_gee_woodbury</code>,
+<code>.get_B_gee_glm_woodbury</code>) recover the partition-wise
+computational structure by decomposing the coupling into a
+block-diagonal correction plus a low-rank remainder, as described in the
+GLM Extension section. For dense or high-rank
+<code class="reqn">\mathbf{V}^{-1}</code>, the code falls back to the full whitened system
+(<code>.get_B_gee_gaussian</code>, <code>.get_B_gee_glm</code>).
+</p>
+
+
+
+<h4>GEE Deviance Monitoring</h4>
+
+<p>For non-Gaussian models with correlation, the deviance used for
+convergence monitoring is computed in the whitened space by
+<code>.bf_gee_deviance</code>. When the family supplies
+<code>custom_dev.resids</code>, the raw deviance residuals
+<code class="reqn">r_i = \mathrm{sign}(d_i)\sqrt{|d_i|}</code> are divided by
+<code class="reqn">\sqrt{w_i}</code> and pre=dmultiplied by
+<code class="reqn">\mathbf{V}_{\mathrm{perm}}^{-1/2}</code> before squaring and averaging:
+</p>
+<p style="text-align: center;"><code class="reqn">D_{\mathrm{GEE}} = \frac{1}{N}\left\|
+  \mathbf{V}_{\mathrm{perm}}^{-1/2}\,
+  \mathbf{w}^{-1/2}\mathbf{r}\right\|^{2},</code>
+</p>
+
+<p>where <code class="reqn">\mathbf{w}</code> is the vector of working weights at the current
+iterate, clamped below at <code class="reqn">\sqrt{\varepsilon_{\mathrm{mach}}}</code>. When
+only <code>dev.resids</code> is available, the function falls back to the
+standard mean deviance; otherwise it uses mean squared error.
+</p>
+
+
+
+<h4>REML Estimation of Correlation Parameters</h4>
+
+<p>Correlation parameters <code class="reqn">\boldsymbol{\theta}</code> are estimated by minimizing
+a negative restricted log-likelihood (REML) objective. The criterion
+implemented in <span class="pkg">lgspline</span> is a central-limit-theorem-based working
+approximation to a Laplace-style marginal likelihood criterion,
+applied here solely to correlation structure estimation rather than
+penalty parameter selection.
+Let <code class="reqn">\mathbf{D} = \mathrm{diag}(d_i)</code> be the observation weight matrix,
+<code class="reqn">\tilde{\mathbf{W}} = \mathrm{diag}(\tilde{w}_i)</code> the GLM working weight
+matrix at the current fitted values, <code class="reqn">\mathbf{V}</code> the correlation matrix
+parameterized by <code class="reqn">\boldsymbol{\rho}</code> (a vector on the unconstrained
+real line), and <code class="reqn">\tilde{\sigma}^{2}</code> the dispersion profiled at its
+restricted maximum likelihood estimate. The negative REML objective
+implemented in <span class="pkg">lgspline</span>, scaled by <code class="reqn">1/N</code>, is
+</p>
+<p style="text-align: center;"><code class="reqn">-\ell_{R}(\boldsymbol{\rho}) = \frac{1}{N}\!\left[
+  -\log|\mathbf{V}^{-1/2}|
+  + \frac{N}{2}\log\tilde{\sigma}^{2}
+  + \frac{1}{2\tilde{\sigma}^{2}}
+    (\mathbf{y} - \boldsymbol{\mu})^{\top}
+    \mathbf{D}\tilde{\mathbf{W}}^{-1}\mathbf{V}^{-1}
+    (\mathbf{y} - \boldsymbol{\mu})
+  + \frac{1}{2}\log|(\tilde{\sigma}^{2}\mathbf{U}\mathbf{G})^{-1}|^{+}
+\right],</code>
+</p>
+
+<p>where <code class="reqn">|\cdot|^{+}</code> denotes the generalized determinant (product of
+nonzero eigenvalues), and
+<code class="reqn">\boldsymbol{\mu} = g^{-1}(\mathbf{X}\tilde{\boldsymbol{\beta}})</code> are
+the fitted values on the response scale.
+</p>
+<p>Gradients with respect to correlation parameters are available in
+closed form for all built-in structures except Matern, which uses
+finite-difference approximation due to the complexity of differentiating
+the modified Bessel function <code class="reqn">K_{\nu}</code> with respect to <code class="reqn">\nu</code>. See
+<code>reml_grad_from_dV</code> for the full gradient derivation and
+notation. Custom analytic gradients can be supplied through <code>REML_grad</code>,
+and a fully custom criterion can replace REML through
+<code>custom_VhalfInv_loss</code>. The Toeplitz example in <code>lgspline</code>
+demonstrates how to supply custom correlation structures with user-defined
+gradient functions. Optimization over these working correlation parameters is
+then carried out by the same quasi-Newton engine used elsewhere in the
+package, with a finite-difference fallback when needed. In the user-facing interface, this
+machinery is activated through <code>correlation_structure</code>,
+<code>correlation_id</code>, <code>spacetime</code>, <code>VhalfInv</code>, <code>Vhalf</code>,
+<code>VhalfInv_fxn</code>, <code>Vhalf_fxn</code>, <code>VhalfInv_par_init</code>,
+<code>REML_grad</code>, <code>custom_VhalfInv_loss</code>, and
+<code>VhalfInv_logdet</code>.
+</p>
+<p>The gradient of the negative REML has three terms per parameter:
+</p>
+
+<ol>
+<li> <p><code class="reqn">\frac{1}{2}\mathrm{tr}(\mathbf{V}^{-1}\partial\mathbf{V}/\partial\theta_j)</code>:
+the log-determinant contribution.
+</p>
+</li>
+<li> <p><code class="reqn">-\frac{1}{2\tilde{\sigma}^{2}}\mathbf{r}^{\top}
+    (\partial\mathbf{V}/\partial\theta_j)\mathbf{r}</code>:
+the residual quadratic form contribution, where
+<code class="reqn">\mathbf{r} = \mathrm{diag}(\sqrt{d_i}/\sqrt{\tilde{w}_i})
+    \mathbf{V}^{-1/2}(\mathbf{y} - \boldsymbol{\mu})</code>.
+</p>
+</li>
+<li> <p><code class="reqn">-\frac{1}{2}\mathrm{tr}\!\left(\mathbf{M}^{+}\mathbf{X}_{*}^{\top}
+    \mathbf{V}^{-1}(\partial\mathbf{V}/\partial\theta_j)\mathbf{V}^{-1}
+    \tilde{\mathbf{W}}\mathbf{D}\mathbf{X}_{*}\right)</code>:
+the REML correction, where
+<code class="reqn">\mathbf{X}_{*} = \mathbf{X}\mathbf{U}</code> is the constrained design and
+<code class="reqn">\mathbf{M} = \mathbf{X}_{*}^{\top}\mathbf{V}^{-1}
+    \tilde{\mathbf{W}}\mathbf{D}\mathbf{X}_{*}
+    + \mathbf{U}^{\top}\boldsymbol{\Lambda}\mathbf{U}</code> is the projected
+penalized information.
+</p>
+</li></ol>
+
+<p>For each supported correlation family, the derivatives
+<code class="reqn">\partial\mathbf{V}/\partial\theta_j</code> are available in closed form,
+enabling analytic gradient computation for use with the quasi-Newton
+optimizer.
+</p>
+
+
+
+<h4>Connection to Standard Mixed Model REML</h4>
+
+<p>The quadratic penalty <code class="reqn">\boldsymbol{\Lambda}</code> acts as the inverse prior
+covariance of a Gaussian random effect on the spline coefficients, with
+the smoothing parameter satisfying <code class="reqn">\lambda = \tau^{2}/\sigma^{2}</code>;
+this is the same mixed model representation used by <span class="pkg">mgcv</span>, and
+Monte Carlo draws under the resulting Laplace-style approximation are
+available via <code>generate_posterior</code>. For Gaussian responses
+with identity link and no penalization, the implemented criterion
+coincides exactly with classical REML. For non-Gaussian responses, the
+criterion substitutes the Fisher information for the full penalized
+log-likelihood Hessian, exploiting the CLT approximation that
+<code class="reqn">\tilde{\mathbf{W}}^{-1/2}(\mathbf{y} - \boldsymbol{\mu})</code> is
+approximately Gaussian; this yields a method-of-moments style estimator
+for the correlation and variance parameters that depends only on
+mean-variance relationships through <code class="reqn">\mathbf{W}</code>, and therefore
+generalizes naturally to quasi-likelihood and other settings where a
+fully specified log-likelihood is unavailable. The REML correction term
+<code class="reqn">\log|(\tilde{\sigma}^{2}\mathbf{U}\mathbf{G})^{-1}|^{+}</code> uses a
+generalized log-determinant so that only nonzero eigenvalues contribute
+when rank deficiency arises from smoothness constraints or
+identifiability conditions in <code class="reqn">\mathbf{A}</code>. When
+<code class="reqn">\boldsymbol{\Lambda}</code> is full rank, the criterion coincides with
+the exact marginal likelihood from integrating out
+<code class="reqn">\boldsymbol{\beta}</code> under its Gaussian prior; when
+<code class="reqn">\boldsymbol{\Lambda}</code> is rank-deficient, unpenalized coefficients
+are projected out in the REML sense while penalized coefficients are
+integrated through their prior. During penalty tuning, the block-diagonal
+approximation is retained for GCV criteria and gradients; since GCV is
+rotation-invariant the practical effect on automatic selection is expected
+to be negligible, though this is not confirmed and the tuned penalties can
+always be overridden.
+</p>
+
+
+
+<h4>Built-In Correlation Structures</h4>
+
+<p>The package provides several built-in correlation structures for modeling
+spatial and temporal dependence. These are specified via
+<code>correlation_structure</code> with group membership in <code>correlation_id</code>
+and spatial or temporal coordinates in <code>spacetime</code> (an <code class="reqn">N</code>-row
+matrix). Exchangeable correlation does not require <code>spacetime</code>.
+</p>
+<p>All positive scale parameters are estimated on the log scale,
+with back-transform <code class="reqn">\exp(\cdot)</code>. Parameters constrained to
+<code class="reqn">(0, 1)</code> use a double-exponential back-transform of the form
+<code class="reqn">\exp(-\exp(\eta))</code>, so optimization still occurs on the
+unconstrained real line while the correlation remains bounded.
+</p>
+
+<dl>
+<dt>Exchangeable</dt><dd>
+<p>Aliases: <code>'exchangeable'</code>, <code>'cs'</code>, <code>'CS'</code>,
+<code>'compoundsymmetric'</code>, <code>'compound-symmetric'</code>.
+</p>
+<p>A constant correlation <code class="reqn">\nu</code> between any two observations within
+the same cluster. Parameterization: <code class="reqn">\nu = \exp(-\exp(\rho))</code>,
+so <code class="reqn">\nu \in (0, 1)</code>. Only positive within-cluster correlation is
+supported under this parameterization.
+</p>
+</dd>
+<dt>Spatial Exponential</dt><dd>
+<p>Aliases: <code>'spatial-exponential'</code>, <code>'spatialexponential'</code>,
+<code>'exp'</code>, <code>'exponential'</code>.
+</p>
+<p>Correlation decays exponentially with distance:
+<code class="reqn">\exp(-\omega d)</code> where <code class="reqn">d</code> is Euclidean distance and
+<code class="reqn">\omega &gt; 0</code>. Parameterization: <code class="reqn">\omega = \exp(\rho)</code>.
+Mathematically equivalent to the power correlation <code class="reqn">\theta^{d}</code>
+with <code class="reqn">\theta = e^{-\omega}</code>, but with better numerical properties
+during optimization.
+</p>
+</dd>
+<dt>AR(1)</dt><dd>
+<p>Aliases: <code>'ar1'</code>, <code>'ar(1)'</code>, <code>'AR(1)'</code>, <code>'AR1'</code>.
+</p>
+<p>Correlation depends on rank difference between observations:
+<code class="reqn">\nu^{r}</code> where <code class="reqn">r</code> is the rank difference within cluster.
+Parameterization: <code class="reqn">\nu = \exp(-\exp(\rho))</code>,
+so <code class="reqn">\nu \in (0, 1)</code>. Only positive autocorrelation is supported.
+</p>
+</dd>
+<dt>Gaussian / Squared Exponential</dt><dd>
+<p>Aliases: <code>'gaussian'</code>, <code>'rbf'</code>, <code>'squared-exponential'</code>.
+</p>
+<p>Smooth decay with squared distance:
+<code class="reqn">\exp(-d^{2}/(2\ell^{2}))</code> where <code class="reqn">\ell</code> is the length scale.
+Parameterization: <code class="reqn">\ell = \exp(\rho)</code>.
+</p>
+</dd>
+<dt>Spherical</dt><dd>
+<p>Aliases: <code>'spherical'</code>, <code>'Spherical'</code>, <code>'cubic'</code>,
+<code>'sphere'</code>.
+</p>
+<p>Polynomial decay with a hard cutoff at range <code class="reqn">r</code>:
+<code class="reqn">1 - 1.5(d/r) + 0.5(d/r)^{3}</code> for <code class="reqn">d \le r</code>, and <code class="reqn">0</code>
+otherwise. Parameterization: <code class="reqn">r = \exp(\rho)</code>.
+</p>
+</dd>
+<dt>Matern</dt><dd>
+<p>Aliases: <code>'matern'</code>, <code>'Matern'</code>.
+</p>
+<p>Flexible correlation with adjustable smoothness:
+<code class="reqn">(2^{1-\nu}/\Gamma(\nu))(\sqrt{2\nu}\,d/\ell)^{\nu}K_{\nu}(\sqrt{2\nu}\,d/\ell)</code>.
+Two parameters: length scale <code class="reqn">\ell = \exp(\rho_1)</code> and smoothness
+<code class="reqn">\nu = \exp(\rho_2)</code>. No analytical gradient is available for
+<code class="reqn">\nu</code> due to the difficulty of differentiating the modified Bessel
+function <code class="reqn">K_{\nu}</code> with respect to its order, so finite differences
+are used; this makes Matern slower and potentially less stable than
+other structures.
+</p>
+</dd>
+<dt>Gamma-Cosine</dt><dd>
+<p>Aliases: <code>'gamma-cosine'</code>, <code>'gammacosine'</code>,
+<code>'GammaCosine'</code>.
+</p>
+<p>Oscillatory dependence:
+<code class="reqn">(d^{\alpha-1}e^{-\gamma d})/(\Gamma(\alpha)/\gamma^{\alpha})\cdot\cos(\omega d)</code>.
+Three parameters: shape <code class="reqn">\alpha = \exp(\rho_1)</code>, rate
+<code class="reqn">\gamma = \exp(\rho_2)</code>, frequency <code class="reqn">\omega = \exp(\rho_3)</code>.
+Reduces to exponential when <code class="reqn">\alpha = 1</code> and <code class="reqn">\omega \approx 0</code>.
+</p>
+</dd>
+<dt>Gaussian-Cosine</dt><dd>
+<p>Aliases: <code>'gaussian-cosine'</code>, <code>'gaussiancosine'</code>,
+<code>'GaussianCosine'</code>.
+</p>
+<p>Smooth oscillatory correlation:
+<code class="reqn">\exp(-d^{2}/(2\ell^{2}))\cdot\cos(\omega d)</code>.
+Two parameters: length scale <code class="reqn">\ell = \exp(\rho_1)</code> and frequency
+<code class="reqn">\omega = \exp(\rho_2)</code>. Reduces to Gaussian when
+<code class="reqn">\omega \approx 0</code>.
+</p>
+</dd>
+</dl>
+
+
+
+
+<h4>Interpreting Estimated Correlation Parameters</h4>
+
+<p>Correlation parameters are estimated on transformed scales; they must be
+back-transformed for interpretation. When <code>confint.lgspline</code> is called and the
+inverse Hessian from BFGS is available, confidence intervals are returned
+on the untransformed (working) scale and should be back-transformed as
+described in the examples for <code>lgspline</code>.
+</p>
+
+
+
+<h4>Custom Correlation Structures</h4>
+
+<p>Custom correlation structures can be specified through:
+</p>
+
+<ul>
+<li> <p><code>VhalfInv_fxn</code>: Creates <code class="reqn">\mathbf{V}^{-1/2}</code>.
+</p>
+</li>
+<li> <p><code>Vhalf_fxn</code>: Creates <code class="reqn">\mathbf{V}^{1/2}</code>. When omitted,
+the code computes it by explicit inversion of <code>VhalfInv</code>.
+</p>
+</li>
+<li> <p><code>REML_grad</code>: Provides the analytical gradient of the REML
+objective.
+</p>
+</li>
+<li> <p><code>VhalfInv_logdet</code>: Efficient log-determinant computation.
+</p>
+</li>
+<li> <p><code>custom_VhalfInv_loss</code>: Replaces the REML objective entirely.
+</p>
+</li></ul>
+
+<p>These functions enter <code>lgspline</code> through
+<code>correlation_structure</code>, <code>VhalfInv_fxn</code>, <code>Vhalf_fxn</code>,
+<code>REML_grad</code>, and <code>custom_VhalfInv_loss</code>, and the fitted object
+retains the resulting correlation machinery in components such as
+<code>VhalfInv_fxn</code>, <code>Vhalf_fxn</code>, and
+<code>VhalfInv_params_estimates</code>. When <code>VhalfInv</code> is supplied but
+<code>Vhalf</code> is not, <code>Vhalf</code> is computed unconditionally as the inverse
+of <code>VhalfInv</code> for all family/link combinations, since both
+<code>get_B</code> and <code>blockfit_solve</code> require it for GEE
+estimation.
+</p>
+
+
+
+<h3>Variance and Dispersion Estimation</h3>
+
+<p>Once the constrained estimate has been obtained, the next questions are how
+much flexibility the fitted model effectively used and how uncertainty should
+be propagated through the same constrained geometry. The quantities in this
+section are therefore all built on the projected information matrices from
+the previous sections.
+</p>
+
+
+<h4>Effective Degrees of Freedom and Dispersion</h4>
+
+<p>The effective degrees of freedom is the trace of the hat matrix. In the
+Gaussian identity case with observation weights and correlation, the fitted
+linear operator is built from the dense GLS analogue
+<code class="reqn">\mathbf{G}_{\mathrm{correct}}</code> and can be written schematically as
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{H} =
+  \mathbf{V}^{-1/2}(\mathbf{W}\mathbf{D})^{1/2}
+  \mathbf{X}\mathbf{U}\mathbf{G}_{\mathrm{correct}}\mathbf{X}^{\top}
+  (\mathbf{W}\mathbf{D})^{1/2}\mathbf{V}^{-1/2},</code>
+</p>
+
+<p>where for Gaussian identity <code class="reqn">\mathbf{W} = \mathbf{I}</code>. In the
+no-correlation Gaussian case this reduces to the familiar
+<code class="reqn">\mathbf{H} = \mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^{\top}\mathbf{D}</code>.
+</p>
+<p>For Gaussian identity fits, the dispersion estimate is computed as a
+weighted mean squared residual, optionally scaled by
+<code class="reqn">N/(N - \mathrm{tr}(\mathbf{H}))</code> when
+<code>unbias_dispersion = TRUE</code>:
+</p>
+<p style="text-align: center;"><code class="reqn">\tilde{\sigma}^{2} =
+  \frac{1}{N - \mathrm{tr}(\mathbf{H})}\|\mathbf{y} - \mathbf{\tilde{y}}_i \|^{2}.</code>
+</p>
+
+<p>More generally with weights, a correlation structure and non-linear link function:
+</p>
+<p style="text-align: center;"><code class="reqn">\tilde{\sigma}^{2} =
+  \frac{1}{N - \mathrm{tr}(\mathbf{H})}\| \mathbf{V}^{-1/2}\mathbf{W}^{-1/2}\mathbf{D}^{1/2}(\mathbf{y} - \tilde{\mathbf{y}})\|^{2}.</code>
+</p>
+
+<p>This estimated dispersion is returned as <code>sigmasq_tilde</code>, and the
+corresponding effective degrees of freedom trace is returned as
+<code>trace_XUGX</code>. For non-Gaussian families, the fitting code delegates
+dispersion estimation to <code>dispersion_function</code>; thus the package does
+not assume a single closed-form Pearson-style formula outside the Gaussian
+identity setting. The hat-matrix trace itself is assembled by
+<code>compute_trace_H</code> in the dense correlation-aware case and by the
+same blockwise products summarized by <code>trace_XUGX</code> in the simpler
+no-correlation paths.
+A concrete built-in non-Gaussian example is the Weibull AFT path, which pairs
+<code>weibull_family</code> with <code>weibull_dispersion_function</code>,
+<code>weibull_glm_weight_function</code>, and
+<code>weibull_schur_correction</code>.
+Users who want these quantities available for downstream inference should
+keep <code>estimate_dispersion = TRUE</code> and <code>return_varcovmat = TRUE</code>
+(the defaults), since <code>wald_univariate</code>,
+<code>confint.lgspline</code>, and the prediction-standard-error path in
+<code>predict.lgspline</code> all rely on the post-fit dispersion and
+covariance components documented here.
+</p>
+
+
+
+<h4>Variance-Covariance Matrix</h4>
+
+<p>The variance-covariance matrix of <code class="reqn">\tilde{\boldsymbol{\beta}}</code> is
+estimated as:
+</p>
+<p style="text-align: center;"><code class="reqn">\mathrm{Var}(\tilde{\boldsymbol{\beta}}) = \tilde{\sigma}^{2}(\mathbf{U}\mathbf{G}^{1/2})(\mathbf{U}\mathbf{G}^{1/2})^{\top}</code>
+</p>
+
+<p>using the outer-product form for numerical stability. The result is returned
+as <code>varcovmat</code> when <code>return_varcovmat = TRUE</code>. The algebraically
+equivalent expression <code class="reqn">\tilde{\sigma}^{2}\mathbf{U}\mathbf{G}</code> is not
+used because <code class="reqn">\mathbf{G}</code> is only positive semi-definite when the
+penalty matrix <code class="reqn">\boldsymbol{\Lambda}</code> has zero eigenvalues (e.g., the
+intercept and linear terms under the smoothing spline penalty when
+<code>flat_ridge_penalty</code> = 0), which can introduce negative diagonal
+entries in finite precision arithmetic. The outer-product form also
+guarantees symmetry.
+</p>
+<p>This is the Bayesian posterior covariance, treating the penalty as a
+Gaussian prior on the coefficients. When <code>exact_varcovmat = TRUE</code>,
+a frequentist correction is additionally computed:
+</p>
+<p style="text-align: center;"><code class="reqn">\mathrm{Var}_{\mathrm{exact}}(\tilde{\boldsymbol{\beta}}) =
+  \tilde{\sigma^2}\mathbf{U}\mathbf{G}^{1/2}(\mathbf{X}^{\top}\mathbf{W}\mathbf{D}\mathbf{V}^{-1}\mathbf{X})\mathbf{G}^{1/2}\mathbf{U}^{\top} =
+  \tilde{\sigma}^{2}\mathbf{U}\mathbf{G}\mathbf{U}^{\top}
+  - \tilde{\sigma}^{2}\mathbf{U}\mathbf{G}\boldsymbol{\Lambda}\mathbf{G}\mathbf{U}^{\top}.</code>
+</p>
+
+<p>The first term is the Bayesian posterior covariance; the second is a frequentist
+correction such that for Gaussian identity link (with or without correlation),
+this is the exact variance-covariance matrix of the constrained estimator.
+</p>
+<p>When a correlation structure is present (<code>VhalfInv</code> non-<code>NULL</code>),
+the block-diagonal <code class="reqn">\mathbf{G}</code> is replaced by the full weighted GLS
+analogue
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{G}_{\mathrm{correct}} =
+  \left(\mathbf{X}^{\top}\mathbf{W}\mathbf{D}\mathbf{V}^{-1}\mathbf{X}
+  + \boldsymbol{\Lambda}\right)^{-1},</code>
+</p>
+
+<p>where <code class="reqn">\mathbf{W} = \mathbf{I}</code> in the Gaussian identity case.
+This dense matrix is what enters the correlation-aware <code class="reqn">\mathbf{U}</code>,
+<code class="reqn">\mathrm{Var}(\tilde{\boldsymbol{\beta}})</code>, and
+<code class="reqn">\mathrm{Var}_{\mathrm{exact}}(\tilde{\boldsymbol{\beta}})</code>
+computations.
+</p>
+<p>In user-facing terms, <code>return_varcovmat</code> controls whether this matrix is
+stored at all, while <code>exact_varcovmat</code> switches between the default
+posterior/Laplace approximation and the exact frequentist correction in the
+Gaussian-identity setting. The stored covariance is what powers
+<code>wald_univariate</code>, <code>confint.lgspline</code>, and
+<code>se.fit = TRUE</code> in <code>predict.lgspline</code>; the
+<code>critical_value</code> argument supplied at fit time is carried forward as the
+default cutoff for those interval-producing helpers.
+</p>
+
+
+
+<h4>Recomputation of G at Convergence</h4>
+
+<p>At the final iterate, <code class="reqn">\mathbf{G}</code> is recomputed to reflect the
+converged working weights and Schur corrections. The implementation
+computes the weighted design
+<code class="reqn">\mathbf{X}_{w}^{(k)} = \mathbf{X}_k \cdot \mathrm{diag}(\sqrt{\mathbf{w}_k})</code>,
+forms the weighted Gram matrix
+<code class="reqn">\mathbf{X}_{w}^{(k)\top}\mathbf{X}_{w}^{(k)}</code>, adds the Schur
+correction, and performs eigendecomposition via
+<code>compute_G_eigen</code> to obtain <code class="reqn">\mathbf{G}_k</code>,
+<code class="reqn">\mathbf{G}_k^{1/2}</code>, and <code class="reqn">\mathbf{G}_k^{-1/2}</code>. The relationship
+<code class="reqn">\mathbf{G}_k = \mathbf{G}_k^{1/2}(\mathbf{G}_k^{1/2})^{\top}</code> is
+enforced exactly by construction, and the fitted object can retain these as
+<code>G</code> and <code>Ghalf</code> when <code>return_G = TRUE</code> and
+<code>return_Ghalf = TRUE</code>. The square-root factors are numerically
+stabilized through the helper routines <code>matsqrt</code> and
+<code>matinvsqrt</code>, which are also used elsewhere in the package when
+dense analogues of <code class="reqn">\mathbf{G}^{1/2}</code> or <code class="reqn">\mathbf{G}^{-1/2}</code> are
+required.
+</p>
+
+
+
+<h3>Bayesian Interpretation</h3>
+
+<p>The penalty has a natural Gaussian-prior interpretation, so once the
+constrained estimator and its covariance are available, Bayesian-style
+posterior simulation follows almost immediately. This section records the
+interpretation that is already implicit in the fitted object and in the
+package's posterior simulation helpers.
+</p>
+<p>A Bayesian interpretation follows from viewing the penalty as a Gaussian
+prior on the coefficients. Conditional on the fitted smoothing parameters,
+the code samples on the coefficient scale from
+</p>
+<p style="text-align: center;"><code class="reqn">\boldsymbol{\beta}^{(m)} =
+  \tilde{\boldsymbol{\beta}} +
+  \sqrt{\tilde{\sigma}^{2}},\mathbf{U}\mathbf{G}^{1/2}\mathbf{z}^{(m)},
+  \qquad \mathbf{z}^{(m)} \sim \mathcal{N}(\mathbf{0}, \mathbf{I}).</code>
+</p>
+
+<p>The coefficients are then back-transformed to the original response and
+predictor scales.
+</p>
+<p>When inequality constraints are absent, these draws are i.i.d. Gaussian
+posterior draws around the fitted mode.
+The underlying coefficient-draw closure also contains an elliptical slice
+sampling route for active inequality constraints, using the same covariance
+factor to keep retained draws in the feasible region.
+</p>
+<p>At the implementation level, standard Gaussian posterior draws may place
+positive mass on the infeasible region, so the constrained-draw closure
+instead targets the truncated posterior
+</p>
+<p style="text-align: center;"><code class="reqn">\pi(\boldsymbol{\beta} \mid \mathbf{y}) \propto
+  \exp\!\left(-\frac{1}{2}(\boldsymbol{\beta} - \tilde{\boldsymbol{\beta}})^{\top}
+  \mathbf{G}^{-1}(\boldsymbol{\beta} - \tilde{\boldsymbol{\beta}})\right)
+  \mathbf{1}(\mathbf{C}^{\top}\boldsymbol{\beta} \succeq \mathbf{c}),</code>
+</p>
+
+<p>yielding credible intervals that respect the constraint boundaries.
+The public <code>generate_posterior</code> wrapper forwards
+<code>enforce_qp_constraints</code> to the stored constrained-draw closure, so
+constrained draws can be requested directly from the user-facing interface.
+When a working correlation structure is present, the companion helper
+<code>generate_posterior_correlation</code> extends this idea by propagating
+uncertainty in the fitted correlation parameters through the same
+<code>VhalfInv_fxn</code>/<code>Vhalf_fxn</code> machinery described in the correlation
+section, rather than conditioning only on fixed covariance parameters. Correlation
+parameters are drawn from a multivariate normal distribution centered about their estimates
+with the inverse approxiamte BFGS Hessian of the REML optimization problem
+<code>VhalfInv_params_vcov</code> used by default (or a custom alternative as
+supplied to the argument <code>correlation_param_vcov_sc</code>).
+</p>
+
+
+<h3>Inequality Constraints via Sequential Quadratic Programming</h3>
+
+
+
+<h4>Overview</h4>
+
+<p>Inequality constraints of the form
+<code class="reqn">\mathbf{C}^{\top}\boldsymbol{\beta} \succeq \mathbf{c}</code> handle
+shape restrictions such as monotonicity, convexity, or boundedness. In
+the monomial basis, these are linear in <code class="reqn">\boldsymbol{\beta}</code>.
+Monotonicity at a grid of points requires the first derivative polynomial
+to be non-negative there; convexity requires the second derivative to be
+non-negative; range constraints bound the fitted values directly. All of
+these translate to linear inequality constraints on the coefficient
+vector.
+</p>
+<p>The inequality pieces are assembled by <code>process_qp</code>, which
+returns the <code>qp_Amat</code>, <code>qp_bvec</code>, and <code>qp_meq</code> objects
+passed to <code>solve.QP</code>, together with a
+<code>quadprog</code> flag indicating whether any inequality constraints are
+active. For derivative-sign constraints, <code>process_qp</code> calls
+<code>.build_deriv_qp</code>, which uses
+<code>make_derivative_matrix</code> on the expansion-standardized
+design and maps the derivative rows into the full <code class="reqn">P</code>-dimensional
+coefficient space partition by partition.
+</p>
+
+
+
+<h4>Partition-Wise Active-Set Method</h4>
+
+<p>The sparsity pattern of <code class="reqn">\mathbf{C}</code> is inspected automatically by
+<code>.detect_qp_global</code> (equivalently
+<code>.solver_detect_qp_global</code>). When every column of
+<code class="reqn">\mathbf{C}</code> has nonzero entries in only a single partition block,
+the constraint system is block-separable and an active-set method can
+replace the dense QP.
+</p>
+<p>At each iteration, the active set <code class="reqn">\mathcal{A}</code> (constraints
+satisfied at equality) is appended to <code class="reqn">\mathbf{A}</code> as additional
+equality constraints:
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{A}_{\mathrm{aug}} = [\mathbf{A} \mid
+  \mathbf{C}_{\mathcal{A}}].</code>
+</p>
+
+<p>The constrained estimate is obtained by the same OLS projection with
+<code class="reqn">\mathbf{A}_{\mathrm{aug}}</code> in place of <code class="reqn">\mathbf{A}</code>, and
+since <code class="reqn">\mathbf{A}_{\mathrm{aug}}</code> retains block-diagonal
+compatibility, all operations remain partition-wise.
+</p>
+<p>The active set is updated by checking primal feasibility (adding the
+most-violated inactive constraint) and dual feasibility (dropping the
+active constraint with the most negative Lagrange multiplier) until the
+KKT conditions are satisfied. Lagrange multipliers for active
+inequalities are recovered from the OLS fit used in the Lagrangian
+projection: the fitted coefficients on
+<code class="reqn">\mathbf{X}^* = \mathbf{G}^{1/2}\mathbf{A}_{\mathrm{aug}}</code> give
+the multipliers up to sign. Implemented in
+<code>.active_set_refine</code> and
+<code>.check_kkt_partitionwise</code>.
+</p>
+<p>When any column of <code class="reqn">\mathbf{C}</code> spans multiple partition blocks
+(for example, cross-knot monotonicity constraints), the block-diagonal
+structure is broken and the dense SQP approach is required. The
+selection is made automatically. If the active-set method does not
+converge within its iteration limit (default 50), the code falls back
+to dense SQP as well.
+</p>
+
+
+
+<h4>Dense SQP Iteration</h4>
+
+<p>The dense SQP approach, implemented in <code>.qp_refine</code>,
+solves a sequence of quadratic subproblems approximating the penalized
+log-likelihood. At each iteration <code class="reqn">s</code>:
+</p>
+
+<ol>
+<li><p> Compute the information matrix
+<code class="reqn">\mathbf{M}^{(s)} =
+    \mathbf{X}^{\top}\mathbf{W}^{(s)}\mathbf{X} +
+    \boldsymbol{\Lambda}_{\mathrm{block}} + \mathbf{S}^{(s)}</code>,
+where <code class="reqn">\mathbf{S}^{(s)}</code> is the Schur complement correction.
+</p>
+</li>
+<li><p> Compute the score vector via <code>qp_score_function</code>.
+</p>
+</li>
+<li><p> Solve the QP with <code>solve.QP</code>, where the
+combined constraint matrix is
+<code class="reqn">[\mathbf{A} \mid \mathbf{C}]</code> with the first <code class="reqn">R</code> columns
+treated as equalities.
+</p>
+</li>
+<li><p> Apply a damped update
+<code class="reqn">\boldsymbol{\beta}^{(s+1)} =
+    (1 - \alpha)\boldsymbol{\beta}^{(s)} +
+    \alpha\boldsymbol{\beta}_{\mathrm{QP}}</code>, with
+<code class="reqn">\alpha = 2^{-d}</code> and <code class="reqn">d</code> incremented upon deviance
+increase.
+</p>
+</li></ol>
+
+<p>A rescaling factor
+<code class="reqn">\mathrm{sc} = \sqrt{\mathrm{mean}(|\mathbf{M}^{(s)}|)}</code> is applied
+to the Hessian and linear term before calling the QP solver. The
+equality-constrained estimate from the Lagrangian projection serves as
+a warm start. The <code>qp_score_function</code> defaults to the canonical GLM
+score
+<code class="reqn">\mathbf{X}^{\top}(\mathbf{y} - \boldsymbol{\mu})</code>; for custom
+models a different score can be supplied.
+</p>
+
+
+
+<h4>Active Set and Lagrange Multipliers</h4>
+
+<p>The active set at the solution identifies binding inequality constraints.
+The Lagrange multipliers quantify the cost of each: a multiplier of zero
+means the constraint is not binding. The implementation stores active
+constraint indices, the corresponding submatrix of the constraint matrix,
+and the multiplier vector in the <code>qp_info</code> list returned alongside
+coefficient estimates, with components <code>lagrangian</code>, <code>iact</code>,
+and <code>Amat_active</code>. When
+<code>return_lagrange_multipliers = TRUE</code>, the fitted object also stores
+the final multiplier vector directly as <code>lagrange_multipliers</code>.
+</p>
+<p>The original assembled inequality data are retained in the fitted
+object's <code>quadprog_list</code> component (containing <code>qp_Amat</code>,
+<code>qp_bvec</code>, and <code>qp_meq</code> from <code>process_qp</code>) so
+the final active set can be interpreted relative to the full
+specification. The final <code class="reqn">\mathbf{U}</code> used in constructing the
+posterior variance-covariance matrix is built from both the equality
+constraints and the active inequality constraints at the solution.
+</p>
+
+
+
+<h4>Built-In Constraints</h4>
+
+<p>Built-in inequality constraints include:
+</p>
+
+<ul>
+<li><p> Monotonicity: <code>qp_monotonic_increase</code>,
+<code>qp_monotonic_decrease</code>. Enforced by requiring consecutive
+fitted values to be non-decreasing (or non-increasing):
+<code class="reqn">(\mathbf{x}_i - \mathbf{x}_{i-1})^{\top}\boldsymbol{\beta}
+    \geq 0</code>. These are constructed by <code>process_qp</code> from
+the partition-stacked block design reordered to observation order.
+</p>
+</li>
+<li><p> Derivative sign: <code>qp_positive_derivative</code>,
+<code>qp_negative_derivative</code>. Enforced through the
+first-derivative design matrix from
+<code>make_derivative_matrix</code>. May be <code>TRUE</code>/<code>FALSE</code>
+or a character/integer vector selecting specific predictors.
+</p>
+</li>
+<li><p> Second-derivative sign: <code>qp_positive_2ndderivative</code>,
+<code>qp_negative_2ndderivative</code>. Same construction using the
+second-derivative design matrix.
+</p>
+</li>
+<li><p> Response range: <code>qp_range_lower</code>, <code>qp_range_upper</code>.
+Bounds on the linear predictor; for non-identity links, the bounds
+are transformed to the link scale inside <code>process_qp</code>.
+</p>
+</li>
+<li><p> Custom constraints via <code>qp_Amat_fxn</code>, <code>qp_bvec_fxn</code>,
+and <code>qp_meq_fxn</code>, which receive the design matrix structure
+and return the constraint matrix, bound vector, and number of
+equalities. These are commonly paired with a custom
+<code>qp_score_function</code> when the quadratic approximation uses a
+non-default likelihood. The low-level objects <code>qp_Amat</code>,
+<code>qp_bvec</code>, and <code>qp_meq</code> remain documented in
+<code>lgspline</code> but in the current implementation serve as
+activation markers rather than being merged into the constraint set
+assembled by <code>process_qp</code>.
+</p>
+</li></ul>
+
+<p>All constraints can be thinned to a user-specified subset of rows via
+<code>qp_observations</code>, which <code>process_qp</code> applies before
+assembly.
+</p>
+
+
+
+<h3>Blockfit Backfitting for Linear Non-Interactive Effects</h3>
+
+
+
+<h4>Motivation</h4>
+
+<p>When a model contains both spline terms (receiving <code class="reqn">K+1</code>
+partition-specific coefficient vectors constrained to smoothness) and
+non-interactive linear terms (&ldquo;flat&rdquo; terms, specified via
+<code>just_linear_without_interactions</code>, receiving a single shared
+coefficient vector <code class="reqn">\mathbf{v}</code> across all partitions), the standard
+solver carries <code class="reqn">K+1</code> copies of <code class="reqn">\mathbf{v}</code> linked by equality
+constraints. Backfitting avoids this inflation by solving a
+lower-dimensional problem at each step. Write the partition-<code class="reqn">k</code>
+design as
+<code class="reqn">\mathbf{X}_k = [\mathbf{Z}_k \mid
+\mathbf{X}_{\mathrm{flat}}^{(k)}]</code>, where <code class="reqn">\mathbf{Z}_k</code> contains
+the spline columns and <code class="reqn">\mathbf{X}_{\mathrm{flat}}^{(k)}</code> the flat
+columns. This is invoked when <code>blockfit = TRUE</code>, flat columns are
+non-empty, and <code class="reqn">K &gt; 0</code>.
+</p>
+<p>The design, penalty, and constraint matrices are split into spline and
+flat components by <code>.bf_split_components</code>, which extracts
+spline rows from <code class="reqn">\mathbf{A}</code>, drops null columns, rank-reduces via
+QR, and detects mixed constraints (columns of <code class="reqn">\mathbf{A}</code> with
+nonzero entries on both spline and flat rows).
+</p>
+
+
+
+<h4>Block-Coordinate Descent</h4>
+
+<p><strong>Spline step.</strong> Holding <code class="reqn">\mathbf{v}</code> fixed, the code forms
+the adjusted response
+<code class="reqn">\mathbf{y}_k - \mathbf{X}_{\mathrm{flat}}^{(k)}\mathbf{v}</code> and
+applies the spline-only Lagrangian projection via
+<code>.bf_lagrangian_project</code>:
+</p>
+<p style="text-align: center;"><code class="reqn">\tilde{\boldsymbol{\beta}}_{\mathrm{spline}}^{(k)} =
+  \mathbf{U}_{\mathrm{spline}}\mathbf{G}_{\mathrm{spline}}
+  \mathbf{Z}_k^{\top}(\mathbf{y}_k -
+  \mathbf{X}_{\mathrm{flat}}^{(k)}\mathbf{v}).</code>
+</p>
+
+<p><strong>Flat step.</strong> Holding spline coefficients fixed, the shared flat
+vector is updated by pooled penalized regression on residuals:
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{v} = \left(\sum_{k=0}^{K}
+  \mathbf{X}_{\mathrm{flat}}^{(k)\top}
+  \mathbf{X}_{\mathrm{flat}}^{(k)} +
+  \boldsymbol{\Lambda}_{\mathrm{flat}}\right)^{-1}
+  \sum_{k=0}^{K}
+  \mathbf{X}_{\mathrm{flat}}^{(k)\top}
+  (\mathbf{y}_k - \mathbf{Z}_k
+  \tilde{\boldsymbol{\beta}}_{\mathrm{spline}}^{(k)}).</code>
+</p>
+
+<p>When the constraint matrix <code class="reqn">\mathbf{A}</code> has mixed columns (nonzero
+entries on both spline and flat rows), the flat update instead solves a
+KKT system enforcing the residual equality constraint
+<code class="reqn">\mathbf{A}_{\mathrm{flat}}^{\top}\mathbf{v} = \mathbf{c} -
+\mathbf{A}_{\mathrm{spline}}^{\top}
+\tilde{\boldsymbol{\beta}}_{\mathrm{spline}}</code>
+via <code>.bf_constrained_flat_update</code>.
+</p>
+<p>Convergence is checked using the maximum absolute change across both
+spline and flat coefficients. In the weighted inner loop used by the GLM
+solvers, the flat-block change alone determines stopping.
+</p>
+
+
+
+<h4>Four Estimation Cases</h4>
+
+<p><code>blockfit_solve</code> dispatches to one of four paths.
+</p>
+<p><strong>Case (a): Gaussian identity + GEE</strong>
+(<code>.bf_case_gauss_gee</code>).
+Whitening destroys block-diagonal structure, so the code skips
+backfitting and performs the same full-system Gaussian GEE projection
+used by <code>get_B</code> Path 1a. The result is split back into
+spline and flat components for downstream assembly.
+</p>
+<p><strong>Case (b): Gaussian identity, no correlation</strong>
+(<code>.bf_case_gauss_no_corr</code>).
+Standard block-coordinate descent as described above. The spline-only
+<code class="reqn">\mathbf{G}_{\mathrm{spline}}</code> factors are precomputed once, and the
+pooled flat penalized inverse is reused across iterations.
+</p>
+<p><strong>Case (c): GLM + GEE</strong>
+(<code>.bf_case_glm_gee</code>).
+Two stages. Stage 1 forms a warm start by running damped Newton-Raphson
+on the unwhitened working response: each outer iteration computes
+working responses and weights at the current linear predictor, then
+calls <code>.bf_inner_weighted</code> for the inner backfitting loop.
+Stage 2 refines the warm start on the full whitened system using the
+damped SQP loop (<code>.bf_sqp_loop</code>), replicating the approach
+used by <code>.get_B_gee_glm</code>.
+</p>
+<p><strong>Case (d): GLM without GEE</strong>
+(<code>.bf_case_glm_no_corr</code>).
+A damped Newton-Raphson outer loop updates working responses and weights,
+while each inner iteration alternates between weighted spline and
+weighted flat updates via <code>.bf_inner_weighted</code>. Deviance is
+monitored across outer iterations for convergence and damping.
+</p>
+
+
+
+<h4>Inequality Constraints and Reassembly</h4>
+
+<p>Because flat coefficients are shared by construction, the corresponding
+equality constraints are satisfied exactly. Smoothness constraints on the
+spline block are enforced by the spline-only Lagrangian projection.
+After backfitting convergence, inequality constraints are enforced via
+the same partition-wise active-set or dense SQP refinement used by
+<code>get_B</code>. The method is selected automatically by
+<code>.solver_detect_qp_global</code>: block-separable constraints use the
+active-set method through <code>.active_set_refine</code>, while
+cross-partition constraints trigger the dense SQP loop through
+<code>.bf_sqp_loop</code>. For GEE (Case c), inequality handling
+occurs inside Stage 2 on the whitened system.
+</p>
+<p>After convergence, the shared flat vector <code class="reqn">\mathbf{v}</code> is copied
+into each partition's coefficient vector, yielding
+<code class="reqn">\boldsymbol{\beta}_k =
+[\tilde{\boldsymbol{\beta}}_{\mathrm{spline}}^{(k)\top},
+\mathbf{v}^{\top}]^{\top}</code> for compatibility with downstream inference.
+If <code>blockfit_solve</code> throws an error, a warning is issued
+and the code falls back to <code>get_B</code>.
+</p>
+
+
+
+<h3>Knot Selection and Partitioning</h3>
+
+<p>The topic of knot selection is not the main focus of the package, but the
+partition structure is central because every later design matrix, penalty,
+and smoothness constraint depends on it. The defaults in <span class="pkg">lgspline</span> are
+therefore meant to be practical and transparent rather than theoretically
+final.
+</p>
+
+
+<h4>Univariate Case</h4>
+
+<p>For a single predictor, the default partitioning is now handled by
+<code>make_partitions</code> in the same <code class="reqn">k</code>-means framework used more
+generally: <code class="reqn">K+1</code> centers are fit on an internally standardized copy
+of the predictor, controlled by <code>standardize_predictors_for_knots</code>, and
+then returned on the raw scale. Custom knots can still be supplied via
+<code>custom_knots</code>, in which case partition assignment is built directly
+from those raw-scale breakpoints. The default number of knots <code class="reqn">K</code> is
+chosen adaptively based on <code class="reqn">N</code>, <code class="reqn">p</code>, <code class="reqn">q</code>, and the GLM family.
+For multivariate fits, the resulting partition metadata are returned as
+<code>make_partition_list</code> and can be re-used in later calls to
+<code>lgspline</code>. This is particularly useful when one wants to hold
+the partition geometry fixed across repeated fits, for example while varying
+penalties, families, or correlation structures.
+</p>
+
+
+
+<h4>Multivariate Case</h4>
+
+<p>For multiple predictors, <code class="reqn">K+1</code> cluster centers are identified by
+<code class="reqn">k</code>-means on an internally standardized predictor matrix via
+<code>make_partitions</code>. This is the partitioning mechanism used to
+determine the multivariate spline regions; see MacQueen (1967) for the
+classical clustering formulation and Kisi et al. (2025) for a recent applied
+example of <code class="reqn">k</code>-means-driven partitioning in a nonlinear prediction
+setting. Midpoints between neighboring centers
+(those whose midpoint  does not fall into a third cluster) serve as knot
+locations. Observations are assigned to the nearest cluster center using
+<code>get.knnx</code>, and the returned centers and knots are on
+the original predictor scale. The resulting partition structure is a type
+of Voronoi diagram and is stored in the fitted object as
+<code>make_partition_list</code>. The <code>do_not_cluster_on_these</code> argument can
+exclude certain predictors from clustering (e.g., a treatment indicator that
+should not drive partitioning). The lower-level clustering behavior can be
+further controlled by <code>cluster_args</code> and <code>neighbor_tolerance</code>,
+while <code>cluster_on_indicators</code> determines whether binary predictors are
+allowed to influence the partition geometry at all.
+</p>
+
+
+
+<h4>Standardizing Predictors</h4>
+
+<p>Higher-order polynomial terms can dramatically inflate or deflate the
+magnitude of basis expansions, introducing numerical instability. All
+polynomial basis expansions are scaled by
+<code class="reqn">q_{0.69} - q_{0.31}</code>, where <code class="reqn">q_{\zeta}</code> is the <code class="reqn">\zeta</code>-th
+quantile of the expansion. For a standard normal distribution this quantity
+is approximately 1, so the scaling is close to one standard deviation for
+symmetric distributions. This fitting-stage rescaling is controlled by
+<code>standardize_expansions_for_fitting</code>, while knot construction is
+controlled separately by <code>standardize_predictors_for_knots</code>. The same
+scaling is applied to the constraint matrix to maintain smoothness, and
+coefficients are back-transformed to the original scale after fitting.
+</p>
+
+
+
+<h3>Smoothing Spline Penalty</h3>
+
+
+
+<h4>Penalty Construction</h4>
+
+<p>The penalty matrix <code class="reqn">\boldsymbol{\Lambda}_s</code> penalizes the integrated
+squared total curvature of the fitted function over the observed predictor
+ranges. This is the step that makes the piecewise polynomial fit genuinely
+behave like a smoothing spline rather than merely a constrained regression
+spline. The package computes this penalty directly from the monomial
+structure of the basis rather than by appealing to a pre-tabulated spline
+basis. For a single partition <code class="reqn">k</code> with basis expansion
+<code class="reqn">\mathbf{x}_k = (\phi_1(\mathbf{t}), \ldots, \phi_p(\mathbf{t}))^{\top}</code>
+where each <code class="reqn">\phi_i(\mathbf{t}) = \prod_{j=1}^{q} t_j^{\alpha_{ij}}</code>
+is a multivariate monomial:
+</p>
+<p style="text-align: center;"><code class="reqn">\boldsymbol{\beta}_k^{\top}\boldsymbol{\Lambda}_s\boldsymbol{\beta}_k
+  = \int_{\mathbf{a}}^{\mathbf{b}}
+    \|\tilde{f}_k''(\mathbf{t})\|^{2}\,d\mathbf{t},</code>
+</p>
+
+<p>where <code class="reqn">\mathbf{a}</code> and <code class="reqn">\mathbf{b}</code> are the observed predictor
+minimums and maximums (computed globally from the data, not
+partition-specific), and
+<code class="reqn">\tilde{f}_k(\mathbf{t}) = \mathbf{x}_k^{\top}\boldsymbol{\beta}_k</code>
+is the fitted function for partition <code class="reqn">\mathcal{P}_k</code>.
+</p>
+<p><strong>Total curvature operator.</strong>
+The integrated squared second derivative decomposes into <code class="reqn">q</code>
+curvature operators, one per predictor. For predictor <code class="reqn">v</code>, the
+curvature operator <code class="reqn">D_v</code> is defined as
+</p>
+<p style="text-align: center;"><code class="reqn">D_v = \frac{\partial^{2}}{\partial t_v^{2}}
+  + \sum_{s \neq v}\frac{\partial^{2}}{\partial t_v\,\partial t_s}.</code>
+</p>
+
+<p>That is, <code class="reqn">D_v</code> captures both the pure second derivative with respect
+to <code class="reqn">t_v</code> and all mixed second partial derivatives involving <code class="reqn">t_v</code>.
+The penalty matrix entries are then
+</p>
+<p style="text-align: center;"><code class="reqn">[\boldsymbol{\Lambda}_s]_{ij}
+  = \sum_{v=1}^{q}\int_{\mathbf{a}}^{\mathbf{b}}
+    D_v(\phi_i)\,D_v(\phi_j)\,d\mathbf{t}.</code>
+</p>
+
+<p><strong>Monomial derivative rule.</strong>
+For a monomial <code class="reqn">\phi(\mathbf{t}) = \prod_j t_j^{\alpha_j}</code>, the
+derivatives entering <code class="reqn">D_v</code> have closed forms. The pure second
+derivative is
+</p>
+<p style="text-align: center;"><code class="reqn">\frac{\partial^{2}}{\partial t_v^{2}}\prod_j t_j^{\alpha_j}
+  = \alpha_v(\alpha_v - 1)\,t_v^{\alpha_v - 2}\prod_{j \neq v} t_j^{\alpha_j},</code>
+</p>
+
+<p>which is zero when <code class="reqn">\alpha_v &lt; 2</code>. The mixed second derivative is
+</p>
+<p style="text-align: center;"><code class="reqn">\frac{\partial^{2}}{\partial t_v\,\partial t_s}\prod_j t_j^{\alpha_j}
+  = \alpha_v\alpha_s\,t_v^{\alpha_v - 1}t_s^{\alpha_s - 1}
+  \prod_{j \neq v,s} t_j^{\alpha_j},</code>
+</p>
+
+<p>which is zero when <code class="reqn">\alpha_v &lt; 1</code> or <code class="reqn">\alpha_s &lt; 1</code>. Applying
+<code class="reqn">D_v</code> to a monomial <code class="reqn">\phi_i</code> produces a sum of monomials with
+known coefficients and exponent vectors.
+</p>
+<p><strong>Factorized integration.</strong>
+Because every <code class="reqn">D_v(\phi_i)</code> is polynomial, the product
+<code class="reqn">D_v(\phi_i)\,D_v(\phi_j)</code> is also polynomial and the multivariate
+integral factorizes over predictors:
+</p>
+<p style="text-align: center;"><code class="reqn">\int_{\mathbf{a}}^{\mathbf{b}}\prod_{j=1}^{q} t_j^{e_j}\,d\mathbf{t}
+  = \prod_{j=1}^{q}\frac{b_j^{e_j+1} - a_j^{e_j+1}}{e_j + 1}.</code>
+</p>
+
+<p>Crucially, this integral runs over <em>all</em> <code class="reqn">q</code> predictor ranges,
+including predictors that do not appear in the integrand (for which
+<code class="reqn">e_j = 0</code> and the factor reduces to <code class="reqn">b_j - a_j</code>). This ensures
+that the penalty is properly scaled relative to the volume of the
+predictor space.
+</p>
+<p><strong>Single-predictor verification.</strong>
+For <code class="reqn">q = 1</code> with expansion
+<code class="reqn">\mathbf{x} = (1, t, t^{2}, t^{3})^{\top}</code> on <code class="reqn">[a, b]</code>, the
+curvature operator reduces to <code class="reqn">D_1 = \partial^{2}/\partial t^{2}</code> (no
+mixed partials exist), and the penalty matrix reduces to
+</p>
+<p style="text-align: center;"><code class="reqn">\boldsymbol{\Lambda}_s
+  = \int_a^b \mathbf{x}''\mathbf{x}''^{\top}\,dt
+  = \begin{pmatrix}
+      0 &amp; 0 &amp; 0 &amp; 0 \\
+      0 &amp; 0 &amp; 0 &amp; 0 \\
+      0 &amp; 0 &amp; 4(b - a) &amp; 6(b^{2} - a^{2}) \\
+      0 &amp; 0 &amp; 6(b^{2} - a^{2}) &amp; 12(b^{3} - a^{3})
+    \end{pmatrix},</code>
+</p>
+
+<p>equivalent to the classical cubic smoothing spline penalty originally proposed by Reinsch.
+</p>
+<p><strong>Handling of non-spline predictors.</strong>
+Predictors specified via <code>just_linear_without_interactions</code> or
+<code>just_linear_with_interactions</code> do not receive higher-order
+polynomial expansions in the design matrix. To ensure their curvature
+contributions are still correctly computed (particularly through
+interaction terms), the implementation temporarily appends phantom
+higher-order columns (with zero data) for these predictors, computes
+the full curvature penalty on the augmented basis, and then subsets the
+result back to the original <code class="reqn">p \times p</code> dimensions. This ensures
+that interaction terms involving non-spline predictors receive appropriate
+penalty contributions without affecting the rest of the estimation
+pipeline.
+</p>
+<p><strong>Parallel computation.</strong>
+Because the total penalty is an additive sum over predictors
+(<code class="reqn">\boldsymbol{\Lambda}_s = \sum_{v=1}^{q}\boldsymbol{\Lambda}_{s,v}</code>),
+the computation can be parallelized by distributing the per-predictor
+curvature matrices across workers via <code>parallel::parLapply</code> and
+summing the results. This is controlled by the <code>parallel_penalty</code>
+argument and is beneficial when <code class="reqn">q</code> is large.
+</p>
+<p>The penalty is computed by <code>get_2ndDerivPenalty</code> (single
+predictor or subset) and <code>get_2ndDerivPenalty_wrapper</code>
+(full assembly with optional parallelism and non-spline handling).
+</p>
+<p>Because the smoothing penalty has zero eigenvalues for the intercept and
+linear terms (whose second derivatives vanish), an optional ridge penalty on
+lower-order terms is added for computational stability. The full penalty
+block for partition <code class="reqn">k</code> is:
+</p>
+<p style="text-align: center;"><code class="reqn">\boldsymbol{\Lambda}_k = \lambda_w\bigl(\boldsymbol{\Lambda}_s + \lambda_r\boldsymbol{\Lambda}_r + \sum_{m=1}^{M}\xi_{mk}\mathbf{L}_{mk}\bigr)</code>
+</p>
+
+<p>where <code class="reqn">\lambda_w</code> is the global wiggle penalty (<code>wiggle_penalty</code>),
+<code class="reqn">\lambda_r</code> is ridge penalty on linear and intercept terms
+(<code>flat_ridge_penalty</code>) multiplied by the wiggle penalty, and
+<code class="reqn">\xi_{mk}</code> and <code class="reqn">\mathbf{L}_{mk}</code> denote optional additional
+penalty multipliers and matrices, including the predictor- and
+partition-specific components activated through
+<code>unique_penalty_per_predictor</code>, <code>unique_penalty_per_partition</code>,
+<code>predictor_penalties</code>, and <code>partition_penalties</code>. This assembly is handled by
+<code>compute_Lambda</code>.
+</p>
+<p>The penalty matrix <code class="reqn">\boldsymbol{\Lambda}</code> is stored as a list
+of <code class="reqn">K+1</code> <code class="reqn">p \times p</code> square, symmetric, positive semi-definite
+matrices.
+</p>
+
+
+
+<h4>Penalty Optimization via Leave-One-Out or Generalized Cross-Validation</h4>
+
+<p>After the structural pieces of the model are fixed, the main remaining
+question is how much smoothing to apply. In <span class="pkg">lgspline</span>, that tuning is
+performed with exact leave-one-out by default, or with generalized
+cross-validation when <code>tuning_criterion = "gcv"</code>. In either case, the
+criterion is evaluated using the same constrained estimator that will be
+used in the final model fit.
+Penalty parameters are estimated on the log scale via exponential
+parameterization (<code class="reqn">\lambda = \exp(\theta)</code>,
+<code class="reqn">\theta \in \mathbb{R}</code>), ensuring positivity. The chain rule factor
+<code class="reqn">\partial\exp(\theta)/\partial\theta = \exp(\theta) = \lambda</code> is
+applied throughout. User-facing arguments (<code>initial_wiggle</code>,
+<code>initial_flat</code>, <code>predictor_penalties</code>,
+<code>partition_penalties</code>) accept values on the raw, natural scale;
+conversion to log scale is handled internally. The final tuned values and
+assembled penalty pieces are returned in the fitted object's
+<code>penalties</code> component.
+</p>
+<p>The total penalty matrix <code class="reqn">\boldsymbol{\Lambda}</code> is constructed as:
+</p>
+<p style="text-align: center;"><code class="reqn">\boldsymbol{\Lambda} = \lambda_w\mathbf{L}_{w} + \lambda_r\mathbf{L}_{r}
+  + \sum_{j}\nu_j\mathbf{L}_j^{(\mathrm{pred})}
+  + \sum_{k}\tau_k\mathbf{L}_k^{(\mathrm{part})},</code>
+</p>
+
+<p>where <code class="reqn">\mathbf{L}_{w}</code> is the integrated squared second-derivative
+penalty (i.e., <code class="reqn">\boldsymbol{\Lambda}_s</code> above), <code class="reqn">\mathbf{L}_{r}</code> is
+a ridge penalty on intercept and linear coefficients,
+<code class="reqn">\mathbf{L}_j^{(\mathrm{pred})}</code> are predictor-specific penalties, and
+<code class="reqn">\mathbf{L}_k^{(\mathrm{part})}</code> are partition-specific penalties. The
+scalars <code class="reqn">\lambda_w</code> (<code>wiggle_penalty</code>), <code class="reqn">\lambda_r</code>
+(<code>flat_ridge_penalty</code>), <code class="reqn">\{\nu_j\}</code>
+(<code>predictor_penalties</code>), and <code class="reqn">\{\tau_k\}</code>
+(<code>partition_penalties</code>) are tuned.
+With <code>tuning_criterion = "loo"</code>, the criterion is
+</p>
+<p style="text-align: center;"><code class="reqn">\mathrm{LOO}
+  = \frac{1}{N}\sum_{i=1}^{N}\left(\frac{r_i}{1-h_{ii}}\right)^2,</code>
+</p>
+
+<p>where <code class="reqn">h_{ii}</code> is the diagonal of the tuning hat matrix. For Gaussian
+identity-link tuning with fixed transformed design, this is exact. With
+correlation structure and/or non-identity links, <span class="pkg">lgspline</span> applies the
+same transformed or linearized tuning problem already used by GCV, so the
+leave-one-out calculation is carried out on that working scale. In empirical
+diagnostics, the criterion itself behaves stably, while the fully analytic
+derivative of the observation-wise leverage term can be numerically delicate
+in some problems; when that sensitivity matters in practice, the finite-
+difference optimizer path (<code>use_custom_bfgs = FALSE</code>) remains
+available. This exact observation-wise calculation is also the main reason
+LOO tuning becomes more expensive than GCV as <code class="reqn">N</code> grows; in routine use,
+<code>tuning_criterion = "gcv"</code> is often the more practical choice once the
+sample size is above about 250,000.
+</p>
+<p>With <code>tuning_criterion = "gcv"</code>, the package instead uses
+</p>
+<p style="text-align: center;"><code class="reqn">\mathrm{GCV}_{u,\gamma}
+  = \frac{\sum_{i=1}^{N}D_{ii}\,r_i^{2}}
+          {N(1 - \gamma\bar{W})^{2}}</code>
+</p>
+
+<p>where <code class="reqn">\bar{W} = \mathrm{tr}(\mathbf{H})/N</code> is the mean of the
+hat-matrix diagonal. The symbol <code class="reqn">\gamma</code> is set by
+<code>gcv_gamma</code> and controls optional inflation of the
+effective-degrees-of-freedom term.
+</p>
+<p>For identity link, <code class="reqn">r_i = y_i - \hat{\eta}_i</code>. For non-identity links,
+the residuals are
+<code class="reqn">r_i = g((y_i + \delta)/(1+2\delta)) - (\hat{\eta}_i + \delta)/(1+2\delta)</code>,
+where <code class="reqn">\delta \geq 0</code> is a pseudocount that stabilizes the link
+transformation, automatically tuned within <code>tune_Lambda</code> if not supplied
+to <code>delta</code>.
+Non-Gaussian families with observation weights
+<code class="reqn">\omega_i</code> have their residuals scaled by <code class="reqn">\omega_i</code>. When the
+family provides a custom deviance residual function, that function is used
+in place of the link-scale residuals.
+</p>
+<p><strong>Pseudocount selection.</strong> The pseudocount <code class="reqn">\delta</code> is chosen to
+make the transformed response distribution most closely approximate a
+<code class="reqn">t</code>-distribution with <code class="reqn">N-1</code> degrees of freedom, in the sense of
+minimizing the (optionally weighted) mean absolute deviation between the
+sorted standardized transformed responses and the corresponding
+<code class="reqn">t</code>-quantiles. This is solved via Brent's method over
+<code class="reqn">[10^{-64}, 1]</code>. When the link is identity, or when the response
+naturally lies in the domain of the link function, <code class="reqn">\delta = 0</code>.
+This behavior is exposed through the <code>delta</code> argument in
+<code>lgspline</code>: supplying a fixed numeric value bypasses the internal
+search, while leaving it <code>NULL</code> allows the tuning code to choose the
+stabilizing pseudocount automatically when needed.
+</p>
+<p><strong>Meta-penalty regularization.</strong> A regularization term pulls the
+predictor- and partition-specific penalty parameters toward 1 on the raw
+scale:
+</p>
+<p style="text-align: center;"><code class="reqn">P_{\mathrm{meta}}(\lambda_w, \nu_j, \tau_k)
+  = \frac{1}{2}c_{\mathrm{meta}}\sum_j(\nu_j - 1)^{2}
+  + \frac{1}{2}\cdot 10^{-32}(\lambda_w - 1)^{2}</code>
+</p>
+
+<p>where <code class="reqn">c_{\mathrm{meta}}</code> is a user-specified coefficient
+(<code>meta_penalty</code>). The gradient of <code class="reqn">P_{\mathrm{meta}}</code> on the log
+scale, incorporating the exp chain rule, is
+<code class="reqn">\partial P_{\mathrm{meta}}/\partial\theta_j = c_{\mathrm{meta}}(\nu_j - 1)\nu_j</code>
+and
+<code class="reqn">\partial P_{\mathrm{meta}}/\partial\theta_1 = 10^{-32}(\lambda_w - 1)\lambda_w</code>.
+The total objective is the selected tuning criterion plus
+<code class="reqn">P_{\mathrm{meta}}</code>.
+</p>
+
+
+
+<h4>Closed-Form Gradients for Tuning Criteria</h4>
+
+<p>The gradient of the GCV objective with respect to
+<code class="reqn">\theta_1 = \log\lambda_w</code> is computed analytically via the quotient
+rule:
+</p>
+<p style="text-align: center;"><code class="reqn">\frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\theta_1}
+  = \frac{1}{D^{2}}\left(\frac{\partial\mathcal{N}}{\partial\theta_1}D
+  - \mathcal{N}\frac{\partial D}{\partial\theta_1}\right),</code>
+</p>
+
+<p>where <code class="reqn">\mathcal{N} = \sum r_i^{2}</code> (numerator) and
+<code class="reqn">D = N(1 - \gamma\bar{W})^{2}</code> (denominator). The key intermediates are:
+</p>
+
+<ul>
+<li> <p><code class="reqn">\partial\mathbf{G}/\partial\lambda_w</code>, computed from the
+matrix identity
+<code class="reqn">\partial(\mathbf{X}^{\top}\mathbf{X} + \boldsymbol{\Lambda})^{-1}/\partial\lambda = -\mathbf{G}(\partial\boldsymbol{\Lambda}/\partial\lambda)\mathbf{G}</code>.
+</p>
+</li>
+<li> <p><code class="reqn">\partial\mathbf{G}^{1/2}/\partial\lambda_w</code>, derived from
+<code class="reqn">\partial\mathbf{G}/\partial\lambda_w</code> via the eigendecomposition
+chain rule.
+</p>
+</li>
+<li> <p><code class="reqn">\partial\bar{W}/\partial\lambda_w</code>, the derivative of the
+trace of the hat matrix
+<code class="reqn">\mathbf{H} = \mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^{\top}</code>,
+which depends on both
+<code class="reqn">\partial\mathbf{G}/\partial\lambda_w</code> and
+<code class="reqn">\partial\mathbf{G}^{1/2}/\partial\lambda_w</code>.
+</p>
+</li>
+<li> <p><code class="reqn">\partial\mathcal{N}/\partial\theta_1 = -2\mathbf{r}^{\top}\mathbf{X}(\partial(\mathbf{U}\mathbf{G})/\partial\lambda_w)\mathbf{X}^{\top}\mathbf{y}\cdot\lambda_w</code>,
+via the chain rule applied to the residual vector.
+</p>
+</li>
+<li> <p><code class="reqn">\partial D/\partial\theta_1 =
+    2(1 - \gamma\bar{W})(-\gamma\,\partial\bar{W}/\partial\lambda_w)\cdot\lambda_w</code>.
+</p>
+</li></ul>
+
+<p>In the implementation, these quantities are assembled by a small set of
+helper routines: <code>compute_dG_dlambda</code> for
+<code class="reqn">\partial\mathbf{G}/\partial\lambda</code>, <code>compute_dGhalf</code>
+for <code class="reqn">\partial\mathbf{G}^{1/2}/\partial\lambda</code>,
+<code>compute_trace_H</code> together with the tuning hat-diagonal
+derivative helpers for the effective-degrees-of-freedom term, and
+<code>compute_dG_u_dlambda_xy</code> for the derivative of the fitted-value
+quadratic form.
+</p>
+<p>For exact leave-one-out, the implementation instead differentiates the
+per-observation PRESS form directly, requiring both
+<code class="reqn">\partial r_i / \partial\lambda_w</code> and
+<code class="reqn">\partial h_{ii} / \partial\lambda_w</code>. The latter is assembled
+partition-wise from the same constrained-<code class="reqn">\mathbf{G}</code> ingredients used
+elsewhere in tuning. The exact LOO path does not explicitly form the full
+projection matrix <code class="reqn">\mathbf{U}</code> or the full hat matrix <code class="reqn">\mathbf{H}</code>;
+instead it works with blockwise matrices
+<code class="reqn">\mathbf{C}_k = \mathbf{G}_k - \mathbf{G}_k\mathbf{A}_k(\mathbf{A}^\top\mathbf{G}\mathbf{A})^{-1}\mathbf{A}_k^\top\mathbf{G}_k</code>
+and their derivatives. Empirically, this observation-wise leverage
+derivative is the most numerically delicate part of the analytic LOO
+gradient: most observations are typically well behaved, but a diffuse set of
+small local errors can remain even when the overall LOO objective and the
+corresponding GCV gradient are stable.
+</p>
+<p>The shared wiggle and flat directions are differentiated directly. For
+predictor- and partition-specific penalties, a lower-cost ratio heuristic is
+used:
+</p>
+<p style="text-align: center;"><code class="reqn">\frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\theta_l} \approx
+  \frac{\mathrm{mean}(\mathrm{diag}(\mathbf{L}_l))}{\mathrm{mean}(\mathrm{diag}(\boldsymbol{\Lambda}))}
+  \frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\theta_w},</code>
+</p>
+
+<p>where <code class="reqn">\theta_l = \log \lambda_l</code> and
+<code class="reqn">\mathbf{L}_l</code> denotes the current contribution of the corresponding
+predictor- or partition-specific penalty to <code class="reqn">\boldsymbol{\Lambda}</code>. This
+keeps the extra penalty directions inexpensive while preserving the direct
+derivatives for the shared wiggle and flat penalties.
+</p>
+
+
+
+<h4>Optimization Procedure</h4>
+
+<p><strong>Grid search initialization.</strong> The selected tuning criterion is
+evaluated over a grid of candidate values for
+<code class="reqn">(\lambda_w, \lambda_r)</code> on the log scale. All combinations of
+user-supplied candidate vectors (<code>initial_wiggle</code> and
+<code>initial_flat</code>) are formed, and the combination yielding
+the smallest finite criterion value is selected as the starting
+point for BFGS optimization. Grid points producing non-finite
+objective values are discarded. If all grid points fail, an error
+is raised advising the user to check the data or adjust the grid.
+</p>
+<p><strong>Damped BFGS optimizer.</strong> A custom damped BFGS quasi-Newton optimizer,
+implemented in <code>tune_Lambda</code> through
+<code>.damped_bfgs()</code>, minimizes the selected tuning criterion plus
+<code class="reqn">P_{\mathrm{meta}}</code>. When analytic gradients are not preferred, or when
+the exact LOO leverage derivative appears too noisy for a given problem, a
+base-R <code>optim</code> call with method <code>"BFGS"</code> provides
+the finite-difference fallback.
+</p>
+<p><em>Iterations 1-2: steepest descent.</em> The first two iterations use
+steepest descent with a damping factor <code class="reqn">\alpha</code>:
+<code class="reqn">\boldsymbol{\phi}^{(t+1)} = \boldsymbol{\phi}^{(t)} - \alpha\nabla_{\boldsymbol{\phi}}</code>.
+</p>
+<p><em>Iterations 3+: BFGS.</em> From iteration 3, an inverse Hessian
+approximation <code class="reqn">\mathbf{J}^{(t)}</code> is maintained via the standard secant
+update. Let
+<code class="reqn">\mathbf{s}^{(t)} = \boldsymbol{\phi}^{(t)} - \boldsymbol{\phi}^{(t-1)}</code>
+and
+<code class="reqn">\mathbf{v}^{(t)} = \nabla^{(t)} - \nabla^{(t-1)}</code>. The BFGS update
+is:
+</p>
+<p style="text-align: center;"><code class="reqn">\mathbf{J}^{(t+1)}
+  = (\mathbf{I} - \mathbf{u}\mathbf{s}\mathbf{v}^{\top})
+  \mathbf{J}^{(t)}
+  (\mathbf{I} - \mathbf{u}\mathbf{v}\mathbf{s}^{\top})
+  + \mathbf{u}\mathbf{s}\mathbf{s}^{\top},
+  \qquad \mathbf{u} = (\mathbf{v}^{\top}\mathbf{s})^{-1}.</code>
+</p>
+
+<p>When <code class="reqn">|\mathbf{v}^{\top}\mathbf{s}| &lt; 10^{-64}</code>, the approximation is
+reset to <code class="reqn">\mathbf{I}</code> and the iteration is flagged for restart. The
+search direction is
+<code class="reqn">\mathbf{d}^{(t)} = -\mathbf{J}^{(t)}\nabla^{(t)}</code>.
+</p>
+<p><em>Step acceptance.</em> A step is accepted if the new tuning criterion value
+is no larger than the old one.
+On rejection, <code class="reqn">\alpha</code> is halved. If <code class="reqn">\alpha &lt; 2^{-10}</code> (early
+iterations) or <code class="reqn">\alpha &lt; 2^{-12}</code> (later iterations), the optimizer
+terminates with the best solution found.
+</p>
+<p><em>Convergence.</em> The optimizer terminates when
+the absolute change in the tuning criterion is less than <code class="reqn">\epsilon</code>, or
+<code class="reqn">\|\boldsymbol{\phi}^{(t)} - \boldsymbol{\phi}^{(t-1)}\|_{\infty} &lt; \epsilon</code>,
+provided at least 10 iterations have elapsed, for penalties
+<code class="reqn">\boldsymbol{\phi} = \lambda_w, \lambda_r, \nu_j, \tau_j, ...</code>.
+</p>
+<p><em>Alternative.</em> A base-R
+<code>optim</code> call with method <code>"BFGS"</code> and
+finite-difference gradients can be used instead via
+<code>use_custom_bfgs = FALSE</code>.
+</p>
+<p><strong>Post-optimization sample-size adjustment.</strong> After optimization, the
+tuned penalty parameters are divided by <code class="reqn">((N+2)/(N-2))^{2}</code>
+(equivalently multiplied by <code class="reqn">((N-2)/(N+2))^{2}</code>) for both GCV- and
+LOO-based tuning. This decreases the final penalties at small sample sizes.
+</p>
+<p>The tuning loop is implemented in <code>tune_Lambda</code>.
+</p>
+
+
+
+<h3>Incorporating Non-Spline Effects</h3>
+
+<p>Multiple fixed effects are accommodated naturally in the LMSS framework
+because spline effects, linear effects, and many interaction terms all live
+in the same partition-wise polynomial expansion. The distinction is therefore
+not whether a term is &quot;allowed&quot; by the solver, but whether it receives full
+spline treatment or remains structurally linear across partitions.
+</p>
+<p>The constrained framework naturally accommodates non-spline terms. If only
+linear terms are included for a predictor (via
+<code>just_linear_without_interactions</code> or
+<code>just_linear_with_interactions</code>), the first-derivative smoothing
+constraint forces the linear coefficient to be identical across all
+partitions, since the derivative of a linear function is its slope. This
+is not an algorithmic modification but a natural consequence of the
+constraint structure.
+</p>
+<p>For example, a model with one spline effect and a linear treatment indicator
+interaction will naturally keep the treatment-time interaction coefficient
+constant across partitions while allowing the time effect to vary
+nonlinearly. This conveniently extends to arbitrary combinations of spline
+and linear terms without requiring special handling.
+</p>
+<p>When <code>blockfit = TRUE</code> is specified alongside
+<code>just_linear_without_interactions</code>, the flat-block path provides an
+alternative enforcement mechanism. Rather than relying on constraint
+projection, flat coefficients are pooled structurally across partitions
+during backfitting. The two approaches agree at the point estimate but
+differ in their uncertainty quantification; see the Blockfit section above.
+</p>
+
+
+<h3>Integration</h3>
+
+<p>Because the fitted object retains an explicit polynomial representation in
+each partition, numerical integration can be carried out in a fairly direct
+way. The package wraps that calculation in a user-facing S3 method so the
+user does not need to manage knot boundaries or partition membership by hand.
+</p>
+<p>In the user-facing interface, numerical integration is applied through
+<code>integrate.lgspline</code>, which applies Gauss-Legendre quadrature to
+predictions from the fitted model produced by <code>predict.lgspline</code>.
+</p>
+
+
+<h4>Implementation</h4>
+
+<p>For a user-supplied rectangular domain, <code>integrate.lgspline</code> constructs a
+tensor-product grid of Gauss-Legendre nodes, evaluates the fitted model at
+those points, and forms the weighted sum. This works for both univariate and
+multivariate models, respects the fitted partition structure automatically,
+and avoids requiring the user to keep track of knot boundaries by hand.
+</p>
+<p>The <code>vars</code> argument selects which predictors are integrated over.
+Predictors not listed in <code>vars</code> are held fixed at
+<code>initial_values</code> when supplied, or otherwise at the midpoint of their
+observed training range. The optional <code>B_predict</code> argument makes it
+possible to integrate posterior draws or other alternate coefficient sets,
+and <code>n_quad</code> controls the number of Gauss-Legendre nodes used per
+integrated dimension.
+</p>
+<p>Integration is performed on the response scale by default. Setting
+<code>link_scale = TRUE</code> instead integrates the linear predictor
+<code class="reqn">\eta = f(\mathbf{t})</code>. For identity-link Gaussian models the two scales
+coincide.
+</p>
+
+
+
+<h3>Lagrange Multipliers</h3>
+
+<p>When <code>return_lagrange_multipliers = TRUE</code>, the multiplier vector
+</p>
+<p style="text-align: center;"><code class="reqn">\boldsymbol{\lambda} = (\mathbf{A}^{\top}\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^{\top}\hat{\boldsymbol{\beta}}</code>
+</p>
+
+<p>is returned. These quantify the sensitivity of the penalized objective to
+relaxing each smoothness or user-supplied equality constraint. When
+constraint target values are nonzero
+(<code class="reqn">\mathbf{A}^{\top}\boldsymbol{\beta}_0 \neq \mathbf{0}</code>), the modified
+formulation is used:
+</p>
+<p style="text-align: center;"><code class="reqn">\boldsymbol{\lambda} = (\mathbf{A}^{\top}\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^{\top}(\hat{\boldsymbol{\beta}} - \boldsymbol{\beta}_0)</code>
+</p>
+
+<p>where <code class="reqn">\mathbf{A}^{\top}\boldsymbol{\beta}_0</code> is the vector of
+constraint target values. Multipliers are <code>NULL</code> when no constraints
+are active (<code class="reqn">\mathbf{A}</code> is <code>NULL</code> or <code class="reqn">K = 0</code>).
+</p>
+<p>For inequality constraints, multipliers are returned as computed by
+<code>solve.QP</code>. The Lagrange multipliers for active
+inequality constraints can be used diagnostically to identify which shape
+constraints are most costly in terms of goodness of fit.
+</p>
+
+
+<h3>S3 Methods</h3>
+
+<p>Standard S3 methods are provided for objects of class <code>lgspline</code>:
+</p>
+
+<ul>
+<li> <p><code>print.lgspline</code> and <code>summary.lgspline</code>:
+Provide concise model summaries, with
+<code>print.summary.lgspline</code> formatting coefficient tables in a
+familiar regression-style layout.
+</p>
+</li>
+<li> <p><code>logLik.lgspline</code>: Returns a standard <code>logLik</code>
+object. For Gaussian responses with identity link, the exact
+log-likelihood is computed. When a correlation structure is present via
+<code>VhalfInv</code>, the log-likelihood includes the
+<code class="reqn">\log|\mathbf{V}^{-1/2}|</code> adjustment and the corresponding
+whitened quadratic form. For other families, the method falls back to
+<code>family$aic</code> or a deviance-based approximation. An
+<code>include_prior</code> argument (default <code>TRUE</code>) optionally adds
+the Gaussian prior penalty interpretation of the smoothing spline
+penalty
+<code class="reqn">-\frac{1}{2\sigma^{2}}\tilde{\boldsymbol{\beta}}^{\top}\boldsymbol{\Lambda}\tilde{\boldsymbol{\beta}}</code>
+to obtain a penalized MAP log-likelihood.
+</p>
+</li>
+<li> <p><code>predict.lgspline</code>: Produces fitted values and related
+quantities (e.g., derivatives and standard errors through
+<code>se.fit = TRUE</code>), lets <code>new_predictors</code> override
+<code>newdata</code>, accepts alternate coefficient lists through
+<code>B_predict</code>, and supports prediction on new predictor matrices
+consistent with the original spline expansions.
+</p>
+</li>
+<li> <p><code>coef.lgspline</code>: Extracts partition-specific
+coefficient vectors.
+</p>
+</li>
+<li> <p><code>confint.lgspline</code>: Extracts confidence intervals.
+When the inverse Hessian from BFGS optimization is available for
+correlation parameters, intervals for those correlation parameters are
+returned on the working (transformed) scale and should be
+back-transformed as described in the correlation section.
+</p>
+</li>
+<li> <p><code>plot.lgspline</code>: For one-dimensional fits, produces
+base R graphics showing the fitted function (with optional partition-wise
+formulas) and supports overlay via <code>add = TRUE</code>. For two or more
+predictors, an interactive <span class="pkg">plotly</span>-based visualization is
+returned. Specific predictors may be selected via <code>vars</code>.
+</p>
+</li>
+<li> <p><code>integrate.lgspline</code>: Computes definite integrals of
+the fitted surface over rectangular domains by Gauss-Legendre
+quadrature.
+</p>
+</li></ul>
+
+<p>Additional user-facing helpers include <code>wald_univariate</code> for
+coefficient-wise Wald inference, <code>generate_posterior</code> for
+posterior and posterior-predictive sampling,
+<code>generate_posterior_correlation</code> for correlation-aware posterior
+simulation, <code>equation</code> for closed-form display of the fitted
+partition formulas, and
+<code>find_extremum</code> for optimizing the fitted surface or a custom
+acquisition function built from it.
+</p>
+
+
+<h3>References</h3>
+
+<p>Buse, A. and Lim, L. (1977). Cubic Splines as a Special Case of
+Restricted Least Squares. <em>Journal of the American Statistical
+Association</em>, 72, 64-68.
+</p>
+<p>Eilers, P. H. and Marx, B. D. (1996). Flexible Smoothing with B-splines
+and Penalties. <em>Statistical Science</em>, 11(2), 89-121.
+</p>
+<p>Ezhov, N., Neitzel, F. and Petrovic, S. (2018). Spline Approximation,
+Part 1: Basic Methodology. <em>Journal of Applied Geodesy</em>, 12(2),
+139-155.
+</p>
+<p>Goldfarb, D. and Idnani, A. (1983). A Numerically Stable Dual Method for
+Solving Strictly Convex Quadratic Programs. <em>Mathematical
+Programming</em>, 27(1), 1-33.
+</p>
+<p>Harville, D. A. (1977). Maximum Likelihood Approaches to Variance
+Component Estimation and to Related Problems. <em>Journal of the
+American Statistical Association</em>, 72(358), 320-338.
+</p>
+<p>Hastie, T. J. and Tibshirani, R. J. (1990). <em>Generalized Additive
+Models</em>. Chapman &amp; Hall/CRC.
+</p>
+<p>Kisi, O., Heddam, S., Parmar, K. S., Petroselli, A., Kulls, C. and
+Zounemat-Kermani, M. (2025). Integration of Gaussian Process Regression
+and K Means Clustering for Enhanced Short Term Rainfall Runoff Modeling.
+<em>Scientific Reports</em>, 15, 7444.
+</p>
+<p>MacQueen, J. B. (1967). Some Methods for Classification and Analysis of
+Multivariate Observations. In <em>Proceedings of the Fifth Berkeley
+Symposium on Mathematical Statistics and Probability</em>, Volume 1,
+281-297. University of California Press.
+</p>
+<p>McCullagh, P. and Nelder, J. A. (1989). <em>Generalized Linear Models</em>.
+Chapman &amp; Hall, 2nd edition.
+</p>
+<p>Murray, I., Adams, R. P. and MacKay, D. J. C. (2010). Elliptical Slice
+Sampling. <em>Proceedings of the 13th International Conference on
+Artificial Intelligence and Statistics (AISTATS)</em>, 9, 541-548.
+</p>
+<p>Nocedal, J. and Wright, S. J. (2006). <em>Numerical Optimization</em>
+(2nd ed.). Springer.
+</p>
+<p>Kim, Y.-J. and Gu, C. (2004). Smoothing Spline Gaussian Regression:
+More Scalable Computation via Efficient Approximation. <em>Journal of
+the Royal Statistical Society: Series B</em>, 66(2), 337-356.
+</p>
+<p>Patterson, H. D. and Thompson, R. (1971). Recovery of Inter-Block
+Information When Block Sizes Are Unequal. <em>Biometrika</em>, 58,
+545-554.
+</p>
+<p>Pya, N. and Wood, S. N. (2015). Shape Constrained Additive Models.
+<em>Statistics and Computing</em>, 25(3), 543-559.
+</p>
+<p>Reinsch, C. H. (1967). Smoothing by Spline Functions. <em>Numerische
+Mathematik</em>, 10, 177-183.
+</p>
+<p>Ruppert, D., Wand, M. P. and Carroll, R. J. (2003).
+<em>Semiparametric Regression</em>. Cambridge University Press.
+</p>
+<p>Searle, S. R., Casella, G. and McCulloch, C. E. (2006). <em>Variance
+Components</em>. Wiley.
+</p>
+<p>Wahba, G. (1990). <em>Spline Models for Observational Data</em>. SIAM.
+</p>
+<p>Wood, S. N. (2006). On Confidence Intervals for Generalized Additive
+Models Based on Penalized Regression Splines. <em>Australian &amp; New
+Zealand Journal of Statistics</em>, 48(4), 445-464.
+</p>
+<p>Wood, S. N. (2011). Fast Stable Restricted Maximum Likelihood and Marginal
+Likelihood Estimation of Semiparametric Generalized Linear Models.
+<em>Journal of the Royal Statistical Society: Series B</em>, 73(1), 3-36.
+</p>
+<p>Wood, S. N. (2017). <em>Generalized Additive Models: An Introduction
+with R</em>. CRC Press, 2nd edition.
+</p>
+
+</main>
+
+</div>
+</body></html>

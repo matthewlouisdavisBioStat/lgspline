@@ -589,7 +589,6 @@
 #' plot(model_fit, add = TRUE)
 #'
 #' \donttest{
-#'
 #' ## Repeat using logistic regression, with univariate inference shown
 #' # and alternative function call
 #' y <- rbinom(length(y), 1, 1/(1+exp(-std(y))))
@@ -857,7 +856,7 @@
 #'   family = Gamma(link = 'log'),
 #'   keep_weighted_Lambda = TRUE,
 #'   glm_weight_function = function(
-#'     mu,
+    #'     mu,
 #'     y,
 #'     order_indices,
 #'     family,
@@ -867,7 +866,7 @@
 #'      rep(1/dispersion, length(y))
 #'    },
 #'    dispersion_function = function(
-#'      mu,
+    #'      mu,
 #'      y,
 #'      order_indices,
 #'      family,
@@ -5865,7 +5864,7 @@ lgspline.fit <- function(predictors,
       A <- NULL
     }
   }
-  ## [Change 2026-02-15] select only a linearly-independent subset of columns
+  ## Select only a linearly-independent subset of columns
   if(!(any(is.null(A)))){
     qr_A <- qr(A)
     A_rank <- qr_A$rank

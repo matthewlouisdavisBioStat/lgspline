@@ -3476,7 +3476,7 @@ compute_dGhalf <- function(dG_dlambda,
 #'   = \prod_{j=1}^{q}
 #'     \frac{b_j^{e_j+1} - a_j^{e_j+1}}{e_j + 1}.}
 #'
-#' Crucially, this integral runs over \emph{all} \eqn{q} predictor
+#' Notably, this integral runs over \emph{all} \eqn{q} predictor
 #' ranges, including predictors that do not appear in the integrand
 #' (for which \eqn{e_j = 0} and the factor reduces to
 #' \eqn{b_j - a_j}).
