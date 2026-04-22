@@ -469,12 +469,12 @@
 #' This function performs a single closed-form solve that replicates
 #' \code{get_B} Path 1a but in the backfitting context.
 #'
-#' In other words, this is the dense correlated solve on the pooled
-#' coefficient space. The supplement's Woodbury factorization
-#' \eqn{\mathbf{G}^{-1} =
-#' \mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1}}
-#' is handled in \code{get_B()}, not here, so this helper always uses the
-#' dense correlated solve.
+#' In other words, this begins from the dense correlated solve on the pooled
+#' coefficient space. When inequality constraints are present and Woodbury
+#' acceleration is available, the helper then attempts the same
+#' partition-wise Woodbury active-set refinement used by \code{get_B()}.
+#' If that path is unavailable or fails, it falls back to dense
+#' \code{solve.QP} on the whitened system.
 #'
 #' @param X List of \eqn{K+1} unwhitened design matrices.
 #' @param y List of \eqn{K+1} response vectors.
@@ -489,6 +489,12 @@
 #' @param A Full constraint matrix.
 #' @param constraint_values List of constraint RHS vectors.
 #' @param spline_cols,flat_cols Integer vectors of column indices.
+#' @param quadprog Logical; whether inequality refinement is active.
+#' @param qp_Amat,qp_bvec,qp_meq QP constraint specification.
+#' @param tol Numeric tolerance.
+#' @param parallel_eigen,cl,chunk_size,num_chunks,rem_chunks Parallel
+#'   arguments used by the Woodbury gate.
+#' @param include_warnings,verbose Logical.
 #'
 #' @return A named list:
 #' \describe{
@@ -496,6 +502,7 @@
 #'   \item{beta_flat}{Numeric vector of flat coefficients.}
 #'   \item{result}{List of \eqn{K+1} full per-partition coefficient
 #'     vectors.}
+#'   \item{qp_info}{QP or active-set metadata, or \code{NULL}.}
 #' }
 #'
 #' @keywords internal
@@ -504,7 +511,21 @@
                                unique_penalty_per_partition,
                                A, constraint_values,
                                spline_cols, flat_cols,
-                               observation_weights){
+                               observation_weights,
+                               quadprog = FALSE,
+                               qp_Amat = NULL,
+                               qp_bvec = NULL,
+                               qp_meq = NULL,
+                               qp_score_function = NULL,
+                               tol = 1e-8,
+                               parallel_eigen = FALSE,
+                               cl = NULL,
+                               chunk_size = NULL,
+                               num_chunks = NULL,
+                               rem_chunks = NULL,
+                               include_warnings = TRUE,
+                               verbose = FALSE,
+                               ...){
 
   perm_bf <- unlist(order_list)
   VhalfInv_bf <- VhalfInv[perm_bf, perm_bf]
@@ -552,12 +573,167 @@
     cbind(beta_block[(k - 1) * p_expansions + 1:p_expansions])
   })
 
+  qp_info <- NULL
+
+  ## Optional inequality refinement.
+  #  For block-separable constraints under a sparse low-rank correlation
+  #  structure, reuse the Woodbury active-set method before falling back
+  #  to dense solve.QP on the whitened system.
+  if (quadprog && !is.null(qp_Amat) && ncol(cbind(qp_Amat)) > 0) {
+    qp_needs_global <- .solver_detect_qp_global(qp_Amat, p_expansions, K)
+    can_use_gauss_woodbury <- all(abs(obs_wt_bf - 1) < sqrt(.Machine$double.eps))
+
+    if (!qp_needs_global && can_use_gauss_woodbury) {
+      wb_decomp <- .woodbury_decompose_V(
+        VhalfInv_bf, X, K, p_expansions,
+        Lambda, Lambda_block_bf,
+        unique_penalty_per_partition,
+        L_partition_list,
+        order_list,
+        parallel_eigen, cl,
+        chunk_size, num_chunks, rem_chunks,
+        rank_threshold_fraction = 1/3,
+        family = gaussian()
+      )
+
+      if (isTRUE(wb_decomp$use_woodbury)) {
+        wb_sqrt <- .woodbury_halfsqrt_components(
+          wb_decomp$Ghalf_corrected,
+          wb_decomp$E,
+          wb_decomp$J_signs,
+          wb_decomp$r,
+          K, p_expansions
+        )
+
+        if (isTRUE(wb_sqrt$valid)) {
+          Xy_V <- .compute_Xy_V(
+            X, y, VhalfInv_bf, K, p_expansions, order_list
+          )
+
+          as_out <- .try_woodbury_active_set(
+            result = result,
+            K = K,
+            p_expansions = p_expansions,
+            A = A,
+            R_constraints = ncol(A),
+            constraint_value_vectors = constraint_values,
+            family = gaussian(),
+            qp_Amat = qp_Amat,
+            qp_bvec = qp_bvec,
+            qp_meq = qp_meq,
+            rhs_list = Xy_V,
+            Ghalf_corrected = wb_decomp$Ghalf_corrected,
+            wb_sqrt = wb_sqrt,
+            parallel_aga = FALSE,
+            parallel_matmult = FALSE,
+            cl = cl,
+            chunk_size = chunk_size,
+            num_chunks = num_chunks,
+            rem_chunks = rem_chunks,
+            tol = tol,
+            include_warnings = include_warnings,
+            warn_context = ".bf_case_gauss_gee"
+          )
+
+          if (!is.null(as_out)) {
+            result <- as_out$result
+            qp_info <- as_out$qp_info
+          }
+        }
+      }
+    }
+
+    if (is.null(qp_info)) {
+      beta_block <- cbind(unlist(result))
+
+      if (K == 0 | any(all.equal(unique(A), 0) == TRUE)) {
+        A_qp <- cbind(rep(0, p_expansions * (K + 1)))
+      } else {
+        A_qp <- A
+      }
+      if (!is.null(qp_Amat)) {
+        qp_Amat_c <- cbind(A_qp, qp_Amat)
+      } else {
+        qp_Amat_c <- A_qp
+      }
+      constr_rhs <- if (length(constraint_values) > 0) {
+        cr <- Reduce("rbind", constraint_values)
+        if (nrow(cr) < ncol(A_qp)) c(rep(0, ncol(A_qp) - nrow(cr)), cr)
+        else cr
+      } else {
+        rep(0, ncol(A_qp))
+      }
+      qp_bvec_c <- if (!is.null(qp_bvec)) c(constr_rhs, qp_bvec) else constr_rhs
+      qp_meq_c <- ncol(A_qp) + if (!is.null(qp_meq)) qp_meq else 0
+
+      qp_score <- if (!is.null(qp_score_function)) {
+        qp_score_function(
+          X_tilde_bf, y_tilde_bf,
+          VhalfInv_bf %**% cbind(gaussian()$linkinv(c(X_block_bf %**% beta_block))),
+          unlist(order_list), 1, VhalfInv_bf,
+          obs_wt_bf, ...
+        )
+      } else {
+        Xy_bf
+      }
+
+      info <- Gram_bf + Lambda_block_bf
+      sc <- sqrt(mean(abs(info)))
+      qp_result <- try({
+        quadprog::solve.QP(
+          Dmat = info / sc,
+          dvec = (qp_score -
+                    Lambda_block_bf %**% beta_block +
+                    info %**% beta_block) / sc,
+          Amat = qp_Amat_c,
+          bvec = qp_bvec_c,
+          meq = qp_meq_c
+        )
+      }, silent = TRUE)
+
+      if (!inherits(qp_result, "try-error")) {
+        active_ineq <- if (ncol(qp_Amat_c) > ncol(A_qp)) {
+          which(abs(qp_result$Lagrangian[-(1:ncol(A_qp))]) >
+                  sqrt(.Machine$double.eps))
+        } else {
+          integer(0)
+        }
+        beta_block <- cbind(qp_result$solution)
+        result <- lapply(1:(K + 1), function(k) {
+          cbind(beta_block[(k - 1) * p_expansions + 1:p_expansions])
+        })
+        qp_info <- list(
+          lagrangian = qp_result$Lagrangian,
+          Amat_active = qp_Amat_c[,
+                                  c(1:ncol(A_qp),
+                                    ncol(A_qp) + which(abs(qp_result$Lagrangian[-(1:ncol(A_qp))]) >
+                                                         sqrt(.Machine$double.eps))),
+                                  drop = FALSE],
+          active_ineq = active_ineq,
+          converged = TRUE,
+          method = "dense_qp_gee_gaussian"
+        )
+      } else if (include_warnings) {
+        err_msg <- if (!is.null(attr(qp_result, "condition"))) {
+          conditionMessage(attr(qp_result, "condition"))
+        } else {
+          as.character(qp_result)
+        }
+        warning(
+          ".bf_case_gauss_gee dense QP failed: ",
+          err_msg
+        )
+      }
+    }
+  }
+
   beta_spline <- lapply(result, function(b) b[spline_cols, , drop = FALSE])
   beta_flat   <- result[[1]][flat_cols]
 
   list(beta_spline = beta_spline,
        beta_flat   = beta_flat,
-       result      = result)
+       result      = result,
+       qp_info     = qp_info)
 }
 
 
@@ -1150,6 +1326,7 @@
                              unique_penalty_per_partition,
                              A, constraint_values,
                              Vhalf, VhalfInv,
+                             include_warnings = TRUE,
                              verbose, ...){
 
   spline_cols <- split$spline_cols
@@ -1264,6 +1441,120 @@
     cbind(b)
   })
   beta_block <- cbind(unlist(result_ws))
+
+  ## If the inequality system is block-separable and the current weighted
+  #  correlated system admits a Woodbury factorization, try the same
+  #  partition-wise active-set refinement used by get_B() before entering
+  #  the dense SQP loop.
+  if (quadprog && !is.null(qp_Amat) && ncol(cbind(qp_Amat)) > 0 &&
+      !.solver_detect_qp_global(qp_Amat, p_expansions, K)) {
+
+    perm <- unlist(order_list)
+    VhalfInv_perm <- VhalfInv[perm, perm]
+    X_block <- collapse_block_diagonal(X)
+    y_block <- cbind(unlist(y))
+    N <- nrow(X_block)
+    Delta_V <- tcrossprod(VhalfInv_perm) - diag(N)
+    DV_X <- Delta_V %**% X_block
+
+    mu_ws_as <- family$linkinv(X_block %**% beta_block)
+    if (need_dispersion_for_estimation) {
+      disp_as <- dispersion_function(
+        mu = mu_ws_as,
+        y = y_block,
+        order_indices = unlist(order_list),
+        family = family,
+        observation_weights = unlist(observation_weights),
+        VhalfInv = VhalfInv,
+        ...
+      )
+    } else {
+      disp_as <- 1
+    }
+
+    W_as <- c(glm_weight_function(
+      mu_ws_as, y_block, unlist(order_list),
+      family, disp_as,
+      unlist(observation_weights), ...
+    ))
+    W_as <- pmax(W_as, sqrt(.Machine$double.eps))
+
+    n_per_partition <- sapply(X, nrow)
+    W_split_as <- split(W_as, rep(1:(K + 1), n_per_partition))
+    Xw_as <- lapply(1:(K + 1), function(k) {
+      if (nrow(X[[k]]) == 0) return(X[[k]])
+      X[[k]] * sqrt(W_split_as[[k]])
+    })
+    X_gram_weighted_as <- compute_gram_block_diagonal(
+      Xw_as, FALSE, cl, chunk_size, num_chunks, rem_chunks
+    )
+
+    schur_corrections_as <- schur_correction_function(
+      X, y, result_ws, disp_as, order_list, K, family,
+      observation_weights, ...
+    )
+    wb_as <- .woodbury_redecompose_weighted(
+      Delta_V, X_block, DV_X, W_as,
+      X, K, p_expansions,
+      X_gram_weighted_as,
+      Lambda, schur_corrections_as,
+      unique_penalty_per_partition, L_partition_list,
+      parallel_eigen, cl,
+      chunk_size, num_chunks, rem_chunks,
+      rank_threshold_fraction = 1/3,
+      family = family
+    )
+
+    if (isTRUE(wb_as$use_woodbury)) {
+      wb_sqrt_as <- .woodbury_halfsqrt_components(
+        wb_as$Ghalf_corrected, wb_as$E, wb_as$J_signs,
+        wb_as$r, K, p_expansions
+      )
+
+      if (isTRUE(wb_sqrt_as$valid)) {
+        score_V_as <- .compute_score_V_partitioned(
+          X, X_block, y, result_ws, K, p_expansions,
+          family, W_as, Delta_V, observation_weights
+        )
+
+        as_out <- .try_woodbury_active_set(
+          result = result_ws,
+          K = K,
+          p_expansions = p_expansions,
+          A = A,
+          R_constraints = ncol(A),
+          constraint_value_vectors = constraint_values,
+          family = family,
+          qp_Amat = qp_Amat,
+          qp_bvec = qp_bvec,
+          qp_meq = qp_meq,
+          rhs_list = score_V_as,
+          Ghalf_corrected = wb_as$Ghalf_corrected,
+          wb_sqrt = wb_sqrt_as,
+          parallel_aga = FALSE,
+          parallel_matmult = FALSE,
+          cl = cl,
+          chunk_size = chunk_size,
+          num_chunks = num_chunks,
+          rem_chunks = rem_chunks,
+          tol = tol,
+          include_warnings = include_warnings,
+          warn_context = ".bf_case_glm_gee"
+        )
+
+        if (!is.null(as_out)) {
+          return(list(
+            result = as_out$result,
+            beta_spline = lapply(as_out$result, function(b) {
+              b[spline_cols, , drop = FALSE]
+            }),
+            beta_flat = as_out$result[[1]][flat_cols],
+            qp_info = as_out$qp_info
+          ))
+        }
+      }
+    }
+  }
 
   ## Stage 2: Damped SQP on full whitened system
   if(verbose) cat("  GEE full-system refinement (Path 1b)\n")
@@ -1613,7 +1904,8 @@
 #'   \item{Case (b)}{Gaussian identity, no correlation: standard
 #'     backfitting via \code{.bf_case_gauss_no_corr}.}
 #'   \item{Case (c)}{GLM + GEE: two-stage (damped Newton-Raphson warm start then
-#'     damped SQP) via \code{.bf_case_glm_gee}.}
+#'     Woodbury active-set when available, otherwise damped SQP) via
+#'     \code{.bf_case_glm_gee}.}
 #'   \item{Case (d)}{GLM without GEE: damped Newton-Raphson + backfitting via
 #'     \code{.bf_case_glm_no_corr}.}
 #' }
@@ -1862,13 +2154,14 @@ blockfit_solve <- function(
   needs_gee_glm <- has_corr & !is_gauss_id
 
   ## Auto-detect whether inequality constraints require global (dense)
-  ## QP or can be handled partition-wise. GEE always forces global.
+  ## QP or can be handled partition-wise. The correlated GEE paths now
+  #  perform their own Woodbury-vs-dense gating, so qp_global here only
+  #  governs the non-GEE post-fit refinement below.
   if(quadprog){
-    qp_global <- has_corr | .solver_detect_qp_global(qp_Amat, p_expansions, K)
+    qp_global <- .solver_detect_qp_global(qp_Amat, p_expansions, K)
   } else {
     qp_global <- FALSE
   }
-  if(has_corr) qp_global <- TRUE
 
   ## Split design matrices, penalty, and constraints
   #  The spline-only objects are then reused across the case-specific solvers.
@@ -1926,10 +2219,25 @@ blockfit_solve <- function(
       unique_penalty_per_partition,
       A, constraint_values,
       spline_cols, flat_cols,
-      observation_weights)
+      observation_weights,
+      quadprog = quadprog,
+      qp_Amat = qp_Amat,
+      qp_bvec = qp_bvec,
+      qp_meq = qp_meq,
+      qp_score_function = qp_score_function,
+      tol = tol,
+      parallel_eigen = parallel_eigen,
+      cl = cl,
+      chunk_size = chunk_size,
+      num_chunks = num_chunks,
+      rem_chunks = rem_chunks,
+      include_warnings = include_warnings,
+      verbose = verbose,
+      ...)
     beta_spline <- out_a$beta_spline
     beta_flat   <- out_a$beta_flat
     result      <- out_a$result
+    qp_info     <- out_a$qp_info
 
     ## Case (b): Gaussian identity, no correlation
   } else if(is_gauss_id & !has_corr){
@@ -1965,7 +2273,8 @@ blockfit_solve <- function(
       Lambda, L_partition_list,
       unique_penalty_per_partition,
       A, constraint_values,
-      Vhalf, VhalfInv, verbose, ...)
+      Vhalf, VhalfInv, include_warnings,
+      verbose, ...)
 
     result      <- out_c$result
     beta_spline <- out_c$beta_spline

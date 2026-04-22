@@ -1774,14 +1774,24 @@ lgspline <- function(
                                  ...
   )}, silent = TRUE)
 
-  ## Return try error if model fails to to be fit
-  if(any(inherits(model_fit, 'try-error')) & include_warnings){
-    warning('\n \t Model fitting error: try verbose = TRUE, checking for NAs,',
-            ' adjusting starting tuning grid, or K. If using parallel options,',
-            ' check your parallel cluster, submit to cl argument if valid, and make ',
-            'sure base R parallel package is loaded. Also make sure your ',
-            'formula and overall setup is valid. \n')
-    return(model_fit)
+  ## Stop immediately on fitting failure.  Returning the raw try-error
+  # object here causes follow-on "$ operator is invalid for atomic vectors"
+  # failures later in lgspline(), especially when include_warnings = FALSE.
+  if(any(inherits(model_fit, 'try-error'))){
+    if(include_warnings){
+      warning('\n \t Model fitting error: try verbose = TRUE, checking for NAs,',
+              ' adjusting starting tuning grid, or K. If using parallel options,',
+              ' check your parallel cluster, submit to cl argument if valid, and make ',
+              'sure base R parallel package is loaded. Also make sure your ',
+              'formula and overall setup is valid. \n')
+    }
+
+    fit_err_msg <- if(!is.null(attr(model_fit, "condition"))){
+      conditionMessage(attr(model_fit, "condition"))
+    } else {
+      as.character(model_fit)
+    }
+    stop(fit_err_msg)
   }
 
   ## [Change 2026-02-12] Return dummy_fit output (replaces expansions_only)
@@ -6433,7 +6443,12 @@ lgspline.fit <- function(predictors,
 
   if(any(inherits(B_list, 'try-error'))){
     if(include_warnings) print(B_list)
-    stop('\n \t Failure in fitting final model \n')
+    fit_err_msg <- if(!is.null(attr(B_list, "condition"))){
+      conditionMessage(attr(B_list, "condition"))
+    } else {
+      as.character(B_list)
+    }
+    stop(fit_err_msg)
   }
   B <- B_list$B
   G_list <- B_list$G_list
@@ -7016,6 +7031,7 @@ lgspline.fit <- function(predictors,
   } else {
     quadprog_list <- list(NA)
   }
+  qp_info <- if(quadprog) B_list$qp_info else NULL
   qp_Amat <- NULL
   qp_bvec <- NULL
   qp_meq <- NULL
@@ -7079,6 +7095,7 @@ lgspline.fit <- function(predictors,
                       "parallel_cluster_supplied" = parallel,
                       "weights" = observation_weights_og,
                       "VhalfInv" = VhalfInv,
+                      "qp_info" = qp_info,
                       "quadprog_list" = quadprog_list)
 
   if(verbose){

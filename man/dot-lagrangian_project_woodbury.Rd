@@ -24,8 +24,9 @@
 }
 \arguments{
 \item{GhalfXy_V}{Numeric column vector of length \eqn{P};
-\eqn{\mathbf{G}_{\mathrm{on}}^{1/2}} applied to the per-partition GLS
-cross-products \eqn{\mathbf{X}_k^{\top}\mathbf{V}^{-1}\mathbf{y}_k}.}
+the fully transformed right-hand side
+\eqn{\mathbf{G}^{1/2}\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{y}}
+assembled through the Woodbury-corrected operator.}
 
 \item{Ghalf_corrected}{List of \eqn{K+1} corrected
 \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}} matrices.}

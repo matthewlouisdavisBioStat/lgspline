@@ -24,6 +24,7 @@
   observation_weights,
   wb_decomp,
   wb_sqrt,
+  Lambda_block,
   parallel_aga,
   parallel_matmult,
   cl,
@@ -31,6 +32,7 @@
   num_chunks,
   rem_chunks,
   qp_global,
+  tol,
   ...
 )
 }
@@ -66,12 +68,16 @@ ordering.}
 
 \item{wb_sqrt}{Output of \code{.woodbury_halfsqrt_components}.}
 
+\item{Lambda_block}{Full block-diagonal penalty matrix.}
+
 \item{parallel_aga, parallel_matmult}{Logical flags.}
 
 \item{cl, chunk_size, num_chunks, rem_chunks}{Parallel parameters.}
 
-\item{qp_global}{Logical; forced TRUE for GEE but passed for
-interface consistency.}
+\item{qp_global}{Logical; TRUE when inequality constraints couple
+partitions and therefore require the dense global QP refinement.}
+
+\item{tol}{Numeric tolerance used by the Woodbury active-set refinement.}
 
 \item{...}{Passed to sub-functions.}
 }

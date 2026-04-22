@@ -108,3 +108,75 @@ test_that("weighted correlated Gaussian varcov and logLik use the whitened-syste
   expect_equal(as.numeric(logLik(fit_core, include_prior = FALSE)), ll_expected,
                tolerance = 1e-4)
 })
+
+
+test_that("Woodbury Gaussian GEE uses active-set for partition-local inequality constraints", {
+  set.seed(20260421)
+
+  ## Use a sparse low-rank perturbation of I for V^{-1} so the
+  #  Woodbury gate is actually available.  Dense exchangeable
+  #  correlation is intentionally filtered out upstream.
+  n <- 60
+  x1 <- seq(0, 1, length.out = n)
+  x2 <- sin(2 * pi * x1)
+  y <- 0.5 + 1.2 * x1 + 0.3 * x2 + rnorm(n, 0, 0.05)
+  Vinv <- diag(n)
+  Vinv[15, 45] <- 0.2
+  Vinv[45, 15] <- 0.2
+  VhalfInv <- t(chol(Vinv))
+
+  fit <- lgspline(
+    cbind(x1, x2),
+    y,
+    K = 1,
+    opt = FALSE,
+    qp_positive_derivative = "x1",
+    VhalfInv = VhalfInv,
+    standardize_response = FALSE,
+    include_warnings = FALSE
+  )
+
+  fit_core <- if(!is.null(fit$model_fit)) fit$model_fit else fit
+
+  expect_true(isTRUE(fit_core$qp_info$converged))
+  expect_equal(fit_core$qp_info$method, "active_set_woodbury")
+  expect_false(is.null(fit_core$qp_info$active_ineq))
+
+  deriv <- predict(fit, cbind(x1, x2), take_first_derivatives = TRUE)
+  expect_true(all(unlist(deriv$first_deriv[[1]]) >= -1e-6))
+})
+
+
+test_that("Woodbury GLM GEE uses active-set for partition-local inequality constraints", {
+  set.seed(20260421)
+
+  n <- 60
+  x1 <- seq(0, 1, length.out = n)
+  x2 <- cos(2 * pi * x1)
+  mu <- exp(0.3 + 0.8 * x1 + 0.2 * x2)
+  y <- rpois(n, mu)
+  Vinv <- diag(n)
+  Vinv[12, 36] <- 0.15
+  Vinv[36, 12] <- 0.15
+  VhalfInv <- t(chol(Vinv))
+
+  fit <- lgspline(
+    cbind(x1, x2),
+    y,
+    family = quasipoisson(),
+    K = 1,
+    opt = FALSE,
+    qp_positive_derivative = "x1",
+    VhalfInv = VhalfInv,
+    include_warnings = FALSE
+  )
+
+  fit_core <- if(!is.null(fit$model_fit)) fit$model_fit else fit
+
+  expect_true(isTRUE(fit_core$qp_info$converged))
+  expect_equal(fit_core$qp_info$method, "active_set_woodbury")
+  expect_false(is.null(fit_core$qp_info$active_ineq))
+
+  deriv <- predict(fit, cbind(x1, x2), take_first_derivatives = TRUE)
+  expect_true(all(unlist(deriv$first_deriv[[1]]) >= -1e-6))
+})

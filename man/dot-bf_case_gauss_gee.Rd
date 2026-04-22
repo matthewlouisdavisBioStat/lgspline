@@ -18,7 +18,21 @@
   constraint_values,
   spline_cols,
   flat_cols,
-  observation_weights
+  observation_weights,
+  quadprog = FALSE,
+  qp_Amat = NULL,
+  qp_bvec = NULL,
+  qp_meq = NULL,
+  qp_score_function = NULL,
+  tol = 1e-08,
+  parallel_eigen = FALSE,
+  cl = NULL,
+  chunk_size = NULL,
+  num_chunks = NULL,
+  rem_chunks = NULL,
+  include_warnings = TRUE,
+  verbose = FALSE,
+  ...
 )
 }
 \arguments{
@@ -46,6 +60,17 @@ observation ordering.}
 \item{constraint_values}{List of constraint RHS vectors.}
 
 \item{spline_cols, flat_cols}{Integer vectors of column indices.}
+
+\item{quadprog}{Logical; whether inequality refinement is active.}
+
+\item{qp_Amat, qp_bvec, qp_meq}{QP constraint specification.}
+
+\item{tol}{Numeric tolerance.}
+
+\item{parallel_eigen, cl, chunk_size, num_chunks, rem_chunks}{Parallel
+arguments used by the Woodbury gate.}
+
+\item{include_warnings, verbose}{Logical.}
 }
 \value{
 A named list:
@@ -54,6 +79,7 @@ A named list:
   \item{beta_flat}{Numeric vector of flat coefficients.}
   \item{result}{List of \eqn{K+1} full per-partition coefficient
     vectors.}
+  \item{qp_info}{QP or active-set metadata, or \code{NULL}.}
 }
 }
 \description{
@@ -65,11 +91,11 @@ This function performs a single closed-form solve that replicates
 \code{get_B} Path 1a but in the backfitting context.
 }
 \details{
-In other words, this is the dense correlated solve on the pooled
-coefficient space. The supplement's Woodbury factorization
-\eqn{\mathbf{G}^{-1} =
-\mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1}}
-is handled in \code{get_B()}, not here, so this helper always uses the
-dense correlated solve.
+In other words, this begins from the dense correlated solve on the pooled
+coefficient space. When inequality constraints are present and Woodbury
+acceleration is available, the helper then attempts the same
+partition-wise Woodbury active-set refinement used by \code{get_B()}.
+If that path is unavailable or fails, it falls back to dense
+\code{solve.QP} on the whitened system.
 }
 \keyword{internal}

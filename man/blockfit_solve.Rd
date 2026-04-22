@@ -262,7 +262,8 @@ configuration:
   \item{Case (b)}{Gaussian identity, no correlation: standard
     backfitting via \code{.bf_case_gauss_no_corr}.}
   \item{Case (c)}{GLM + GEE: two-stage (damped Newton-Raphson warm start then
-    damped SQP) via \code{.bf_case_glm_gee}.}
+    Woodbury active-set when available, otherwise damped SQP) via
+    \code{.bf_case_glm_gee}.}
   \item{Case (d)}{GLM without GEE: damped Newton-Raphson + backfitting via
     \code{.bf_case_glm_no_corr}.}
 }

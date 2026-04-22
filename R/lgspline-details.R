@@ -1249,7 +1249,9 @@
 #' active-set method through \code{\link{.active_set_refine}}, while
 #' cross-partition constraints trigger the dense SQP loop through
 #' \code{\link{.bf_sqp_loop}}. For GEE (Case c), inequality handling
-#' occurs inside Stage 2 on the whitened system.
+#' still operates on the whitened system, but Woodbury-accelerated
+#' block-separable constraints can now reuse the active-set method
+#' through \code{\link{.active_set_refine_woodbury}}.
 #'
 #' After convergence, the shared flat vector \eqn{\mathbf{v}} is copied
 #' into each partition's coefficient vector, yielding

@@ -29,7 +29,7 @@
   num_chunks,
   rem_chunks,
   tol,
-  max_as_iter = 50
+  max_as_iter = NULL
 )
 }
 \arguments{

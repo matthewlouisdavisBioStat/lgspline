@@ -132,7 +132,9 @@ where
 }
 \eqn{\mathbf{H} = \mathbf{XUGX}^\top} is the hat matrix, \eqn{s = 1}
 when \code{unbias_dispersion = TRUE} (else \eqn{s = 0}), and
-\eqn{\theta_1 = \theta_2 = 0} recovers an improper uniform prior.
+\eqn{\theta_1 = -1, \theta_2 = 0} recovers an improper uniform prior
+on \eqn{\sigma^2}, while \eqn{\theta_1 = 0, \theta_2 = 0} gives the
+usual scale-invariant improper prior \eqn{p(\sigma^2) \propto 1/\sigma^2}.
 
 \strong{Correlation parameter posterior.}
 When \code{draw_correlation = TRUE} and the fitted model contains an

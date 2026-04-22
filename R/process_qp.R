@@ -144,26 +144,61 @@
   if (!is.null(target_vars)) {
     deriv_names <- names(deriv_list)
 
-    ## Convert character target_vars to the internal "_j_" form
-    if (is.character(target_vars) && !is.null(og_cols)) {
-      target_numeric <- unlist(lapply(target_vars, function(v) {
-        idx <- which(og_cols == v)
-        if (length(idx) == 0) idx <- grep(v, og_cols, fixed = TRUE)
-        idx
-      }))
-      target_internal <- paste0("_", target_numeric, "_")
+    ## Build a permissive set of candidate labels so character targets
+    # can match either the original predictor names (e.g. "Dose") or
+    # the internal expansion names (e.g. "_1_").
+    candidate_targets <- character(0)
+
+    if (is.character(target_vars)) {
+      candidate_targets <- unique(c(candidate_targets, target_vars))
+
+      if (!is.null(og_cols)) {
+        target_numeric <- unique(unlist(lapply(target_vars, function(v) {
+          idx <- which(og_cols == v)
+          if (length(idx) == 0) idx <- grep(v, og_cols, fixed = TRUE)
+          idx
+        })))
+
+        if (length(target_numeric) > 0) {
+          candidate_targets <- unique(c(
+            candidate_targets,
+            paste0("_", target_numeric, "_"),
+            og_cols[target_numeric]
+          ))
+        }
+      }
+
     } else if (is.numeric(target_vars)) {
-      target_internal <- paste0("_", as.integer(target_vars), "_")
+      target_numeric <- unique(as.integer(target_vars))
+      candidate_targets <- unique(c(
+        candidate_targets,
+        paste0("_", target_numeric, "_")
+      ))
+
+      if (!is.null(og_cols)) {
+        target_numeric <- target_numeric[
+          target_numeric >= 1 & target_numeric <= length(og_cols)
+        ]
+        if (length(target_numeric) > 0) {
+          candidate_targets <- unique(c(
+            candidate_targets,
+            og_cols[target_numeric]
+          ))
+        }
+      }
+
     } else {
       ## Fallback: treat as-is
-      target_internal <- target_vars
+      candidate_targets <- unique(c(candidate_targets, target_vars))
     }
 
-    ## Keep only derivative components whose name matches a target.
-    # The derivative list names are the linear-term expansion names
-    # (e.g. "_1_", "_2_"), so we match against target_internal.
+    ## Keep only derivative components whose name matches one of the
+    # candidate labels assembled above.
     keep_idx <- which(sapply(deriv_names, function(nm) {
-      any(sapply(target_internal, function(tv) grepl(tv, nm, fixed = TRUE)))
+      any(sapply(candidate_targets, function(tv) {
+        if (is.na(tv) || !nzchar(tv)) return(FALSE)
+        identical(nm, tv) || grepl(tv, nm, fixed = TRUE)
+      }))
     }))
 
     if (length(keep_idx) == 0) {
@@ -697,6 +732,34 @@ process_qp <- function(X,
     qp_Amat_list[[length(qp_Amat_list) + 1]] <- custom_Amat
     qp_bvec_list[[length(qp_bvec_list) + 1]] <- custom_bvec
     qp_meq_list[[length(qp_meq_list) + 1]] <- custom_meq
+  }
+
+  ## Preserve any user-supplied solve.QP objects by prepending them to
+  # the built-in constraint lists.  This keeps the leading qp_meq
+  # equalities in the user-specified order.
+  if (!is.null(qp_Amat) & !is.null(qp_bvec) & !is.null(qp_meq)) {
+    qp_Amat_list <- c(list(qp_Amat), qp_Amat_list)
+    qp_bvec_list <- c(list(qp_bvec), qp_bvec_list)
+    qp_meq_list <- c(list(qp_meq), qp_meq_list)
+  }
+
+  ## If QP flags were supplied but no conformable columns were generated,
+  # return the non-QP state rather than carrying a NULL constraint matrix
+  # through the solver stack.
+  if (length(qp_Amat_list) == 0) {
+    if (include_warnings) {
+      warning(
+        "\n\t Quadratic programming constraints were requested, but no ",
+        "conformable constraint columns were generated. Proceeding ",
+        "without QP refinement.\n"
+      )
+    }
+    return(list(
+      qp_Amat = NULL,
+      qp_bvec = NULL,
+      qp_meq = 0L,
+      quadprog = FALSE
+    ))
   }
 
   ## Stack all active constraint sources into the single solve.QP interface.

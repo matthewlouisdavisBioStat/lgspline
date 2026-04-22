@@ -39,6 +39,7 @@
   constraint_values,
   Vhalf,
   VhalfInv,
+  include_warnings = TRUE,
   verbose,
   ...
 )
@@ -109,6 +110,8 @@ original observation ordering.}
 \item{VhalfInv}{Inverse square root of the working correlation matrix
 in the original observation ordering.  When both are non-\code{NULL},
 the GEE paths are used.}
+
+\item{include_warnings}{Logical.}
 
 \item{verbose}{Logical.}
 
