@@ -152,3 +152,40 @@ test_that("lgspline handles various quadratic programming constraints", {
   expect_true(all(preds_bound >= -1.01)) # Allow small numerical error
   expect_true(all(preds_bound <= 1.01))
 })
+
+test_that("Gaussian QP constraints are invariant to response standardization", {
+  set.seed(20260423)
+
+  t <- seq(-4, 4, length.out = 90)
+  y <- 2 + exp(-0.4 * t) + 0.15 * t^2 + rnorm(length(t), 0, 0.15)
+
+  args <- list(
+    predictors = cbind(t),
+    y = y,
+    K = 2,
+    opt = FALSE,
+    qp_range_lower = 0,
+    qp_negative_derivative = TRUE,
+    qp_positive_2ndderivative = TRUE,
+    include_cubic_terms = FALSE,
+    include_quartic_terms = FALSE,
+    include_constrain_second_deriv = FALSE,
+    include_warnings = FALSE
+  )
+
+  fit_std <- do.call(lgspline, c(args, list(standardize_response = TRUE)))
+  fit_raw <- do.call(lgspline, c(args, list(standardize_response = FALSE)))
+
+  pred_std <- predict(fit_std, cbind(t))
+  pred_raw <- predict(fit_raw, cbind(t))
+
+  expect_equal(pred_std, pred_raw, tolerance = 1e-6)
+  expect_true(all(pred_std >= -1e-8))
+
+  deriv_std <- predict(fit_std, cbind(t), take_first_derivatives = TRUE)
+  deriv_raw <- predict(fit_raw, cbind(t), take_first_derivatives = TRUE)
+
+  expect_equal(unlist(deriv_std$first_deriv[[1]]),
+               unlist(deriv_raw$first_deriv[[1]]),
+               tolerance = 1e-6)
+})

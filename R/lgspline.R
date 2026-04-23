@@ -6890,24 +6890,29 @@ lgspline.fit <- function(predictors,
         deriv_names <- paste0("var_", seq_len(n_deriv_vars))
       }
 
-      Cprime_new <- Reduce("rbind",
-                           lapply(1:n_deriv_vars,
-                                  function(var){
-                                    d <- derivs$first_derivative[[var]]
-                                    if(only_1) return(d[1,,drop=FALSE])
-                                    else return(d)
-                                  }))
+      partition_codes_deriv <- partition_codes_new
+      if(only_1){
+        partition_codes_deriv <- partition_codes_new[1]
+      }
 
-      Xprime_new <- knot_expand_list(
-        partition_codes_new, partition_bounds,
-        length(partition_codes_new), Cprime_new, K)
+      preds_prime_list <- lapply(seq_len(n_deriv_vars), function(var){
+        Cprime_var <- derivs$first_derivative[[var]]
+        if(only_1){
+          Cprime_var <- Cprime_var[1,,drop=FALSE]
+        }
 
-      preds_prime <-
+        Xprime_new <- knot_expand_list(
+          partition_codes_deriv, partition_bounds,
+          length(partition_codes_deriv), Cprime_var, K)
+
         unlist(
           matmult_block_diagonal(
             Xprime_new[keep_blocks], B_predict[keep_blocks],
             length(keep_blocks) - 1, parallel, cl,
             chunk_size, num_chunks, rem_chunks))[order(unlist(order_list_keep))]
+      })
+
+      preds_prime <- unlist(preds_prime_list)
 
       if(n_deriv_vars == 1){
         final_preds_prime <- family$linkinvderiv(final_preds) * preds_prime
@@ -6921,24 +6926,25 @@ lgspline.fit <- function(predictors,
       }
 
       if(take_second_derivatives){
-        Cdprime_new <- Reduce("rbind",
-                              lapply(1:length(derivs$second_derivative),
-                                     function(var){
-                                       d <- derivs$second_derivative[[var]]
-                                       if(only_1) return(d[1,,drop=FALSE])
-                                       else return(d)
-                                     }))
+        preds_dprime_list <- lapply(seq_along(derivs$second_derivative),
+                                    function(var){
+          Cdprime_var <- derivs$second_derivative[[var]]
+          if(only_1){
+            Cdprime_var <- Cdprime_var[1,,drop=FALSE]
+          }
 
-        Xdprime_new <- knot_expand_list(
-          partition_codes_new, partition_bounds,
-          length(partition_codes_new), Cdprime_new, K)
+          Xdprime_new <- knot_expand_list(
+            partition_codes_deriv, partition_bounds,
+            length(partition_codes_deriv), Cdprime_var, K)
 
-        preds_dprime <-
           unlist(
             matmult_block_diagonal(
               Xdprime_new[keep_blocks], B_predict[keep_blocks],
               length(keep_blocks) - 1, parallel, cl,
               chunk_size, num_chunks, rem_chunks))[order(unlist(order_list_keep))]
+        })
+
+        preds_dprime <- unlist(preds_dprime_list)
 
         if(n_deriv_vars == 1){
           final_preds_dprime <-

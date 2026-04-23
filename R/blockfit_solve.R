@@ -1451,7 +1451,7 @@
     X_block <- collapse_block_diagonal(X)
     y_block <- cbind(unlist(y))
     N <- nrow(X_block)
-    Delta_V <- tcrossprod(VhalfInv_perm) - diag(N)
+    Delta_V <- crossprod(VhalfInv_perm) - diag(N)
     DV_X <- Delta_V %**% X_block
 
     mu_ws_as <- family$linkinv(X_block %**% beta_block)
@@ -1509,12 +1509,40 @@
       )
 
       if (isTRUE(wb_sqrt_as$valid)) {
-        score_V_as <- .compute_score_V_partitioned(
-          X, X_block, y, result_ws, K, p_expansions,
-          family, W_as, Delta_V, observation_weights
+        X_tilde_as <- VhalfInv_perm %**% X_block
+        y_tilde_as <- VhalfInv_perm %**% y_block
+        Lambda_block_as <- .bf_make_Lambda_block(
+          Lambda, K, unique_penalty_per_partition, L_partition_list
         )
+        schur_coll_as <- if (any(unlist(schur_corrections_as) != 0)) {
+          collapse_block_diagonal(schur_corrections_as)
+        } else {
+          0
+        }
 
-        as_out <- .try_woodbury_active_set(
+        qp_score_as <- qp_score_function(
+          X_tilde_as, y_tilde_as,
+          VhalfInv_perm %**% cbind(mu_ws_as),
+          unlist(order_list), disp_as,
+          VhalfInv_perm,
+          unlist(observation_weights), ...
+        )
+        Xb_as <- X_block %**% beta_block
+        info_nopen_beta_as <- crossprod(
+          X_block, W_as * (Xb_as + Delta_V %**% Xb_as)
+        )
+        if (any(unlist(schur_corrections_as) != 0)) {
+          info_nopen_beta_as <- info_nopen_beta_as +
+            schur_coll_as %**% beta_block
+        }
+        dvec_as <- qp_score_as + info_nopen_beta_as
+
+        rhs_list_as <- lapply(1:(K + 1), function(k) {
+          rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
+          dvec_as[rows_k, , drop = FALSE]
+        })
+
+        as_out <- try(.active_set_refine_woodbury(
           result = result_ws,
           K = K,
           p_expansions = p_expansions,
@@ -1525,7 +1553,7 @@
           qp_Amat = qp_Amat,
           qp_bvec = qp_bvec,
           qp_meq = qp_meq,
-          rhs_list = score_V_as,
+          rhs_list = rhs_list_as,
           Ghalf_corrected = wb_as$Ghalf_corrected,
           wb_sqrt = wb_sqrt_as,
           parallel_aga = FALSE,
@@ -1534,12 +1562,49 @@
           chunk_size = chunk_size,
           num_chunks = num_chunks,
           rem_chunks = rem_chunks,
-          tol = tol,
-          include_warnings = include_warnings,
-          warn_context = ".bf_case_glm_gee"
-        )
+          tol = max(tol, 100 * sqrt(.Machine$double.eps))
+        ), silent = TRUE)
 
-        if (!is.null(as_out)) {
+        if (!inherits(as_out, "try-error") && isTRUE(as_out$converged)) {
+          return(list(
+            result = as_out$result,
+            beta_spline = lapply(as_out$result, function(b) {
+              b[spline_cols, , drop = FALSE]
+            }),
+            beta_flat = as_out$result[[1]][flat_cols],
+            qp_info = as_out$qp_info
+          ))
+        }
+
+        ## Dense active-set bridge remains the last stop before SQP.
+        info_as <- crossprod(X_tilde_as, W_as * X_tilde_as) +
+          Lambda_block_as + schur_coll_as
+        G_as <- invert(info_as)
+        eig_as <- eigen(G_as, symmetric = TRUE)
+        vals_as <- pmax(eig_as$values, 0)
+        Ghalf_as <- eig_as$vectors %**%
+          (t(eig_as$vectors) * sqrt(vals_as))
+        dvec_full_as <- qp_score_as -
+          Lambda_block_as %**% beta_block +
+          info_as %**% beta_block
+
+        as_out <- try(.active_set_refine_full(
+          result = result_ws,
+          K = K,
+          p_expansions = p_expansions,
+          A = A,
+          constraint_value_vectors = constraint_values,
+          family = family,
+          qp_Amat = qp_Amat,
+          qp_bvec = qp_bvec,
+          qp_meq = qp_meq,
+          rhs_full = dvec_full_as,
+          Ghalf_full = Ghalf_as,
+          tol = max(tol, 100 * sqrt(.Machine$double.eps)),
+          method = "active_set_woodbury"
+        ), silent = TRUE)
+
+        if (!inherits(as_out, "try-error") && isTRUE(as_out$converged)) {
           return(list(
             result = as_out$result,
             beta_spline = lapply(as_out$result, function(b) {
