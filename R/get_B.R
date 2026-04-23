@@ -436,13 +436,13 @@
                                               tol) {
 
   beta_full <- cbind(unlist(result))
-
-  ## Check primal feasibility of ALL inequality constraints.
-  slack <- crossprod(qp_Amat, beta_full) - cbind(qp_bvec)
-  violated_mask <- c(slack) < -tol
-  all_ineq_idx <- 1:ncol(qp_Amat)
-  inactive_idx <- setdiff(all_ineq_idx, active_ineq)
-  violated <- inactive_idx[violated_mask[inactive_idx]]
+  primal <- .solver_check_primal_feasibility(
+    beta_full = beta_full,
+    qp_Amat = qp_Amat,
+    qp_bvec = qp_bvec,
+    active_ineq = active_ineq,
+    tol = tol
+  )
 
   drop <- integer(0)
   multipliers <- numeric(0)
@@ -464,30 +464,21 @@
       rem_chunks = rem_chunks
     )
 
-    comp_stab_sc <- 1 / sqrt(K + 1)
-    col_scales <- .constraint_col_scales(X_star)
-    X_star_scaled <- t(t(X_star) * col_scales)
-    ols_fit <- do.call('.lm.fit', list(
-      x = X_star_scaled * comp_stab_sc,
-      y = y_star * comp_stab_sc
-    ))
-
-    all_multipliers <- ols_fit$coefficients * col_scales
-    if (length(all_multipliers) > n_eq_orig) {
-      ## For constraints of the form C^T beta >= c, the transformed-OLS
-      #  coefficients enter beta = beta_hat - G C gamma.  Comparing with
-      #  the standard KKT form beta = beta_hat + G C lambda, we have
-      #  gamma = -lambda.  Store the usual nonnegative KKT multipliers.
-      ineq_multipliers <- -all_multipliers[(n_eq_orig + 1):length(all_multipliers)]
-      drop_mask <- ineq_multipliers < -tol
-      drop <- which(drop_mask)
-      multipliers <- ineq_multipliers
-    }
+    mult_out <- .solver_recover_active_multipliers(
+      X_star = X_star,
+      y_star = y_star,
+      n_eq_orig = n_eq_orig,
+      K = K,
+      tol = tol,
+      ineq_sign = -1
+    )
+    drop <- mult_out$drop
+    multipliers <- mult_out$multipliers
   }
 
-  list(feasible = length(violated) == 0,
+  list(feasible = primal$feasible,
        dual_feasible = length(drop) == 0,
-       violated = violated,
+       violated = primal$violated,
        drop = drop,
        multipliers = multipliers)
 }
@@ -535,36 +526,7 @@
                                         cl, chunk_size, num_chunks,
                                         rem_chunks, tol,
                                         max_as_iter = NULL) {
-
-  n_eq_orig <- ncol(A)
-  n_ineq <- ncol(qp_Amat)
-
-  ## Derivative-sign constraints can contribute one local inequality per
-  #  observation, so allow more add/drop iterations than the old fixed
-  #  budget of 50 whenever many partition-local constraints are present.
-  if (is.null(max_as_iter)) {
-    max_as_iter <- max(50, min(500, 2 * max(1, n_ineq)))
-  }
-
-  ## Separate the leading qp_meq equality constraints from the true
-  #  inequality constraints.  The qp_meq columns of qp_Amat are
-  #  equalities that must always be active.
-  if (!is.null(qp_meq) && qp_meq > 0) {
-    permanent_eq_cols <- 1:qp_meq
-    ineq_cols <- if (qp_meq < n_ineq) (qp_meq + 1):n_ineq else integer(0)
-  } else {
-    permanent_eq_cols <- integer(0)
-    ineq_cols <- 1:n_ineq
-  }
-
-  ## Build the always-active augmented A: original A + permanent equalities.
-  if (length(permanent_eq_cols) > 0) {
-    A_base <- cbind(A, qp_Amat[, permanent_eq_cols, drop = FALSE])
-  } else {
-    A_base <- A
-  }
-  n_eq_base <- ncol(A_base)
-
+  n_ineq <- if (is.null(qp_Amat)) 0L else ncol(qp_Amat)
   rhs_full <- cbind(unlist(rhs_list))
   GhalfXy_V <- .woodbury_transform_constraint_matrix(
     Ghalf_corrected = Ghalf_corrected,
@@ -579,204 +541,64 @@
     rem_chunks = rem_chunks
   )
 
-  ## Start from an empty inequality active set and let the add/drop loop
-  #  admit the single most-violated local constraint at each iteration.
-  #  Seeding with every violated derivative-sign constraint at once can
-  #  create a highly redundant initial system and lead to active-set
-  #  cycling before any useful drop information is available.
-  active_ineq <- integer(0)
+  ## Match the dense active-set budget for large derivative grids.
+  if (is.null(max_as_iter)) {
+    max_as_iter <- max(200, min(1000, 10 * max(1, n_ineq)))
+  }
 
-  converged <- FALSE
-
-  for (as_iter in 1:max_as_iter) {
-
-    ## Build augmented constraint matrix.
-    if (length(active_ineq) > 0) {
-      A_aug_full <- cbind(A_base, qp_Amat[, active_ineq, drop = FALSE])
-    } else {
-      A_aug_full <- A_base
-    }
-
-    ## Reduce to a linearly independent subset while preserving the
-    #  original column identities and ordering.  Using qr.Q() here
-    #  changes the constraint basis and breaks the active-constraint
-    #  bookkeeping, especially when nonzero rhs values are present.
-    keep_cols <- integer(0)
-    if (ncol(A_aug_full) > 0) {
-      for (j in seq_len(ncol(A_aug_full))) {
-        cand_cols <- c(keep_cols, j)
-        cand_A <- A_aug_full[, cand_cols, drop = FALSE]
-        cand_scales <- .constraint_col_scales(cand_A)
-        cand_A_scaled <- t(t(cand_A) * cand_scales)
-        if (qr(cand_A_scaled, tol = 1e-10)$rank > length(keep_cols)) {
-          keep_cols <- cand_cols
-        }
-      }
-    }
-    A_aug <- A_aug_full[, keep_cols, drop = FALSE]
-    n_aug <- ncol(A_aug)
-    n_eq_aug <- sum(keep_cols <= n_eq_base)
-    active_ineq_kept <- if (length(active_ineq) > 0) {
-      kept_active_pos <- keep_cols[keep_cols > n_eq_base] - n_eq_base
-      active_ineq[kept_active_pos]
-    } else {
-      integer(0)
-    }
-
-    ## Keep only the linearly independent working-set basis for the
-    #  next add/drop decision.  Leaving rank-dropped inequalities in
-    #  active_ineq causes the loop to accumulate redundant constraints
-    #  that are never actually enforced by the subproblem, which in
-    #  turn can stall the Woodbury active-set updates.
-    active_ineq <- active_ineq_kept
-
-    ## Build augmented constraint value vectors.
-    combined_rhs_full <- rep(0, ncol(A_aug_full))
-    if (length(constraint_value_vectors) > 0) {
-      cv_vec <- Reduce("rbind", constraint_value_vectors)
-      orig_rhs <- crossprod(A, cv_vec)
-      combined_rhs_full[1:n_eq_orig] <- c(orig_rhs)
-    }
-    if (length(permanent_eq_cols) > 0) {
-      combined_rhs_full[n_eq_orig + seq_along(permanent_eq_cols)] <-
-        qp_bvec[permanent_eq_cols]
-    }
-    if (length(active_ineq) > 0) {
-      combined_rhs_full[n_eq_base + seq_along(active_ineq)] <-
-        qp_bvec[active_ineq]
-    }
-    combined_rhs <- combined_rhs_full[keep_cols]
-
-    if (any(combined_rhs != 0)) {
-      ## .lagrangian_project_woodbury() expects a coefficient-space
-      #  particular solution b0 satisfying A_aug^T b0 = combined_rhs.
-      b0_aug <- A_aug %**%
-        (invert(crossprod(A_aug)) %**% cbind(combined_rhs))
-      cv_for_proj <- list(b0_aug)
-    } else {
-      cv_for_proj <- list()
-    }
-
-    ## Woodbury-corrected projection with augmented constraints.
-    result_new <- .lagrangian_project_woodbury(
-      GhalfXy_V, Ghalf_corrected,
-      A_aug, K, p_expansions,
-      n_aug, cv_for_proj,
-      family, wb_sqrt,
-      parallel_aga, parallel_matmult,
-      cl, chunk_size, num_chunks, rem_chunks
-    )
-
-    ## Check KKT conditions.
-    kkt <- .check_kkt_partitionwise_woodbury(
-      result = result_new,
-      GhalfXy_V = GhalfXy_V,
-      Ghalf_corrected = Ghalf_corrected,
-      A_aug = A_aug,
-      n_eq_orig = n_eq_aug,
-      qp_Amat = qp_Amat[, ineq_cols, drop = FALSE],
-      qp_bvec = qp_bvec[ineq_cols],
-      active_ineq = match(active_ineq_kept, ineq_cols),
-      K = K,
-      p_expansions = p_expansions,
-      family = family,
-      wb_sqrt = wb_sqrt,
-      parallel_aga = parallel_aga,
-      cl = cl,
-      chunk_size = chunk_size,
-      num_chunks = num_chunks,
-      rem_chunks = rem_chunks,
-      tol = tol
-    )
-
-    if (isTRUE(getOption("lgspline.debug_active_set", FALSE))) {
-      slack_all <- crossprod(
-        qp_Amat[, ineq_cols, drop = FALSE],
-        cbind(unlist(result_new))
-      ) - cbind(qp_bvec[ineq_cols])
-      message(
-        "[woodbury-as] iter=", as_iter,
-        " active=", length(active_ineq),
-        " kept=", length(active_ineq_kept),
-        " min_slack=", signif(min(c(slack_all)), 6),
-        " violated=", length(kkt$violated),
-        " dual_drop=", length(kkt$drop),
-        " dual_min=",
-        if (length(kkt$multipliers) > 0) signif(min(kkt$multipliers), 6) else NA_character_
+  .solver_active_set(
+    result = result,
+    A = A,
+    constraint_value_vectors = constraint_value_vectors,
+    qp_Amat = qp_Amat,
+    qp_bvec = qp_bvec,
+    qp_meq = qp_meq,
+    tol = tol,
+    max_as_iter = max_as_iter,
+    solve_subproblem = function(aug_state) {
+      .lagrangian_project_woodbury(
+        GhalfXy_V = GhalfXy_V,
+        Ghalf_corrected = Ghalf_corrected,
+        A = aug_state$A_aug,
+        K = K,
+        p_expansions = p_expansions,
+        R_constraints = ncol(aug_state$A_aug),
+        constraint_value_vectors = aug_state$cv_for_proj,
+        family = family,
+        wb_sqrt = wb_sqrt,
+        parallel_aga = parallel_aga,
+        parallel_matmult = parallel_matmult,
+        cl = cl,
+        chunk_size = chunk_size,
+        num_chunks = num_chunks,
+        rem_chunks = rem_chunks
       )
-    }
-
-    if (kkt$feasible & kkt$dual_feasible) {
-      result <- result_new
-      converged <- TRUE
-      break
-    }
-
-    ## Update active set.
-    #  When the current working set has active constraints with negative
-    #  multipliers, prioritize dropping those before adding more violated
-    #  inequalities.  In these derivative-sign problems the optimal active
-    #  set is often sparse; continuing to add while dual infeasibility is
-    #  already present tends to overconstrain the basis and cycle.
-    if (!kkt$dual_feasible) {
-      worst_drop_pos <- kkt$drop[which.min(kkt$multipliers[kkt$drop])]
-      worst_drop_idx <- active_ineq_kept[worst_drop_pos]
-      active_ineq <- setdiff(active_ineq, worst_drop_idx)
-      result <- result_new
-    } else if (!kkt$feasible) {
-      beta_new <- cbind(unlist(result_new))
-      slack_viol <- crossprod(
-        qp_Amat[, ineq_cols[kkt$violated], drop = FALSE],
-        beta_new) - cbind(qp_bvec[ineq_cols[kkt$violated]])
-      worst <- kkt$violated[which.min(c(slack_viol))]
-      worst_idx <- ineq_cols[worst]
-      cand_active <- c(worst_idx, active_ineq)
-      cand_A <- cbind(A_base, qp_Amat[, cand_active, drop = FALSE])
-      cand_scales <- .constraint_col_scales(cand_A)
-      cand_A_scaled <- t(t(cand_A) * cand_scales)
-      cand_rank <- qr(cand_A_scaled, tol = 1e-10)$rank
-
-      ## If the most-violated inequality is linearly dependent on the
-      #  current working-set basis, exchange it with the weakest active
-      #  inequality rather than re-adding it and letting QR drop it
-      #  again. This is the active-set equivalent of a basis pivot.
-      if (!(worst_idx %in% active_ineq) &&
-          cand_rank <= (n_eq_base + length(active_ineq)) &&
-          length(active_ineq_kept) > 0 &&
-          length(kkt$multipliers) == length(active_ineq_kept)) {
-        weakest_pos <- which.min(kkt$multipliers)
-        weakest_idx <- active_ineq_kept[weakest_pos]
-        active_ineq <- c(
-          worst_idx,
-          setdiff(active_ineq, c(worst_idx, weakest_idx))
-        )
-      } else {
-        ## Otherwise, prioritize the most-violated constraint in the
-        #  working-set order so the rank filter sees it first.
-        active_ineq <- c(worst_idx, setdiff(active_ineq, worst_idx))
-      }
-      result <- result_new
-    }
-  }
-
-  qp_info <- NULL
-  if (converged) {
-    if (length(active_ineq_kept) > 0) {
-      Amat_active <- cbind(A, qp_Amat[, active_ineq_kept, drop = FALSE])
-    } else {
-      Amat_active <- A
-    }
-    qp_info <- list(
-      lagrangian = if (length(kkt$multipliers) > 0) kkt$multipliers
-      else numeric(0),
-      Amat_active = Amat_active,
-      active_ineq = active_ineq_kept,
-      converged = TRUE,
-      method = "active_set_woodbury"
-    )
-  }
-
-  list(result = result, qp_info = qp_info, converged = converged)
+    },
+    kkt_subproblem = function(result_new, aug_state) {
+      .check_kkt_partitionwise_woodbury(
+        result = result_new,
+        GhalfXy_V = GhalfXy_V,
+        Ghalf_corrected = Ghalf_corrected,
+        A_aug = aug_state$A_aug,
+        n_eq_orig = aug_state$n_eq_aug,
+        qp_Amat = aug_state$qp_ineq_Amat,
+        qp_bvec = aug_state$qp_ineq_bvec,
+        active_ineq = match(aug_state$active_ineq_kept, aug_state$ineq_cols),
+        K = K,
+        p_expansions = p_expansions,
+        family = family,
+        wb_sqrt = wb_sqrt,
+        parallel_aga = parallel_aga,
+        cl = cl,
+        chunk_size = chunk_size,
+        num_chunks = num_chunks,
+        rem_chunks = rem_chunks,
+        tol = tol
+      )
+    },
+    method = "active_set_woodbury",
+    debug_label = "woodbury-as"
+  )
 }
 
 
@@ -1019,14 +841,13 @@
                                      rem_chunks, tol) {
 
   beta_full <- cbind(unlist(result))
-
-  ## Check primal feasibility of ALL inequality constraints.
-  #  Constraint form: qp_Amat^T beta >= qp_bvec.
-  slack <- crossprod(qp_Amat, beta_full) - cbind(qp_bvec)
-  violated_mask <- c(slack) < -tol
-  all_ineq_idx <- 1:ncol(qp_Amat)
-  inactive_idx <- setdiff(all_ineq_idx, active_ineq)
-  violated <- inactive_idx[violated_mask[inactive_idx]]
+  primal <- .solver_check_primal_feasibility(
+    beta_full = beta_full,
+    qp_Amat = qp_Amat,
+    qp_bvec = qp_bvec,
+    active_ineq = active_ineq,
+    tol = tol
+  )
 
   ## Compute Lagrangian multipliers for active inequality constraints.
   #  The multipliers come from the dual of the OLS problem in the
@@ -1059,32 +880,21 @@
                                         chunk_size, num_chunks,
                                         rem_chunks))
 
-    ## OLS fit to recover multipliers.
-    col_scales <- .constraint_col_scales(GhalfA_aug)
-    GhalfA_aug_scaled <- t(t(GhalfA_aug) * col_scales)
-    comp_stab_sc <- 1 / sqrt(K + 1)
-    ols_fit <- do.call('.lm.fit', list(
-      x = GhalfA_aug_scaled * comp_stab_sc,
-      y = GhalfXy * comp_stab_sc
-    ))
-    ## Coefficients correspond to equality multipliers directly, but the
-    ## active inequality coefficients have the opposite sign of the
-    ## standard nonnegative KKT multipliers for constraints
-    ## C^T beta >= c. See the Woodbury analogue above.
-    all_multipliers <- ols_fit$coefficients * col_scales
-    if (length(all_multipliers) > n_eq_orig) {
-      ineq_multipliers <- -all_multipliers[(n_eq_orig + 1):length(all_multipliers)]
-      ## For constraints of the form A^T beta >= b, dual feasibility
-      ## requires multipliers >= 0.
-      drop_mask <- ineq_multipliers < -tol
-      drop <- which(drop_mask)
-      multipliers <- ineq_multipliers
-    }
+    mult_out <- .solver_recover_active_multipliers(
+      X_star = GhalfA_aug,
+      y_star = GhalfXy,
+      n_eq_orig = n_eq_orig,
+      K = K,
+      tol = tol,
+      ineq_sign = -1
+    )
+    drop <- mult_out$drop
+    multipliers <- mult_out$multipliers
   }
 
-  list(feasible = length(violated) == 0,
+  list(feasible = primal$feasible,
        dual_feasible = length(drop) == 0,
-       violated = violated,
+       violated = primal$violated,
        drop = drop,
        multipliers = multipliers)
 }
@@ -1159,244 +969,80 @@
                                cl, chunk_size, num_chunks,
                                rem_chunks, tol,
                                max_as_iter = NULL) {
-
-  n_eq_orig <- ncol(A)
-  n_ineq <- ncol(qp_Amat)
+  n_ineq <- if (is.null(qp_Amat)) 0L else ncol(qp_Amat)
 
   ## Match the Woodbury active-set budget: many observation-local
   #  derivative constraints need more than 50 add/drop iterations.
   if (is.null(max_as_iter)) {
-    max_as_iter <- max(50, min(500, 2 * max(1, n_ineq)))
+    max_as_iter <- max(200, min(1000, 10 * max(1, n_ineq)))
   }
 
-  ## Separate the leading qp_meq equality constraints from the true
-  #  inequality constraints.  The qp_meq columns of qp_Amat are
-  #  equalities that must always be active.
-  if (!is.null(qp_meq) && qp_meq > 0) {
-    permanent_eq_cols <- 1:qp_meq
-    ineq_cols <- if (qp_meq < n_ineq) (qp_meq + 1):n_ineq else integer(0)
+  if (is_path3) {
+    GhalfXy <- cbind(unlist(
+      matmult_block_diagonal(GhalfInv, Xy_or_uncon, K,
+                             parallel_matmult, cl,
+                             chunk_size, num_chunks, rem_chunks)))
   } else {
-    permanent_eq_cols <- integer(0)
-    ineq_cols <- 1:n_ineq
+    GhalfXy <- cbind(unlist(
+      matmult_block_diagonal(Ghalf, Xy_or_uncon, K,
+                             parallel_matmult, cl,
+                             chunk_size, num_chunks, rem_chunks)))
   }
 
-  ## Build the always-active augmented A: original A + permanent equalities.
-  if (length(permanent_eq_cols) > 0) {
-    A_base <- cbind(A, qp_Amat[, permanent_eq_cols, drop = FALSE])
-  } else {
-    A_base <- A
-  }
-  n_eq_base <- ncol(A_base)
-
-  ## Start from an empty inequality active set and let the add/drop loop
-  #  admit the single most-violated local constraint at each iteration.
-  #  Seeding with every violated derivative-sign constraint at once can
-  #  create a highly redundant initial system and lead to active-set
-  #  cycling before any useful drop information is available.
-  active_ineq <- integer(0)
-
-  converged <- FALSE
-
-  for (as_iter in 1:max_as_iter) {
-
-    ## Build augmented constraint matrix.
-    if (length(active_ineq) > 0) {
-      A_aug_full <- cbind(A_base, qp_Amat[, active_ineq, drop = FALSE])
-    } else {
-      A_aug_full <- A_base
-    }
-
-    ## Reduce to a linearly independent subset while preserving the
-    #  original constraint columns and ordering.
-    keep_cols <- integer(0)
-    if (ncol(A_aug_full) > 0) {
-      for (j in seq_len(ncol(A_aug_full))) {
-        cand_cols <- c(keep_cols, j)
-        cand_A <- A_aug_full[, cand_cols, drop = FALSE]
-        cand_scales <- .constraint_col_scales(cand_A)
-        cand_A_scaled <- t(t(cand_A) * cand_scales)
-        if (qr(cand_A_scaled, tol = 1e-10)$rank > length(keep_cols)) {
-          keep_cols <- cand_cols
-        }
-      }
-    }
-    A_aug <- A_aug_full[, keep_cols, drop = FALSE]
-    n_aug <- ncol(A_aug)
-    n_eq_aug <- sum(keep_cols <= n_eq_base)
-    active_ineq_kept <- if (length(active_ineq) > 0) {
-      kept_active_pos <- keep_cols[keep_cols > n_eq_base] - n_eq_base
-      active_ineq[kept_active_pos]
-    } else {
-      integer(0)
-    }
-
-    ## Keep only the linearly independent working-set basis for the
-    #  next add/drop decision.  Leaving rank-dropped inequalities in
-    #  active_ineq causes the loop to accumulate redundant constraints
-    #  that are never actually enforced by the subproblem, which in
-    #  turn can stall the active-set updates.
-    active_ineq <- active_ineq_kept
-
-    ## Build augmented constraint value vectors.
-    #  For the original equality constraints, use constraint_value_vectors.
-    #  For permanent equalities from qp_Amat, RHS is qp_bvec[permanent_eq_cols].
-    #  For active inequalities, RHS is qp_bvec[active_ineq].
-    combined_rhs_full <- rep(0, ncol(A_aug_full))
-    ## Original equality constraint RHS.
-    if (length(constraint_value_vectors) > 0) {
-      cv_vec <- Reduce("rbind", constraint_value_vectors)
-      orig_rhs <- crossprod(A, cv_vec)
-      combined_rhs_full[1:n_eq_orig] <- c(orig_rhs)
-    }
-    ## Permanent equality constraint RHS from qp_bvec.
-    if (length(permanent_eq_cols) > 0) {
-      combined_rhs_full[n_eq_orig + seq_along(permanent_eq_cols)] <-
-        qp_bvec[permanent_eq_cols]
-    }
-    ## Active inequality RHS from qp_bvec.
-    if (length(active_ineq) > 0) {
-      combined_rhs_full[n_eq_base + seq_along(active_ineq)] <-
-        qp_bvec[active_ineq]
-    }
-    combined_rhs <- combined_rhs_full[keep_cols]
-
-    ## Construct constraint_value_vectors for the augmented system.
-    if (any(combined_rhs != 0)) {
-      b0_aug <- A_aug %**%
-        (invert(crossprod(A_aug)) %**% cbind(combined_rhs))
-      cv_for_proj <- list(b0_aug)
-    } else {
-      cv_for_proj <- list()
-    }
-
-    ## Lagrangian projection with augmented constraints.
-    if (is_path3) {
-      GhalfXy <- cbind(unlist(
-        matmult_block_diagonal(GhalfInv, Xy_or_uncon, K,
-                               parallel_matmult, cl,
-                               chunk_size, num_chunks, rem_chunks)))
-    } else {
-      GhalfXy <- cbind(unlist(
-        matmult_block_diagonal(Ghalf, Xy_or_uncon, K,
-                               parallel_matmult, cl,
-                               chunk_size, num_chunks, rem_chunks)))
-    }
-
-    result_new <- .lagrangian_project(
-      GhalfXy, Ghalf, A_aug, K, p_expansions,
-      n_aug, cv_for_proj,
-      family, parallel_aga, parallel_matmult,
-      cl, chunk_size, num_chunks, rem_chunks)
-
-    ## Check KKT conditions.
-    kkt <- .check_kkt_partitionwise(
-      result_new, Ghalf, GhalfInv,
-      Xy_or_uncon, is_path3,
-      A_aug, n_eq_aug,
-      ## Only the active inequalities that survived linear-dependence
-      #  filtering should be treated as active in the KKT system.
-      qp_Amat[, ineq_cols, drop = FALSE],
-      qp_bvec[ineq_cols],
-      match(active_ineq_kept, ineq_cols),
-      K, p_expansions, family,
-      parallel_matmult, parallel_aga,
-      cl, chunk_size, num_chunks, rem_chunks,
-      tol)
-
-    if (isTRUE(getOption("lgspline.debug_active_set", FALSE))) {
-      slack_all <- crossprod(
-        qp_Amat[, ineq_cols, drop = FALSE],
-        cbind(unlist(result_new))
-      ) - cbind(qp_bvec[ineq_cols])
-      message(
-        "[dense-as] iter=", as_iter,
-        " active=", length(active_ineq),
-        " kept=", length(active_ineq_kept),
-        " min_slack=", signif(min(c(slack_all)), 6),
-        " violated=", length(kkt$violated),
-        " dual_drop=", length(kkt$drop),
-        " dual_min=",
-        if (length(kkt$multipliers) > 0) signif(min(kkt$multipliers), 6) else NA_character_
+  .solver_active_set(
+    result = result,
+    A = A,
+    constraint_value_vectors = constraint_value_vectors,
+    qp_Amat = qp_Amat,
+    qp_bvec = qp_bvec,
+    qp_meq = qp_meq,
+    tol = tol,
+    max_as_iter = max_as_iter,
+    solve_subproblem = function(aug_state) {
+      .lagrangian_project(
+        GhalfXy = GhalfXy,
+        Ghalf = Ghalf,
+        A = aug_state$A_aug,
+        K = K,
+        p_expansions = p_expansions,
+        R_constraints = ncol(aug_state$A_aug),
+        constraint_value_vectors = aug_state$cv_for_proj,
+        family = family,
+        parallel_aga = parallel_aga,
+        parallel_matmult = parallel_matmult,
+        cl = cl,
+        chunk_size = chunk_size,
+        num_chunks = num_chunks,
+        rem_chunks = rem_chunks
       )
-    }
-
-    if (kkt$feasible & kkt$dual_feasible) {
-      result <- result_new
-      converged <- TRUE
-      break
-    }
-
-    ## Update active set.
-    #  When the current working set has active constraints with negative
-    #  multipliers, prioritize dropping those before adding more violated
-    #  inequalities.  In these derivative-sign problems the optimal active
-    #  set is often sparse; continuing to add while dual infeasibility is
-    #  already present tends to overconstrain the basis and cycle.
-    if (!kkt$dual_feasible) {
-      ## Drop the constraint with the most negative multiplier.
-      ## kkt$drop is indexed within the kept active inequalities, not the
-      #  full active_ineq vector.  Drop by constraint identity so rank
-      #  reduction does not remove the wrong column.
-      worst_drop_pos <- kkt$drop[which.min(kkt$multipliers[kkt$drop])]
-      worst_drop_idx <- active_ineq_kept[worst_drop_pos]
-      active_ineq <- setdiff(active_ineq, worst_drop_idx)
-      result <- result_new
-    } else if (!kkt$feasible) {
-      ## Add the most-violated constraint.
-      beta_new <- cbind(unlist(result_new))
-      slack_viol <- crossprod(
-        qp_Amat[, ineq_cols[kkt$violated], drop = FALSE],
-        beta_new) - cbind(qp_bvec[ineq_cols[kkt$violated]])
-      worst <- kkt$violated[which.min(c(slack_viol))]
-      worst_idx <- ineq_cols[worst]
-      cand_active <- c(worst_idx, active_ineq)
-      cand_A <- cbind(A_base, qp_Amat[, cand_active, drop = FALSE])
-      cand_scales <- .constraint_col_scales(cand_A)
-      cand_A_scaled <- t(t(cand_A) * cand_scales)
-      cand_rank <- qr(cand_A_scaled, tol = 1e-10)$rank
-
-      ## If the most-violated inequality is linearly dependent on the
-      #  current working-set basis, exchange it with the weakest active
-      #  inequality rather than re-adding it and letting QR drop it
-      #  again. This is the active-set equivalent of a basis pivot.
-      if (!(worst_idx %in% active_ineq) &&
-          cand_rank <= (n_eq_base + length(active_ineq)) &&
-          length(active_ineq_kept) > 0 &&
-          length(kkt$multipliers) == length(active_ineq_kept)) {
-        weakest_pos <- which.min(kkt$multipliers)
-        weakest_idx <- active_ineq_kept[weakest_pos]
-        active_ineq <- c(
-          worst_idx,
-          setdiff(active_ineq, c(worst_idx, weakest_idx))
-        )
-      } else {
-        ## Otherwise, prioritize the most-violated constraint in the
-        #  working-set order so the rank filter sees it first.
-        active_ineq <- c(worst_idx, setdiff(active_ineq, worst_idx))
-      }
-      result <- result_new
-    }
-  }
-
-  ## Build qp_info.
-  qp_info <- NULL
-  if (converged) {
-    if (length(active_ineq_kept) > 0) {
-      Amat_active <- cbind(A, qp_Amat[, active_ineq_kept, drop = FALSE])
-    } else {
-      Amat_active <- A
-    }
-    qp_info <- list(
-      lagrangian = if (length(kkt$multipliers) > 0) kkt$multipliers
-      else numeric(0),
-      Amat_active = Amat_active,
-      active_ineq = active_ineq_kept,
-      converged = TRUE,
-      method = "active_set"
-    )
-  }
-
-  list(result = result, qp_info = qp_info, converged = converged)
+    },
+    kkt_subproblem = function(result_new, aug_state) {
+      .check_kkt_partitionwise(
+        result = result_new,
+        Ghalf = Ghalf,
+        GhalfInv = GhalfInv,
+        Xy_or_uncon = Xy_or_uncon,
+        is_path3 = is_path3,
+        A_aug = aug_state$A_aug,
+        n_eq_orig = aug_state$n_eq_aug,
+        qp_Amat = aug_state$qp_ineq_Amat,
+        qp_bvec = aug_state$qp_ineq_bvec,
+        active_ineq = match(aug_state$active_ineq_kept, aug_state$ineq_cols),
+        K = K,
+        p_expansions = p_expansions,
+        family = family,
+        parallel_matmult = parallel_matmult,
+        parallel_aga = parallel_aga,
+        cl = cl,
+        chunk_size = chunk_size,
+        num_chunks = num_chunks,
+        rem_chunks = rem_chunks,
+        tol = tol
+      )
+    },
+    method = "active_set",
+    debug_label = "dense-as"
+  )
 }
 
 
@@ -1515,6 +1161,7 @@
                                dispersion_temp,
                                unlist(observation_weights),
                                ...))
+    W <- .solver_stabilize_working_weights(W)
 
     ## Schur correction in per-partition form, then collapse to full matrix.
     result <- lapply(1:(K + 1), function(k) {
@@ -1892,6 +1539,7 @@
                                            family) {
 
   P <- p_expansions * (K + 1)
+  W <- .solver_stabilize_working_weights(W)
 
   ## Weighted analogue of manuscript M:
   ## X^T diag(W) (V^{-1} - I) X.
@@ -1900,6 +1548,10 @@
   #  which costs O(N * P^2) -- cheaper than the P^3 eigen that the
   #  dense path requires.
   Delta_mat_W <- crossprod(X_block, c(W) * DV_X)
+  if (any(!is.finite(Delta_mat_W))) {
+    return(list(use_woodbury = FALSE))
+  }
+  Delta_mat_W <- 0.5 * (Delta_mat_W + t(Delta_mat_W))
 
   ## Absorb the weighted block-diagonal portion into the corrected
   ## per-partition information defining G_on^{-1} at the current iterate.
@@ -1918,6 +1570,11 @@
                               unique_penalty_per_partition,
                               L_partition_list,
                               keep_G = TRUE, schur_corrections)
+  if (any(vapply(G_list_c$G, is.null, logical(1))) ||
+      any(vapply(G_list_c$Ghalf, is.null, logical(1))) ||
+      any(vapply(G_list_c$GhalfInv, is.null, logical(1)))) {
+    return(list(use_woodbury = FALSE))
+  }
 
   ## Remove the absorbed diagonal blocks, leaving the weighted
   ## cross-partition remainder only.
@@ -2418,67 +2075,47 @@
 }
 
 
-## Sub-function: .get_B_gee_woodbury
-
-#' Path 1a-Woodbury: Gaussian GEE with Woodbury Acceleration
+#' Path 1b-Woodbury: Non-Gaussian GEE with Woodbury Acceleration
 #'
-#' Gaussian correlated solve using the Woodbury factorization from the
-#' supplement. This replaces the dense GEE path when
-#' \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
-#' has low rank and computes the constrained estimate through the same
-#' transformed OLS projection as the independent case, with
-#' \eqn{\mathbf{G}^{1/2} =
-#' \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{F}^{1/2}}.
+#' Non-Gaussian correlated solve using the Woodbury factorization. At each
+#' damped Newton step, the current weighted information matrix is split into
+#' a block-diagonal part defining \eqn{\mathbf{G}_{\mathrm{on}}} and a
+#' low-rank cross-partition part.  The constrained step is then taken
+#' through \code{.lagrangian_project_woodbury()}.
 #'
-#' This function is standalone for the Gaussian Woodbury path: it takes the
-#' decomposition from \code{.woodbury_decompose_V()}, the square-root state
-#' from \code{.woodbury_halfsqrt_components()}, performs the constrained
-#' solve, and returns the same object structure as the dense Gaussian GEE
-#' solver.
-#'
-#' Cost is \eqn{O(Kp^3 + Pr^2)} compared to \eqn{O(P^3)} for the dense
-#' Path 1a.
-#'
+#' @inheritParams .get_B_gee_glm
 #' @param X,y Lists of partition-specific design matrices and responses.
-#' @param K,p_expansions Integer dimensions.
-#' @param VhalfInv_perm \eqn{\mathbf{V}^{-1/2}} permuted to partition
-#'   ordering.
-#' @param order_list Partition-to-data index mapping.
-#' @param A Constraint matrix (\eqn{P \times R}).
-#' @param R_constraints Number of columns of A.
-#' @param constraint_value_vectors Constraint RHS list.
-#' @param family GLM family object.
-#' @param return_G_getB Logical; return covariance components.
-#' @param quadprog Logical; apply QP refinement.
-#' @param qp_Amat,qp_bvec,qp_meq QP constraint specification.
-#' @param qp_score_function Score function for QP step.
-#' @param observation_weights Observation weights.
-#' @param wb_decomp Output of \code{.woodbury_decompose_V}.
-#' @param wb_sqrt Output of \code{.woodbury_halfsqrt_components}.
-#' @param Lambda_block Full block-diagonal penalty matrix.
-#' @param parallel_aga,parallel_matmult Logical flags.
+#' @param Lambda,Lambda_block Shared and full penalty matrices.
+#' @param unique_penalty_per_partition Logical.
+#' @param L_partition_list Partition-specific penalty matrices.
+#' @param parallel_eigen,parallel_aga,parallel_matmult Logical flags.
 #' @param cl,chunk_size,num_chunks,rem_chunks Parallel parameters.
-#' @param qp_global Logical; TRUE when inequality constraints couple
-#'   partitions and therefore require the dense global QP refinement.
-#' @param tol Numeric tolerance used by the Woodbury active-set refinement.
 #' @param ... Passed to sub-functions.
 #'
-#' @return Same structure as \code{.get_B_gee_gaussian}.
+#' @return Same structure as \code{.get_B_gee_glm}.
 #'
 #' @keywords internal
-.get_B_gee_woodbury <- function(X, y, K, p_expansions,
-                                VhalfInv_perm, order_list,
-                                A, R_constraints,
-                                constraint_value_vectors, family,
-                                return_G_getB,
-                                quadprog, qp_Amat, qp_bvec, qp_meq,
-                                qp_score_function,
-                                observation_weights,
-                                wb_decomp, wb_sqrt,
-                                Lambda_block,
-                                parallel_aga, parallel_matmult,
-                                cl, chunk_size, num_chunks, rem_chunks,
-                                qp_global, tol, ...) {
+.get_B_gee_glm_woodbury <- function(X, y, K, p_expansions,
+                                    VhalfInv_perm, order_list,
+                                    A, R_constraints,
+                                    constraint_value_vectors, family,
+                                    return_G_getB, iterate, tol,
+                                    quadprog,
+                                    qp_Amat, qp_bvec, qp_meq,
+                                    qp_score_function,
+                                    observation_weights,
+                                    Lambda, Lambda_block,
+                                    unique_penalty_per_partition,
+                                    L_partition_list,
+                                    wb_decomp_init, wb_sqrt_init,
+                                    glm_weight_function,
+                                    schur_correction_function,
+                                    need_dispersion_for_estimation,
+                                    dispersion_function, VhalfInv,
+                                    parallel_eigen, parallel_aga,
+                                    parallel_matmult,
+                                    cl, chunk_size, num_chunks,
+                                    rem_chunks, ...) {
 
   dots <- list(...)
   include_warnings <- TRUE
@@ -2486,14 +2123,323 @@
     include_warnings <- isTRUE(dots$include_warnings)
   }
 
-  ## GLS cross-products: X^T V^{-1} y per partition.
-  Xy_V <- .compute_Xy_V(X, y, VhalfInv_perm, K, p_expansions,
-                        order_list)
+  P <- p_expansions * (K + 1)
 
-  ## Full transformed right-hand side y* = G^{1/2} X^T V^{-1} y.
+  ## Precomputation (done once, fixed across Newton iterations).
+  X_block <- collapse_block_diagonal(X)
+  y_block <- cbind(unlist(y))
+  N <- nrow(X_block)
+
+  ## Delta_V = V^{-1} - I: fixed across iterations.
+  Delta_V <- tcrossprod(VhalfInv_perm) - diag(N)
+
+  ## DV_X = (V^{-1} - I) X: fixed across iterations.
+  DV_X <- Delta_V %**% X_block
+
+  ## Partition sizes for splitting W.
+  n_per_partition <- sapply(X, nrow)
+
+  ## Initialize beta at zero.
+  beta_block <- cbind(rep(0, P))
+
+  ## Damped Newton control.
+  damp_cnt <- 0
+  master_cnt <- 0
+  err <- Inf
+  XB <- X_block %**% beta_block
+
+  ## Track fallback state.
+  fell_back_to_dense <- FALSE
+
+  qp_info <- NULL
+
+  ## Newton loop.
+  while (err > tol & damp_cnt < 10 & master_cnt < 100) {
+    master_cnt <- master_cnt + 1
+    damp <- 2^(-(damp_cnt))
+
+    if (need_dispersion_for_estimation) {
+      dispersion_temp <- dispersion_function(
+        mu = family$linkinv(XB),
+        y = y_block,
+        order_indices = unlist(order_list),
+        family = family,
+        observation_weights = unlist(observation_weights),
+        VhalfInv = VhalfInv,
+        ...
+      )
+    } else {
+      dispersion_temp <- 1
+    }
+
+    W <- c(glm_weight_function(family$linkinv(XB),
+                               y_block,
+                               unlist(order_list),
+                               family, dispersion_temp,
+                               unlist(observation_weights), ...))
+    W <- .solver_stabilize_working_weights(W)
+
+    result <- lapply(1:(K + 1), function(k) {
+      cbind(beta_block[(k - 1) * p_expansions + 1:p_expansions])
+    })
+    schur_corrections <- schur_correction_function(
+      X, y, result, dispersion_temp, order_list, K, family,
+      observation_weights, ...
+    )
+
+    W_split <- split(W, rep(1:(K + 1), n_per_partition))
+    Xw <- lapply(1:(K + 1), function(k) {
+      if (nrow(X[[k]]) == 0) return(X[[k]])
+      X[[k]] * sqrt(W_split[[k]])
+    })
+    X_gram_weighted <- compute_gram_block_diagonal(
+      Xw, parallel_matmult, cl, chunk_size, num_chunks, rem_chunks)
+
+    wb <- .woodbury_redecompose_weighted(
+      Delta_V, X_block, DV_X, W,
+      X, K, p_expansions,
+      X_gram_weighted,
+      Lambda, schur_corrections,
+      unique_penalty_per_partition, L_partition_list,
+      parallel_eigen, cl,
+      chunk_size, num_chunks, rem_chunks,
+      rank_threshold_fraction = 1/2, family)
+
+    if (!wb$use_woodbury) {
+      fell_back_to_dense <- TRUE
+      break
+    }
+
+    wb_sqrt <- .woodbury_halfsqrt_components(
+      wb$Ghalf_corrected, wb$E, wb$J_signs,
+      wb$r, K, p_expansions)
+
+    if (!wb_sqrt$valid) {
+      fell_back_to_dense <- TRUE
+      break
+    }
+
+    score_V <- .compute_score_V_partitioned(
+      X, X_block, y, result, K, p_expansions,
+      family, W, Delta_V, observation_weights)
+
+    GhalfXy_V <- .woodbury_transform_constraint_matrix(
+      Ghalf_corrected = wb$Ghalf_corrected,
+      A = cbind(unlist(score_V)),
+      K = K,
+      p_expansions = p_expansions,
+      wb_sqrt = wb_sqrt,
+      parallel_aga = parallel_aga,
+      cl = cl,
+      chunk_size = chunk_size,
+      num_chunks = num_chunks,
+      rem_chunks = rem_chunks
+    )
+
+    result_new <- .lagrangian_project_woodbury(
+      GhalfXy_V, wb$Ghalf_corrected,
+      A, K, p_expansions, R_constraints,
+      constraint_value_vectors, family,
+      wb_sqrt,
+      parallel_aga, parallel_matmult,
+      cl, chunk_size, num_chunks, rem_chunks)
+
+    beta_new <- cbind(unlist(result_new))
+
+    if (!iterate & master_cnt > 1) {
+      beta_block <- beta_new
+      damp_cnt <- 11
+      master_cnt <- 101
+      err <- tol - 1
+    } else {
+      beta_new <- (1 - damp) * beta_block + damp * beta_new
+      XB <- X_block %**% beta_new
+
+      mu_new <- family$linkinv(c(XB))
+      if (!is.null(family$custom_dev.resids) &
+          is.null(family$dev.resids)) {
+        err_new <- mean(
+          family$custom_dev.resids(y_block,
+                                   mu_new,
+                                   unlist(order_list),
+                                   family,
+                                   unlist(observation_weights),
+                                   ...))
+      } else if (is.null(family$dev.resids)) {
+        err_new <- mean(unlist(observation_weights) *
+                          (y_block - mu_new)^2)
+      } else {
+        err_new <-
+          mean(unlist(observation_weights) *
+                 family$dev.resids(y_block,
+                                   cbind(mu_new),
+                                   wt = 1))
+      }
+
+      if (is.null(err_new) | is.na(err_new) | !is.finite(err_new)) {
+        damp_cnt <- damp_cnt + 1
+      } else if (err_new <= err) {
+        prev_err <- err
+        err <- err_new
+        abs_diff <- max(abs(beta_new - beta_block))
+        beta_block <- beta_new
+        damp_cnt <- 0
+
+        if ((abs_diff < tol) &
+            (prev_err - err < tol) &
+            (master_cnt > 10)) {
+          damp_cnt <- 11
+          master_cnt <- 101
+          err <- tol - 1
+        }
+
+      } else {
+        damp_cnt <- damp_cnt + 1
+      }
+    }
+
+    result <- lapply(1:(K + 1), function(k) {
+      cbind(beta_block[(k - 1) * p_expansions + 1:p_expansions])
+    })
+  }
+
+  ## Fallback to dense Path 1b.
+  if (fell_back_to_dense) {
+    X_tilde <- VhalfInv_perm %**% X_block
+    y_tilde <- VhalfInv_perm %**% y_block
+    return(.get_B_gee_glm(
+      X_block, X_tilde, y_block, y_tilde,
+      VhalfInv_perm, Lambda_block, A, K,
+      p_expansions, constraint_value_vectors,
+      family, return_G_getB, iterate, tol,
+      qp_Amat, qp_bvec, qp_meq,
+      qp_score_function,
+      order_list, observation_weights,
+      glm_weight_function, schur_correction_function,
+      need_dispersion_for_estimation,
+      dispersion_function, VhalfInv, ...))
+  }
+
+  ## Recompute weights, score, Woodbury factors, and the full QP RHS
+  #  at the final accepted iterate.  The last loop iteration may have
+  #  updated beta_block after wb/wb_sqrt/score_V were formed.
+  beta_block <- cbind(unlist(result))
+  XB_final <- X_block %**% beta_block
+
+  if (need_dispersion_for_estimation) {
+    dispersion_final <- dispersion_function(
+      mu = family$linkinv(XB_final),
+      y = y_block,
+      order_indices = unlist(order_list),
+      family = family,
+      observation_weights = unlist(observation_weights),
+      VhalfInv = VhalfInv,
+      ...
+    )
+  } else {
+    dispersion_final <- 1
+  }
+
+  W_final <- c(glm_weight_function(
+    family$linkinv(XB_final),
+    y_block,
+    unlist(order_list),
+    family,
+    dispersion_final,
+    unlist(observation_weights),
+    ...
+  ))
+  W_final <- .solver_stabilize_working_weights(W_final)
+
+  W_split_final <- split(W_final, rep(1:(K + 1), n_per_partition))
+  Xw_final <- lapply(1:(K + 1), function(k) {
+    if (nrow(X[[k]]) == 0) return(X[[k]])
+    X[[k]] * sqrt(W_split_final[[k]])
+  })
+  X_gram_weighted_final <- compute_gram_block_diagonal(
+    Xw_final, parallel_matmult, cl, chunk_size, num_chunks, rem_chunks
+  )
+
+  schur_corrections_final <- schur_correction_function(
+    X, y, result, dispersion_final, order_list, K, family,
+    observation_weights, ...
+  )
+
+  wb_final <- .woodbury_redecompose_weighted(
+    Delta_V, X_block, DV_X, W_final,
+    X, K, p_expansions,
+    X_gram_weighted_final,
+    Lambda, schur_corrections_final,
+    unique_penalty_per_partition, L_partition_list,
+    parallel_eigen, cl,
+    chunk_size, num_chunks, rem_chunks,
+    rank_threshold_fraction = 1/2, family
+  )
+
+  if (!isTRUE(wb_final$use_woodbury)) {
+    X_tilde <- VhalfInv_perm %**% X_block
+    y_tilde <- VhalfInv_perm %**% y_block
+    return(.get_B_gee_glm(
+      X_block, X_tilde, y_block, y_tilde,
+      VhalfInv_perm, Lambda_block, A, K,
+      p_expansions, constraint_value_vectors,
+      family, return_G_getB, iterate, tol,
+      qp_Amat, qp_bvec, qp_meq,
+      qp_score_function,
+      order_list, observation_weights,
+      glm_weight_function, schur_correction_function,
+      need_dispersion_for_estimation,
+      dispersion_function, VhalfInv, ...))
+  }
+
+  wb_sqrt_final <- .woodbury_halfsqrt_components(
+    wb_final$Ghalf_corrected, wb_final$E, wb_final$J_signs,
+    wb_final$r, K, p_expansions
+  )
+
+  if (!isTRUE(wb_sqrt_final$valid)) {
+    X_tilde <- VhalfInv_perm %**% X_block
+    y_tilde <- VhalfInv_perm %**% y_block
+    return(.get_B_gee_glm(
+      X_block, X_tilde, y_block, y_tilde,
+      VhalfInv_perm, Lambda_block, A, K,
+      p_expansions, constraint_value_vectors,
+      family, return_G_getB, iterate, tol,
+      qp_Amat, qp_bvec, qp_meq,
+      qp_score_function,
+      order_list, observation_weights,
+      glm_weight_function, schur_correction_function,
+      need_dispersion_for_estimation,
+      dispersion_function, VhalfInv, ...))
+  }
+
+  wb <- wb_final
+  wb_sqrt <- wb_sqrt_final
+
+  ## Compute the full QP RHS: dvec = score + (X^T W V^{-1} X + schur) * beta.
+  #  For non-identity links the info*beta term is nonzero; for Gaussian
+  #  identity it cancels and dvec reduces to X^T V^{-1} y.
+  score_V_final <- .compute_score_V_partitioned(
+    X, X_block, y, result, K, p_expansions,
+    family, W_final, Delta_V, observation_weights
+  )
+  score_full <- cbind(unlist(score_V_final))
+
+  ## (X^T W V^{-1} X + schur) * beta  [info minus Lambda times beta]
+  Vinv_X_beta <- VhalfInv_perm %**% (VhalfInv_perm %**% (X_block %**% beta_block))
+  info_nopen_beta <- crossprod(X_block, W_final * Vinv_X_beta)
+  if (any(unlist(schur_corrections_final) != 0)) {
+    schur_coll <- collapse_block_diagonal(schur_corrections_final)
+    info_nopen_beta <- info_nopen_beta + schur_coll %**% beta_block
+  }
+
+  # dvec_full <- score_full + info_nopen_beta -
+  #   collapse_block_diagonal(matmult_block_diagonal(Lambda,  result))
+
+  ## y* = G^{1/2} dvec via Woodbury transform.
   GhalfXy_V <- .woodbury_transform_constraint_matrix(
-    Ghalf_corrected = wb_decomp$Ghalf_corrected,
-    A = cbind(unlist(Xy_V)),
+    Ghalf_corrected = wb$Ghalf_corrected,
+    A = dvec_full,
     K = K,
     p_expansions = p_expansions,
     wb_sqrt = wb_sqrt,
@@ -2504,147 +2450,80 @@
     rem_chunks = rem_chunks
   )
 
-  ## Constrained projection via Woodbury-corrected Lagrangian.
+  ## Re-project with the corrected y* (equality constraints only).
   result <- .lagrangian_project_woodbury(
-    GhalfXy_V, wb_decomp$Ghalf_corrected,
+    GhalfXy_V, wb$Ghalf_corrected,
     A, K, p_expansions, R_constraints,
     constraint_value_vectors, family,
     wb_sqrt,
     parallel_aga, parallel_matmult,
-    cl, chunk_size, num_chunks, rem_chunks)
+    cl, chunk_size, num_chunks, rem_chunks
+  )
 
-  qp_info <- NULL
-
-  ## QP refinement: Woodbury paths can reuse the partition-wise active-set
-  #  method when the inequality system is block-separable.  Otherwise
-  #  fall back to the dense global QP on the whitened system.
+  ## Optional QP refinement with inequality constraints.
+  #  Use .active_set_refine_woodbury with the dvec-based y*.
   if (quadprog) {
-    if (!qp_global) {
-      as_out <- .try_woodbury_active_set(
-        result = result,
-        K = K,
-        p_expansions = p_expansions,
-        A = A,
-        R_constraints = R_constraints,
-        constraint_value_vectors = constraint_value_vectors,
-        family = family,
-        qp_Amat = qp_Amat,
-        qp_bvec = qp_bvec,
-        qp_meq = qp_meq,
-        rhs_list = Xy_V,
-        Ghalf_corrected = wb_decomp$Ghalf_corrected,
-        wb_sqrt = wb_sqrt,
-        parallel_aga = parallel_aga,
-        parallel_matmult = parallel_matmult,
-        cl = cl,
-        chunk_size = chunk_size,
-        num_chunks = num_chunks,
-        rem_chunks = rem_chunks,
-        tol = tol,
-        include_warnings = include_warnings,
-        warn_context = ".get_B_gee_woodbury"
-      )
+    as_tol <- max(tol, 100 * sqrt(.Machine$double.eps))
+    as_out <- try(.active_set_refine_woodbury(
+      result = result,
+      K = K,
+      p_expansions = p_expansions,
+      A = A,
+      R_constraints = R_constraints,
+      constraint_value_vectors = constraint_value_vectors,
+      family = family,
+      qp_Amat = qp_Amat,
+      qp_bvec = qp_bvec,
+      qp_meq = qp_meq,
+      rhs_list = lapply(1:(K + 1), function(k) {
+        rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
+        dvec_full[rows_k, , drop = FALSE]
+      }),
+      Ghalf_corrected = wb$Ghalf_corrected,
+      wb_sqrt = wb_sqrt,
+      parallel_aga = parallel_aga,
+      parallel_matmult = parallel_matmult,
+      cl = cl,
+      chunk_size = chunk_size,
+      num_chunks = num_chunks,
+      rem_chunks = rem_chunks,
+      tol = as_tol
+    ), silent = TRUE)
 
-      if (!is.null(as_out)) {
-        result <- as_out$result
-        qp_info <- as_out$qp_info
-      } else {
-        qp_global <- TRUE
+    if (!inherits(as_out, "try-error") && isTRUE(as_out$converged)) {
+      result <- as_out$result
+      qp_info <- as_out$qp_info
+    } else {
+      ## Woodbury active-set did not converge; fall back to dense.
+      if (include_warnings) {
+        warning(
+          ".get_B_gee_glm_woodbury active-set did not converge; ",
+          "falling back to dense QP"
+        )
       }
-    }
-
-    if (qp_global) {
-      X_block <- collapse_block_diagonal(X)
-      beta_block <- cbind(unlist(result))
-      y_block <- cbind(unlist(y))
-
-      ## Whiten for the dense QP.
       X_tilde <- VhalfInv_perm %**% X_block
       y_tilde <- VhalfInv_perm %**% y_block
-
-      ## Full Gram from whitened design.
-      Gram_full <- crossprod(X_tilde)
-      info <- Gram_full + Lambda_block
-      sc <- sqrt(mean(abs(info)))
-
-      if (K == 0 | any(all.equal(unique(A), 0) == TRUE)) {
-        A_qp <- cbind(rep(0, p_expansions * (K + 1)))
-      } else {
-        A_qp <- A
-      }
-      if (!is.null(qp_Amat)) {
-        qp_Amat_c <- cbind(A_qp, qp_Amat)
-      } else {
-        qp_Amat_c <- A_qp
-      }
-      constr_rhs <- if (length(constraint_value_vectors) > 0) {
-        cr <- Reduce('rbind', constraint_value_vectors)
-        if (nrow(cr) < ncol(A_qp)) c(rep(0, ncol(A_qp) - nrow(cr)), cr)
-        else cr
-      } else {
-        rep(0, ncol(A_qp))
-      }
-      qp_bvec_c <- if (!is.null(qp_bvec)) c(constr_rhs, qp_bvec) else constr_rhs
-      qp_meq_c <- ncol(A_qp) + if (!is.null(qp_meq)) qp_meq else 0
-
-      qp_score <- qp_score_function(
-        X_tilde, y_tilde,
-        VhalfInv_perm %**% cbind(family$linkinv(
-          c(X_block %**% beta_block))),
-        unlist(order_list), 1, VhalfInv_perm,
-        unlist(observation_weights), ...
-      )
-      qp_result <- try({
-        quadprog::solve.QP(
-          Dmat = info / sc,
-          dvec = (qp_score -
-                    Lambda_block %**% beta_block +
-                    info %**% beta_block) / sc,
-          Amat = qp_Amat_c,
-          bvec = qp_bvec_c,
-          meq = qp_meq_c
-        )
-      }, silent = TRUE)
-
-      if (!any(inherits(qp_result, 'try-error'))) {
-        active_ineq <- if (ncol(qp_Amat_c) > ncol(A_qp)) {
-          which(abs(qp_result$Lagrangian[-(1:ncol(A_qp))]) >
-                  sqrt(.Machine$double.eps))
-        } else {
-          integer(0)
-        }
-        beta_block <- cbind(qp_result$solution)
-        result <- lapply(1:(K + 1), function(k) {
-          cbind(beta_block[(k - 1) * p_expansions + 1:p_expansions])
-        })
-        qp_info <- list(
-          lagrangian = qp_result$Lagrangian,
-          Amat_active = qp_Amat_c[,
-                                  c(1:ncol(A_qp),
-                                    ncol(A_qp) + which(abs(qp_result$Lagrangian[-(1:ncol(A_qp))]) >
-                                                         sqrt(.Machine$double.eps))),
-                                  drop = FALSE],
-          active_ineq = active_ineq,
-          converged = TRUE,
-          method = "dense_qp_gee_gaussian"
-        )
-      } else if (include_warnings) {
-        err_msg <- if (!is.null(attr(qp_result, "condition"))) {
-          conditionMessage(attr(qp_result, "condition"))
-        } else {
-          as.character(qp_result)
-        }
-        warning(".get_B_gee_woodbury dense QP failed: ", err_msg)
-      }
+      dense_out <- .get_B_gee_glm(
+        X_block, X_tilde, y_block, y_tilde,
+        VhalfInv_perm, Lambda_block, A, K,
+        p_expansions, constraint_value_vectors,
+        family, return_G_getB, iterate, tol,
+        qp_Amat, qp_bvec, qp_meq,
+        qp_score_function,
+        order_list, observation_weights,
+        glm_weight_function, schur_correction_function,
+        need_dispersion_for_estimation,
+        dispersion_function, VhalfInv, ...)
+      return(dense_out)
     }
   }
 
-  ## Return with per-partition G components.
+  ## Return.
   if (return_G_getB) {
     G_list <- list(
-      G = lapply(wb_decomp$Ghalf_corrected, function(mat) tcrossprod(mat)),
-      Ghalf = wb_decomp$Ghalf_corrected,
-      GhalfInv = wb_decomp$GhalfInv_corrected
+      G = lapply(wb$Ghalf_corrected, function(m) tcrossprod(m)),
+      Ghalf = wb$Ghalf_corrected,
+      GhalfInv = wb$GhalfInv_corrected
     )
     return(list(B = result, G_list = G_list, qp_info = qp_info))
   } else {
@@ -2752,6 +2631,7 @@
                                unlist(order_list),
                                family, dispersion_temp,
                                unlist(observation_weights), ...))
+    W <- .solver_stabilize_working_weights(W)
 
     ## Schur correction using the original-scale design.
     result <- lapply(1:(K + 1), function(k) {
@@ -2865,6 +2745,7 @@
                                  unlist(order_list),
                                  family, dispersion_temp,
                                  unlist(observation_weights), ...))
+      W <- .solver_stabilize_working_weights(W)
 
       mu_new <- family$linkinv(c(XB))
       if (!is.null(family$custom_dev.resids)) {
@@ -2932,6 +2813,7 @@
                                unlist(order_list),
                                family, dispersion_temp,
                                unlist(observation_weights), ...))
+    W <- .solver_stabilize_working_weights(W)
 
     schur_correction <-
       schur_correction_function(
@@ -2983,31 +2865,16 @@
 }
 
 
-## Sub-function: .get_B_gee_glm_woodbury
-
 #' Path 1b-Woodbury: Non-Gaussian GEE with Woodbury Acceleration
 #'
 #' Non-Gaussian correlated solve using the Woodbury factorization. At each
 #' damped Newton step, the current weighted information matrix is split into
 #' a block-diagonal part defining \eqn{\mathbf{G}_{\mathrm{on}}} and a
-#' low-rank cross-partition part
-#' \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
-#' The constrained step is then taken through
-#' \code{.lagrangian_project_woodbury()}.
-#'
-#' This function is standalone for the weighted Woodbury path: it carries
-#' the iteration, repeatedly rebuilds the Woodbury factors at the current
-#' working weights, and falls back to the dense correlated GLM solver if the
-#' rank is too large or \eqn{\mathbf{F}} is not positive definite.
+#' low-rank cross-partition part.  The constrained step is then taken
+#' through \code{.lagrangian_project_woodbury()}.
 #'
 #' @inheritParams .get_B_gee_glm
 #' @param X,y Lists of partition-specific design matrices and responses.
-#' @param wb_decomp_init Initial Woodbury decomposition from
-#'   \code{.woodbury_decompose_V} (used only to confirm that the
-#'   unweighted decomposition was valid; the weighted decomposition is
-#'   recomputed at each iteration).
-#' @param wb_sqrt_init Initial half-sqrt components (unused; retained
-#'   for interface consistency with the Gaussian Woodbury path).
 #' @param Lambda,Lambda_block Shared and full penalty matrices.
 #' @param unique_penalty_per_partition Logical.
 #' @param L_partition_list Partition-specific penalty matrices.
@@ -3023,6 +2890,7 @@
                                     A, R_constraints,
                                     constraint_value_vectors, family,
                                     return_G_getB, iterate, tol,
+                                    quadprog,
                                     qp_Amat, qp_bvec, qp_meq,
                                     qp_score_function,
                                     observation_weights,
@@ -3047,10 +2915,7 @@
 
   P <- p_expansions * (K + 1)
 
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
   ## Precomputation (done once, fixed across Newton iterations).
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-
   X_block <- collapse_block_diagonal(X)
   y_block <- cbind(unlist(y))
   N <- nrow(X_block)
@@ -3058,8 +2923,7 @@
   ## Delta_V = V^{-1} - I: fixed across iterations.
   Delta_V <- tcrossprod(VhalfInv_perm) - diag(N)
 
-  ## DV_X = (V^{-1} - I) X: fixed across iterations. O(N^2 P) or
-  #  O(nnz * P) if Delta_V is sparse.
+  ## DV_X = (V^{-1} - I) X: fixed across iterations.
   DV_X <- Delta_V %**% X_block
 
   ## Partition sizes for splitting W.
@@ -3068,7 +2932,7 @@
   ## Initialize beta at zero.
   beta_block <- cbind(rep(0, P))
 
-  ## Damped Newton control (mirrors .get_B_gee_glm).
+  ## Damped Newton control.
   damp_cnt <- 0
   master_cnt <- 0
   err <- Inf
@@ -3079,14 +2943,11 @@
 
   qp_info <- NULL
 
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
   ## Newton loop.
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
   while (err > tol & damp_cnt < 10 & master_cnt < 100) {
     master_cnt <- master_cnt + 1
     damp <- 2^(-(damp_cnt))
 
-    ## ##  1. Compute dispersion at current iterate ##
     if (need_dispersion_for_estimation) {
       dispersion_temp <- dispersion_function(
         mu = family$linkinv(XB),
@@ -3101,15 +2962,15 @@
       dispersion_temp <- 1
     }
 
-    ## ##  2. Compute GLM working weights W ##
     W <- c(glm_weight_function(family$linkinv(XB),
                                y_block,
                                unlist(order_list),
                                family, dispersion_temp,
                                unlist(observation_weights), ...))
+    W <- .solver_stabilize_working_weights(W)
+    cat("DEBUG: iter", master_cnt, "max(W)=", max(W), "min(W)=", min(W),
+        "any_nonfinite=", any(!is.finite(W)), "\n")
 
-    ## ##  3. Compute Schur corrections at current iterate ##
-    #  Per-partition calling convention (what compute_G_eigen expects).
     result <- lapply(1:(K + 1), function(k) {
       cbind(beta_block[(k - 1) * p_expansions + 1:p_expansions])
     })
@@ -3118,10 +2979,7 @@
       observation_weights, ...
     )
 
-    ## ##  4. Compute weighted Gram per partition ##
-    #  Split W by partition according to actual partition sizes.
     W_split <- split(W, rep(1:(K + 1), n_per_partition))
-
     Xw <- lapply(1:(K + 1), function(k) {
       if (nrow(X[[k]]) == 0) return(X[[k]])
       X[[k]] * sqrt(W_split[[k]])
@@ -3129,7 +2987,6 @@
     X_gram_weighted <- compute_gram_block_diagonal(
       Xw, parallel_matmult, cl, chunk_size, num_chunks, rem_chunks)
 
-    ## ##  5. Woodbury redecomposition at current W ##
     wb <- .woodbury_redecompose_weighted(
       Delta_V, X_block, DV_X, W,
       X, K, p_expansions,
@@ -3138,30 +2995,30 @@
       unique_penalty_per_partition, L_partition_list,
       parallel_eigen, cl,
       chunk_size, num_chunks, rem_chunks,
-      rank_threshold_fraction = 1/3, family)
+      rank_threshold_fraction = 1/2, family)
 
     if (!wb$use_woodbury) {
-      ## Rank too high at this iteration; fall back to dense permanently.
+      fell_back_to_dense <- TRUE
+      cat("DEBUG: Woodbury rejected at iter", master_cnt, "r =", wb$r, "\n")
       fell_back_to_dense <- TRUE
       break
     }
 
-    ## ##  6. Compute halfsqrt components ##
     wb_sqrt <- .woodbury_halfsqrt_components(
       wb$Ghalf_corrected, wb$E, wb$J_signs,
       wb$r, K, p_expansions)
 
     if (!wb_sqrt$valid) {
       fell_back_to_dense <- TRUE
+      cat("DEBUG: F not PD at iter", master_cnt, "\n")
+      fell_back_to_dense <- TRUE
       break
     }
 
-    ## ##  7. Compute GEE score per partition ##
     score_V <- .compute_score_V_partitioned(
       X, X_block, y, result, K, p_expansions,
       family, W, Delta_V, observation_weights)
 
-    ## ##  8. Form GhalfXy_V = G^{1/2} score_V ##
     GhalfXy_V <- .woodbury_transform_constraint_matrix(
       Ghalf_corrected = wb$Ghalf_corrected,
       A = cbind(unlist(score_V)),
@@ -3175,7 +3032,6 @@
       rem_chunks = rem_chunks
     )
 
-    ## ##  9. Constrained step via Lagrangian projection ##
     result_new <- .lagrangian_project_woodbury(
       GhalfXy_V, wb$Ghalf_corrected,
       A, K, p_expansions, R_constraints,
@@ -3186,10 +3042,7 @@
 
     beta_new <- cbind(unlist(result_new))
 
-    ## ##  10. Damped update and deviance check ##
-    #  Logic mirrors .get_B_gee_glm exactly.
     if (!iterate & master_cnt > 1) {
-      ## Non-iterative mode: accept step and exit.
       beta_block <- beta_new
       damp_cnt <- 11
       master_cnt <- 101
@@ -3198,7 +3051,6 @@
       beta_new <- (1 - damp) * beta_block + damp * beta_new
       XB <- X_block %**% beta_new
 
-      ## Deviance computation (original scale, not whitened).
       mu_new <- family$linkinv(c(XB))
       if (!is.null(family$custom_dev.resids) &
           is.null(family$dev.resids)) {
@@ -3220,7 +3072,6 @@
                                    wt = 1))
       }
 
-      ## Step acceptance / damping logic.
       if (is.null(err_new) | is.na(err_new) | !is.finite(err_new)) {
         damp_cnt <- damp_cnt + 1
       } else if (err_new <= err) {
@@ -3230,7 +3081,6 @@
         beta_block <- beta_new
         damp_cnt <- 0
 
-        ## Early exit on convergence (after burn-in of 10 iterations).
         if ((abs_diff < tol) &
             (prev_err - err < tol) &
             (master_cnt > 10)) {
@@ -3244,18 +3094,16 @@
       }
     }
 
-    ## Unpack into per-partition list.
     result <- lapply(1:(K + 1), function(k) {
       cbind(beta_block[(k - 1) * p_expansions + 1:p_expansions])
     })
   }
 
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
   ## Fallback to dense Path 1b.
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
   if (fell_back_to_dense) {
     X_tilde <- VhalfInv_perm %**% X_block
     y_tilde <- VhalfInv_perm %**% y_block
+
     return(.get_B_gee_glm(
       X_block, X_tilde, y_block, y_tilde,
       VhalfInv_perm, Lambda_block, A, K,
@@ -3269,161 +3117,135 @@
       dispersion_function, VhalfInv, ...))
   }
 
-  ## Recompute the Woodbury decomposition at the final accepted iterate.
-  #  The last loop iteration may update beta_block after wb / wb_sqrt /
-  #  score_V were formed, so refresh them here before either returning
-  #  G_list or attempting the final active-set refinement.
-  beta_block <- cbind(unlist(result))
-  XB_final <- X_block %**% beta_block
-
+  ## Debug: recompute W at the final iterate for diagnostics
+  beta_cur <- cbind(unlist(result))
+  XB_dbg <- X_block %**% beta_cur
   if (need_dispersion_for_estimation) {
-    dispersion_final <- dispersion_function(
-      mu = family$linkinv(XB_final),
-      y = y_block,
-      order_indices = unlist(order_list),
-      family = family,
+    disp_dbg <- dispersion_function(
+      mu = family$linkinv(XB_dbg), y = y_block,
+      order_indices = unlist(order_list), family = family,
       observation_weights = unlist(observation_weights),
-      VhalfInv = VhalfInv,
-      ...
-    )
+      VhalfInv = VhalfInv, ...)
   } else {
-    dispersion_final <- 1
+    disp_dbg <- 1
   }
+  W_dbg <- c(glm_weight_function(family$linkinv(XB_dbg), y_block,
+                                 unlist(order_list), family, disp_dbg,
+                                 unlist(observation_weights), ...))
+  W_dbg <- .solver_stabilize_working_weights(W_dbg)
 
-  W_final <- c(glm_weight_function(
-    family$linkinv(XB_final),
-    y_block,
-    unlist(order_list),
-    family,
-    dispersion_final,
-    unlist(observation_weights),
-    ...
-  ))
+  Vinv_X_beta <- VhalfInv_perm %**% (VhalfInv_perm %**% (X_block %**% beta_cur))
+  XtWVinvX_beta <- crossprod(X_block, W_dbg * Vinv_X_beta)
+  score_full <- cbind(unlist(score_V))
+  cat("DEBUG score norm:", sqrt(sum(score_full^2)), "\n")
+  cat("DEBUG info*beta norm:", sqrt(sum(XtWVinvX_beta^2)), "\n")
+  cat("DEBUG beta norm:", sqrt(sum(beta_cur^2)), "\n")
+  #####################################################
 
-  W_split_final <- split(W_final, rep(1:(K + 1), n_per_partition))
-  Xw_final <- lapply(1:(K + 1), function(k) {
-    if (nrow(X[[k]]) == 0) return(X[[k]])
-    X[[k]] * sqrt(W_split_final[[k]])
-  })
-  X_gram_weighted_final <- compute_gram_block_diagonal(
-    Xw_final, parallel_matmult, cl, chunk_size, num_chunks, rem_chunks
-  )
-
-  schur_corrections_final <- schur_correction_function(
-    X, y, result, dispersion_final, order_list, K, family,
-    observation_weights, ...
-  )
-
-  wb_final <- .woodbury_redecompose_weighted(
-    Delta_V, X_block, DV_X, W_final,
-    X, K, p_expansions,
-    X_gram_weighted_final,
-    Lambda, schur_corrections_final,
-    unique_penalty_per_partition, L_partition_list,
-    parallel_eigen, cl,
-    chunk_size, num_chunks, rem_chunks,
-    rank_threshold_fraction = 1/3, family
-  )
-
-  if (!isTRUE(wb_final$use_woodbury)) {
-    X_tilde <- VhalfInv_perm %**% X_block
-    y_tilde <- VhalfInv_perm %**% y_block
-    return(.get_B_gee_glm(
-      X_block, X_tilde, y_block, y_tilde,
-      VhalfInv_perm, Lambda_block, A, K,
-      p_expansions, constraint_value_vectors,
-      family, return_G_getB, iterate, tol,
-      qp_Amat, qp_bvec, qp_meq,
-      qp_score_function,
-      order_list, observation_weights,
-      glm_weight_function, schur_correction_function,
-      need_dispersion_for_estimation,
-      dispersion_function, VhalfInv, ...))
-  }
-
-  wb_sqrt_final <- .woodbury_halfsqrt_components(
-    wb_final$Ghalf_corrected, wb_final$E, wb_final$J_signs,
-    wb_final$r, K, p_expansions
-  )
-
-  if (!isTRUE(wb_sqrt_final$valid)) {
-    X_tilde <- VhalfInv_perm %**% X_block
-    y_tilde <- VhalfInv_perm %**% y_block
-    return(.get_B_gee_glm(
-      X_block, X_tilde, y_block, y_tilde,
-      VhalfInv_perm, Lambda_block, A, K,
-      p_expansions, constraint_value_vectors,
-      family, return_G_getB, iterate, tol,
-      qp_Amat, qp_bvec, qp_meq,
-      qp_score_function,
-      order_list, observation_weights,
-      glm_weight_function, schur_correction_function,
-      need_dispersion_for_estimation,
-      dispersion_function, VhalfInv, ...))
-  }
-
-  score_V <- .compute_score_V_partitioned(
-    X, X_block, y, result, K, p_expansions,
-    family, W_final, Delta_V, observation_weights
-  )
-  wb <- wb_final
-  wb_sqrt <- wb_sqrt_final
-
-  ## Optional QP refinement after the Woodbury IRWLS loop.
-  #  Reuse the partition-wise active-set method when the inequality
-  #  system is block-separable; otherwise fall back to the dense
-  #  whitened SQP path.
+  ## QP refinement after the Woodbury Newton-Raphson loop.
+  #  Build the full whitened information matrix at the converged iterate,
+  #  extract per-partition G^{1/2} blocks, and use .active_set_refine
+  #  with is_path3 = TRUE (treating the converged IRWLS coefficients as
+  #  unconstrained estimates).  This avoids Woodbury approximation error
+  #  in the KKT multiplier recovery.
   if (quadprog) {
-    qp_needs_global <- .detect_qp_global(qp_Amat, p_expansions, K)
 
-    if (!qp_needs_global) {
-      as_out <- .try_woodbury_active_set(
-        result = result,
-        K = K,
-        p_expansions = p_expansions,
-        A = A,
-        R_constraints = R_constraints,
-        constraint_value_vectors = constraint_value_vectors,
+    beta_block <- cbind(unlist(result))
+    XB_final <- X_block %**% beta_block
+
+    if (need_dispersion_for_estimation) {
+      dispersion_final <- dispersion_function(
+        mu = family$linkinv(XB_final),
+        y = y_block,
+        order_indices = unlist(order_list),
         family = family,
-        qp_Amat = qp_Amat,
-        qp_bvec = qp_bvec,
-        qp_meq = qp_meq,
-        rhs_list = score_V,
-        Ghalf_corrected = wb$Ghalf_corrected,
-        wb_sqrt = wb_sqrt,
-        parallel_aga = parallel_aga,
-        parallel_matmult = parallel_matmult,
-        cl = cl,
-        chunk_size = chunk_size,
-        num_chunks = num_chunks,
-        rem_chunks = rem_chunks,
-        tol = tol,
-        include_warnings = include_warnings,
-        warn_context = ".get_B_gee_glm_woodbury"
+        observation_weights = unlist(observation_weights),
+        VhalfInv = VhalfInv,
+        ...
       )
+    } else {
+      dispersion_final <- 1
+    }
 
-      if (!is.null(as_out)) {
-        result <- as_out$result
-        qp_info <- as_out$qp_info
-      } else {
-        X_tilde <- VhalfInv_perm %**% X_block
-        y_tilde <- VhalfInv_perm %**% y_block
-        return(.get_B_gee_glm(
-          X_block, X_tilde, y_block, y_tilde,
-          VhalfInv_perm, Lambda_block, A, K,
-          p_expansions, constraint_value_vectors,
-          family, return_G_getB, iterate, tol,
-          qp_Amat, qp_bvec, qp_meq,
-          qp_score_function,
-          order_list, observation_weights,
-          glm_weight_function, schur_correction_function,
-          need_dispersion_for_estimation,
-          dispersion_function, VhalfInv, ...))
+    W_final <- c(glm_weight_function(
+      family$linkinv(XB_final),
+      y_block,
+      unlist(order_list),
+      family,
+      dispersion_final,
+      unlist(observation_weights),
+      ...
+    ))
+    W_final <- .solver_stabilize_working_weights(W_final)
+
+    ## Build the full whitened information matrix.
+    X_tilde <- VhalfInv_perm %**% X_block
+
+    schur_corrections_final <- schur_correction_function(
+      X, y, result, dispersion_final, order_list, K, family,
+      observation_weights, ...
+    )
+    schur_coll <- if (any(unlist(schur_corrections_final) != 0)) {
+      collapse_block_diagonal(schur_corrections_final)
+    } else {
+      0
+    }
+
+    info_full <- crossprod(X_tilde, W_final * X_tilde) +
+      Lambda_block + schur_coll
+    G_full <- invert(info_full)
+
+    ## G^{1/2} via eigendecomposition.
+    eig_G <- eigen(G_full, symmetric = TRUE)
+    vals_G <- pmax(eig_G$values, 0)
+    G_full_half <- eig_G$vectors %**% (t(eig_G$vectors) * sqrt(vals_G))
+    inv_sqrt_vals <- ifelse(sqrt(vals_G) > 0, 1 / sqrt(vals_G), 0)
+    G_full_half_inv <- eig_G$vectors %**% (t(eig_G$vectors) * inv_sqrt_vals)
+
+    ## Extract per-partition blocks.
+    Ghalf_list <- .extract_G_diagonal(G_full_half, p_expansions, K)
+    GhalfInv_list <- .extract_G_diagonal(G_full_half_inv, p_expansions, K)
+
+    ## For the GLM GEE case, the converged coefficients serve as
+    #  the "unconstrained estimates" for the active-set projection.
+    #  Use is_path3 = TRUE so that .active_set_refine applies
+    #  G^{-1/2} beta (not G^{1/2} Xy) to form the transformed RHS.
+    as_out <- try(.active_set_refine(
+      result = result,
+      X = X, y = y,
+      K = K,
+      p_expansions = p_expansions,
+      A = A,
+      R_constraints = R_constraints,
+      constraint_value_vectors = constraint_value_vectors,
+      Lambda = Lambda,
+      Ghalf = Ghalf_list,
+      GhalfInv = GhalfInv_list,
+      family = family,
+      qp_Amat = qp_Amat,
+      qp_bvec = qp_bvec,
+      qp_meq = qp_meq,
+      Xy_or_uncon = result,
+      is_path3 = TRUE,
+      parallel_aga = parallel_aga,
+      parallel_matmult = parallel_matmult,
+      cl = cl,
+      chunk_size = chunk_size,
+      num_chunks = num_chunks,
+      rem_chunks = rem_chunks,
+      tol = max(tol, 100 * sqrt(.Machine$double.eps))
+    ), silent = TRUE)
+
+    if (!inherits(as_out, "try-error") && isTRUE(as_out$converged)) {
+      result <- as_out$result
+      qp_info <- as_out$qp_info
+      if (!is.null(qp_info)) {
+        qp_info$method <- "active_set_woodbury"
       }
     } else {
-      X_tilde <- VhalfInv_perm %**% X_block
+      ## Fall back to dense SQP.
       y_tilde <- VhalfInv_perm %**% y_block
-      return(.get_B_gee_glm(
+      dense_out <- .get_B_gee_glm(
         X_block, X_tilde, y_block, y_tilde,
         VhalfInv_perm, Lambda_block, A, K,
         p_expansions, constraint_value_vectors,
@@ -3433,27 +3255,34 @@
         order_list, observation_weights,
         glm_weight_function, schur_correction_function,
         need_dispersion_for_estimation,
-        dispersion_function, VhalfInv, ...))
+        dispersion_function, VhalfInv, ...)
+      return(dense_out)
     }
   }
 
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
   ## Return.
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
   if (return_G_getB) {
-    G_list <- list(
-      G = lapply(wb$Ghalf_corrected, function(m) tcrossprod(m)),
-      Ghalf = wb$Ghalf_corrected,
-      GhalfInv = wb$GhalfInv_corrected
-    )
+    if (!is.null(qp_info)) {
+      ## QP refinement built the full info; use its blocks.
+      G_list <- list(
+        G = lapply(Ghalf_list, tcrossprod),
+        Ghalf = Ghalf_list,
+        GhalfInv = GhalfInv_list
+      )
+    } else {
+      ## No QP refinement; use Woodbury-corrected G.
+      G_list <- list(
+        G = lapply(wb$Ghalf_corrected, function(m) tcrossprod(m)),
+        Ghalf = wb$Ghalf_corrected,
+        GhalfInv = wb$GhalfInv_corrected
+      )
+    }
     return(list(B = result, G_list = G_list, qp_info = qp_info))
   } else {
     return(list(B = result, qp_info = qp_info))
   }
 }
 
-
-## Sub-function: .get_B_gaussian_nocorr
 
 #' Path 2: Gaussian Identity Link, No Correlation
 #'
@@ -3552,41 +3381,20 @@
 
   ## Optional QP refinement for inequality constraints.
   if (quadprog) {
-    ## Auto-detect whether partition-wise active-set is valid.
-    qp_needs_global <- .detect_qp_global(qp_Amat, p_expansions, K)
-
-    if (!qp_needs_global) {
-      ## Partition-wise active-set method: avoids forming dense P x P system.
-      as_out <- try(.active_set_refine(
-        result, X, y, K, p_expansions,
-        A, R_constraints, constraint_value_vectors,
-        Lambda, Ghalf, GhalfInv, family,
-        qp_Amat, qp_bvec, qp_meq,
-        Xy_or_uncon = Xy, is_path3 = FALSE,
-        parallel_aga, parallel_matmult,
-        cl, chunk_size, num_chunks, rem_chunks, tol), silent = TRUE)
-      if (!inherits(as_out, "try-error") && as_out$converged) {
-        result <- as_out$result
-        qp_info <- as_out$qp_info
-      } else {
-        ## Fallback to dense SQP if active-set did not converge.
-        Lambda_block <- .build_lambda_block(Lambda, K,
-                                            unique_penalty_per_partition,
-                                            L_partition_list)
-        qp_out <- .qp_refine(result, X, y, K, p_expansions, A, Lambda,
-                             Lambda_block, family, iterate, tol,
-                             qp_Amat, qp_bvec, qp_meq,
-                             qp_score_function,
-                             order_list, glm_weight_function,
-                             schur_correction_function,
-                             need_dispersion_for_estimation,
-                             dispersion_function, observation_weights,
-                             VhalfInv, ...)
-        result <- qp_out$result
-        qp_info <- qp_out$qp_info
-      }
+    ## Always try the active-set wrapper first. Dense SQP remains a
+    #  guarded fallback if the repeated equality solves fail.
+    as_out <- try(.active_set_refine(
+      result, X, y, K, p_expansions,
+      A, R_constraints, constraint_value_vectors,
+      Lambda, Ghalf, GhalfInv, family,
+      qp_Amat, qp_bvec, qp_meq,
+      Xy_or_uncon = Xy, is_path3 = FALSE,
+      parallel_aga, parallel_matmult,
+      cl, chunk_size, num_chunks, rem_chunks, tol), silent = TRUE)
+    if (!inherits(as_out, "try-error") && as_out$converged) {
+      result <- as_out$result
+      qp_info <- as_out$qp_info
     } else {
-      ## Dense SQP (cross-partition constraints detected).
       Lambda_block <- .build_lambda_block(Lambda, K,
                                           unique_penalty_per_partition,
                                           L_partition_list)
@@ -3866,42 +3674,20 @@
 
   ## Optional QP refinement for inequality constraints.
   if (quadprog) {
-    ## Auto-detect whether partition-wise active-set is valid.
-    qp_needs_global <- .detect_qp_global(qp_Amat, p_expansions, K)
-
-    if (!qp_needs_global) {
-      ## Partition-wise active-set method.
-      #  For Path 3, pass unconstrained estimates; GhalfInv forms y*.
-      as_out <- try(.active_set_refine(
-        result, X, y, K, p_expansions,
-        A, R_constraints, constraint_value_vectors,
-        Lambda, Ghalf, GhalfInv, family,
-        qp_Amat, qp_bvec, qp_meq,
-        Xy_or_uncon = unconstrained_estimate, is_path3 = TRUE,
-        parallel_aga, parallel_matmult,
-        cl, chunk_size, num_chunks, rem_chunks, tol), silent = TRUE)
-      if (!inherits(as_out, "try-error") && as_out$converged) {
-        result <- as_out$result
-        qp_info <- as_out$qp_info
-      } else {
-        ## Fallback to dense SQP.
-        Lambda_block <- .build_lambda_block(Lambda, K,
-                                            unique_penalty_per_partition,
-                                            L_partition_list)
-        qp_out <- .qp_refine(result, X, y, K, p_expansions, A, Lambda,
-                             Lambda_block, family, iterate, tol,
-                             qp_Amat, qp_bvec, qp_meq,
-                             qp_score_function,
-                             order_list, glm_weight_function,
-                             schur_correction_function,
-                             need_dispersion_for_estimation,
-                             dispersion_function, observation_weights,
-                             VhalfInv, ...)
-        result <- qp_out$result
-        qp_info <- qp_out$qp_info
-      }
+    ## Always try the active-set wrapper first. Dense SQP remains a
+    #  guarded fallback if the repeated equality solves fail.
+    as_out <- try(.active_set_refine(
+      result, X, y, K, p_expansions,
+      A, R_constraints, constraint_value_vectors,
+      Lambda, Ghalf, GhalfInv, family,
+      qp_Amat, qp_bvec, qp_meq,
+      Xy_or_uncon = unconstrained_estimate, is_path3 = TRUE,
+      parallel_aga, parallel_matmult,
+      cl, chunk_size, num_chunks, rem_chunks, tol), silent = TRUE)
+    if (!inherits(as_out, "try-error") && as_out$converged) {
+      result <- as_out$result
+      qp_info <- as_out$qp_info
     } else {
-      ## Dense SQP (cross-partition constraints detected).
       Lambda_block <- .build_lambda_block(Lambda, K,
                                           unique_penalty_per_partition,
                                           L_partition_list)
@@ -4151,9 +3937,9 @@ get_B <- function(X,
     is_gauss_id <- (paste0(family)[1] == 'gaussian' &
                       paste0(family)[2] == 'identity')
 
-    ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##--
+    ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
     ## Attempt Woodbury decomposition for structured V.
-    ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##--
+    ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
     wb_decomp <- .woodbury_decompose_V(
       VhalfInv_perm, X, K, p_expansions,
       Lambda, Lambda_block,
@@ -4227,12 +4013,14 @@ get_B <- function(X,
 
         if (wb_sqrt$valid) {
           ## Path 1b-Woodbury: non-Gaussian GEE, efficient.
+          ## CHANGED: now passes quadprog as a formal argument.
           out <- .get_B_gee_glm_woodbury(
             X, y, K, p_expansions,
             VhalfInv_perm, order_list,
             A, R_constraints,
             constraint_value_vectors, family,
             return_G_getB, iterate, tol,
+            quadprog,
             qp_Amat, qp_bvec, qp_meq,
             qp_score_function,
             observation_weights,

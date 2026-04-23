@@ -580,10 +580,9 @@
   #  structure, reuse the Woodbury active-set method before falling back
   #  to dense solve.QP on the whitened system.
   if (quadprog && !is.null(qp_Amat) && ncol(cbind(qp_Amat)) > 0) {
-    qp_needs_global <- .solver_detect_qp_global(qp_Amat, p_expansions, K)
     can_use_gauss_woodbury <- all(abs(obs_wt_bf - 1) < sqrt(.Machine$double.eps))
 
-    if (!qp_needs_global && can_use_gauss_woodbury) {
+    if (can_use_gauss_woodbury) {
       wb_decomp <- .woodbury_decompose_V(
         VhalfInv_bf, X, K, p_expansions,
         Lambda, Lambda_block_bf,
@@ -1093,7 +1092,7 @@
       unlist(order_list), family, dispersion_temp,
       unlist(observation_weights), ...
     ))
-    W <- pmax(W, sqrt(.Machine$double.eps))
+    W <- .solver_stabilize_working_weights(W)
 
     ## Schur correction
     result_temp <- lapply(1:(K + 1), function(k){
@@ -1197,7 +1196,7 @@
         unlist(order_list), family, dispersion_temp,
         unlist(observation_weights), ...
       ))
-      W <- pmax(W, sqrt(.Machine$double.eps))
+      W <- .solver_stabilize_working_weights(W)
 
       if(is_gee){
         err_new <- deviance_fun(
@@ -1368,7 +1367,7 @@
                                   unlist(order_list),
                                   family, disp_ws,
                                   unlist(observation_weights), ...))
-    W_ws <- pmax(W_ws, sqrt(.Machine$double.eps))
+    W_ws <- .solver_stabilize_working_weights(W_ws)
 
     ## Partition z and W
     idx_ws <- 0L
@@ -1442,12 +1441,10 @@
   })
   beta_block <- cbind(unlist(result_ws))
 
-  ## If the inequality system is block-separable and the current weighted
-  #  correlated system admits a Woodbury factorization, try the same
-  #  partition-wise active-set refinement used by get_B() before entering
-  #  the dense SQP loop.
-  if (quadprog && !is.null(qp_Amat) && ncol(cbind(qp_Amat)) > 0 &&
-      !.solver_detect_qp_global(qp_Amat, p_expansions, K)) {
+  ## If the current weighted correlated system admits a Woodbury
+  #  factorization, try the same active-set refinement used by get_B()
+  #  before entering the dense SQP loop.
+  if (quadprog && !is.null(qp_Amat) && ncol(cbind(qp_Amat)) > 0) {
 
     perm <- unlist(order_list)
     VhalfInv_perm <- VhalfInv[perm, perm]
@@ -1477,7 +1474,7 @@
       family, disp_as,
       unlist(observation_weights), ...
     ))
-    W_as <- pmax(W_as, sqrt(.Machine$double.eps))
+    W_as <- .solver_stabilize_working_weights(W_as)
 
     n_per_partition <- sapply(X, nrow)
     W_split_as <- split(W_as, rep(1:(K + 1), n_per_partition))
@@ -1743,7 +1740,7 @@
     W <- c(glm_weight_function(mu, y_vec, unlist(order_list),
                                family, disp_temp,
                                unlist(observation_weights), ...))
-    W <- pmax(W, sqrt(.Machine$double.eps))
+    W <- .solver_stabilize_working_weights(W)
 
     ## Partition z and W
     idx <- 0L
@@ -2153,16 +2150,6 @@ blockfit_solve <- function(
   has_corr <- !is.null(Vhalf) & !is.null(VhalfInv)
   needs_gee_glm <- has_corr & !is_gauss_id
 
-  ## Auto-detect whether inequality constraints require global (dense)
-  ## QP or can be handled partition-wise. The correlated GEE paths now
-  #  perform their own Woodbury-vs-dense gating, so qp_global here only
-  #  governs the non-GEE post-fit refinement below.
-  if(quadprog){
-    qp_global <- .solver_detect_qp_global(qp_Amat, p_expansions, K)
-  } else {
-    qp_global <- FALSE
-  }
-
   ## Split design matrices, penalty, and constraints
   #  The spline-only objects are then reused across the case-specific solvers.
   split <- .bf_split_components(X, flat_cols, p_expansions, K, Lambda,
@@ -2314,89 +2301,36 @@ blockfit_solve <- function(
   ## Inequality constraint refinement (non-GEE cases only)
   if(quadprog & !needs_gee_glm & !(is_gauss_id & has_corr)){
 
-    if(!qp_global){
-      ## Partition-wise active-set refinement.
-      # Reuse the full-dimensional Ghalf/GhalfInv from above.
-      # For Gaussian identity, Xy_or_uncon = Xy (cross-products);
-      # for GLM, use result as unconstrained proxy.
-      if(verbose) cat("  QP refinement (partition-wise active-set)\n")
+    ## Always try the active-set wrapper first. Dense SQP remains the
+    #  guarded fallback if the repeated equality solves fail.
+    if(verbose) cat("  QP refinement (active-set wrapper)\n")
 
-      ## Compute Xy = X_k^T y_adj_k per partition for Gaussian,
-      # or use result as unconstrained proxy for GLM.
-      if(is_gauss_id){
-        Xy_for_as <- lapply(1:(K + 1), function(k){
-          crossprod(X[[k]], y[[k]])
-        })
-        is_p3 <- FALSE
-      } else {
-        Xy_for_as <- result
-        is_p3 <- TRUE
-      }
-
-      as_out <- .active_set_refine(
-        result, X, y, K, p_expansions,
-        A, R_constraints, constraint_values,
-        Lambda, Ghalf_full, GhalfInv_full, family,
-        qp_Amat, qp_bvec, qp_meq,
-        Xy_or_uncon = Xy_for_as, is_path3 = is_p3,
-        parallel_aga = FALSE, parallel_matmult = FALSE,
-        cl = cl, chunk_size = chunk_size,
-        num_chunks = num_chunks, rem_chunks = rem_chunks,
-        tol = tol)
-
-      if(as_out$converged){
-        result <- as_out$result
-        qp_info <- as_out$qp_info
-      } else {
-        ## Fallback to dense SQP.
-        if(verbose) cat("  Active-set did not converge, falling back to dense SQP\n")
-
-        X_block <- collapse_block_diagonal(X)
-        beta_block <- cbind(unlist(result))
-        Lambda_block <- .bf_make_Lambda_block(
-          Lambda, K, unique_penalty_per_partition, L_partition_list)
-        y_block <- cbind(unlist(y))
-
-        qp_Amat_combined_std <- cbind(A, qp_Amat)
-        qp_bvec_combined_std <- c(rep(0, ncol(A)), qp_bvec)
-        qp_meq_combined_std  <- ncol(A) + qp_meq
-
-        sqp <- .bf_sqp_loop(
-          X_design = X_block,
-          y_design = y_block,
-          X_block_raw = X_block,
-          beta_init = beta_block,
-          Lambda_block = Lambda_block,
-          qp_Amat_combined = qp_Amat_combined_std,
-          qp_bvec_combined = qp_bvec_combined_std,
-          qp_meq_combined  = qp_meq_combined_std,
-          K = K, p_expansions = p_expansions, family = family,
-          order_list = order_list,
-          glm_weight_function = glm_weight_function,
-          schur_correction_function = schur_correction_function,
-          qp_score_function = qp_score_function,
-          need_dispersion_for_estimation = need_dispersion_for_estimation,
-          dispersion_function = dispersion_function,
-          observation_weights = observation_weights,
-          iterate = iterate, tol = tol,
-          VhalfInv = VhalfInv, VhalfInv_perm = NULL,
-          is_gee = FALSE, deviance_fun = .bf_deviance,
-          X_partitions = X, y_partitions = y,
-          verbose = verbose, ...)
-
-        result <- sqp$result
-
-        qp_info <- .bf_assemble_qp_info(
-          sqp$last_qp_sol, cbind(unlist(sqp$result)),
-          qp_Amat_combined_std, qp_bvec_combined_std,
-          qp_meq_combined_std,
-          sqp$converged, sqp$final_deviance,
-          info_matrix = NULL)
-      }
-
+    if(is_gauss_id){
+      Xy_for_as <- lapply(1:(K + 1), function(k){
+        crossprod(X[[k]], y[[k]])
+      })
+      is_p3 <- FALSE
     } else {
-      ## Dense SQP (original behavior, cross-partition constraints detected).
-      if(verbose) cat("  QP refinement (SQP loop)\n")
+      Xy_for_as <- result
+      is_p3 <- TRUE
+    }
+
+    as_out <- .active_set_refine(
+      result, X, y, K, p_expansions,
+      A, R_constraints, constraint_values,
+      Lambda, Ghalf_full, GhalfInv_full, family,
+      qp_Amat, qp_bvec, qp_meq,
+      Xy_or_uncon = Xy_for_as, is_path3 = is_p3,
+      parallel_aga = FALSE, parallel_matmult = FALSE,
+      cl = cl, chunk_size = chunk_size,
+      num_chunks = num_chunks, rem_chunks = rem_chunks,
+      tol = tol)
+
+    if(as_out$converged){
+      result <- as_out$result
+      qp_info <- as_out$qp_info
+    } else {
+      if(verbose) cat("  Active-set did not converge, falling back to dense SQP\n")
 
       X_block <- collapse_block_diagonal(X)
       beta_block <- cbind(unlist(result))

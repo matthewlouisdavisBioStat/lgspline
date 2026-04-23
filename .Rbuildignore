@@ -5,3 +5,7 @@
 ^cran-comments\.md$
 ^CRAN-SUBMISSION$
 ^\.github$
+^\.r-lib$
+^\.tmp$
+^\.codex$
+^\.\.Rcheck$

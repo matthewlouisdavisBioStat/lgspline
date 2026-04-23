@@ -9,7 +9,7 @@ test_that("basic correlation structure runs without error", {
 
 
 test_that("built-in Gaussian correlation structures provide Vhalf_fxn", {
-  set.seed(123)
+  set.seed(1234)
 
   id <- rep(1:12, each = 4)
   x <- rep(seq(0, 1, length.out = 4), 12)
@@ -117,20 +117,20 @@ test_that("Woodbury Gaussian GEE uses active-set for partition-local inequality 
   #  Woodbury gate is actually available.  Dense exchangeable
   #  correlation is intentionally filtered out upstream.
   n <- 60
-  x1 <- seq(0, 1, length.out = n)
-  x2 <- sin(2 * pi * x1)
-  y <- 0.5 + 1.2 * x1 + 0.3 * x2 + rnorm(n, 0, 0.05)
+  t1 <- seq(0, 1, length.out = n)
+  t2 <- sin(2 * pi * t1)
+  y <- 0.5 + 1.2 * t1 + 0.3 * t2 + rnorm(n, 0, 0.05)
   Vinv <- diag(n)
   Vinv[15, 45] <- 0.2
   Vinv[45, 15] <- 0.2
   VhalfInv <- t(chol(Vinv))
 
   fit <- lgspline(
-    cbind(x1, x2),
+    cbind(t1, t2),
     y,
     K = 1,
     opt = FALSE,
-    qp_positive_derivative = "x1",
+    qp_positive_derivative = "t1",
     VhalfInv = VhalfInv,
     standardize_response = FALSE,
     include_warnings = FALSE
@@ -142,7 +142,7 @@ test_that("Woodbury Gaussian GEE uses active-set for partition-local inequality 
   expect_equal(fit_core$qp_info$method, "active_set_woodbury")
   expect_false(is.null(fit_core$qp_info$active_ineq))
 
-  deriv <- predict(fit, cbind(x1, x2), take_first_derivatives = TRUE)
+  deriv <- predict(fit, cbind(t1, t2), take_first_derivatives = TRUE)
   expect_true(all(unlist(deriv$first_deriv[[1]]) >= -1e-6))
 })
 
@@ -151,9 +151,9 @@ test_that("Woodbury GLM GEE uses active-set for partition-local inequality const
   set.seed(20260421)
 
   n <- 60
-  x1 <- seq(0, 1, length.out = n)
-  x2 <- cos(2 * pi * x1)
-  mu <- exp(0.3 + 0.8 * x1 + 0.2 * x2)
+  t1 <- seq(0, 1, length.out = n)
+  t2 <- cos(2 * pi * t1)
+  mu <- exp(0.3 + 0.8 * t1 + 0.2 * t2)
   y <- rpois(n, mu)
   Vinv <- diag(n)
   Vinv[12, 36] <- 0.15
@@ -161,14 +161,15 @@ test_that("Woodbury GLM GEE uses active-set for partition-local inequality const
   VhalfInv <- t(chol(Vinv))
 
   fit <- lgspline(
-    cbind(x1, x2),
+    cbind(t1, t2),
     y,
     family = quasipoisson(),
     K = 1,
     opt = FALSE,
-    qp_positive_derivative = "x1",
+    qp_positive_derivative = "t1",
     VhalfInv = VhalfInv,
-    include_warnings = FALSE
+    include_warnings = TRUE,
+    verbose = TRUE
   )
 
   fit_core <- if(!is.null(fit$model_fit)) fit$model_fit else fit
@@ -177,6 +178,6 @@ test_that("Woodbury GLM GEE uses active-set for partition-local inequality const
   expect_equal(fit_core$qp_info$method, "active_set_woodbury")
   expect_false(is.null(fit_core$qp_info$active_ineq))
 
-  deriv <- predict(fit, cbind(x1, x2), take_first_derivatives = TRUE)
+  deriv <- predict(fit, cbind(t1, t2), take_first_derivatives = TRUE)
   expect_true(all(unlist(deriv$first_deriv[[1]]) >= -1e-6))
 })

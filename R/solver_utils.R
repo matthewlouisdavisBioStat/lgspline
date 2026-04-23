@@ -88,6 +88,607 @@
 
 
 
+#' Build Equality Right-Hand Side for Constraint Matrix
+#'
+#' Converts the list-form equality targets used throughout
+#' \code{get_B()} / \code{blockfit_solve()} into the vector
+#' \eqn{\mathbf{c}} satisfying \eqn{\mathbf{A}^{\top}\beta = \mathbf{c}}.
+#'
+#' @param A Equality constraint matrix.
+#' @param constraint_value_vectors List of coefficient-space vectors
+#'   encoding nonzero equality targets.
+#'
+#' @return Numeric vector of length \code{ncol(A)}.
+#'
+#' @keywords internal
+.solver_build_constraint_rhs <- function(A, constraint_value_vectors) {
+  if (is.null(A) || !is.matrix(A) || ncol(A) == 0L) return(numeric(0))
+  if (length(constraint_value_vectors) == 0L) return(rep(0, ncol(A)))
+
+  cv_vec <- Reduce("rbind", constraint_value_vectors)
+  if (length(cv_vec) == 0L) return(rep(0, ncol(A)))
+
+  c(crossprod(A, cv_vec))
+}
+
+
+
+
+#' Build Augmented Equality System for an Active-Set Iteration
+#'
+#' Forms
+#' \eqn{\mathbf{A}_{aug} = [\mathbf{A} \mid \mathbf{C}_{meq} \mid
+#' \mathbf{C}_{active}]},
+#' removes linearly dependent columns while preserving the original
+#' column identities, and assembles the corresponding right-hand side.
+#'
+#' @param A Base equality constraint matrix.
+#' @param constraint_value_vectors Equality right-hand-side vectors for
+#'   \code{A}.
+#' @param qp_Amat Full QP constraint matrix.
+#' @param qp_bvec Full QP right-hand side.
+#' @param qp_meq Number of leading equality columns in \code{qp_Amat}.
+#' @param active_ineq Integer vector of currently active inequality
+#'   indices on the original \code{qp_Amat} indexing.
+#' @param rank_tol Numeric QR tolerance used for rank filtering.
+#'
+#' @return List with the augmented constraint matrix, reduced active set,
+#'   and bookkeeping needed by the shared active-set loop.
+#'
+#' @keywords internal
+.solver_build_augmented_constraints <- function(A,
+                                                constraint_value_vectors,
+                                                qp_Amat,
+                                                qp_bvec,
+                                                qp_meq,
+                                                active_ineq = integer(0),
+                                                rank_tol = 1e-10) {
+  n_eq_orig <- if (is.null(A)) 0L else ncol(A)
+  n_qp <- if (is.null(qp_Amat)) 0L else ncol(qp_Amat)
+
+  if (n_qp == 0L) {
+    qp_Amat <- matrix(0, nrow = nrow(A), ncol = 0)
+    qp_bvec <- numeric(0)
+    qp_meq <- 0L
+  }
+
+  if (is.null(qp_meq)) qp_meq <- 0L
+  qp_meq <- max(0L, min(as.integer(qp_meq), n_qp))
+
+  if (qp_meq > 0L) {
+    permanent_eq_cols <- seq_len(qp_meq)
+    ineq_cols <- if (qp_meq < n_qp) (qp_meq + 1L):n_qp else integer(0)
+  } else {
+    permanent_eq_cols <- integer(0)
+    ineq_cols <- if (n_qp > 0L) seq_len(n_qp) else integer(0)
+  }
+
+  if (length(permanent_eq_cols) > 0L) {
+    A_base <- cbind(A, qp_Amat[, permanent_eq_cols, drop = FALSE])
+  } else {
+    A_base <- A
+  }
+  n_eq_base <- ncol(A_base)
+
+  active_ineq <- unique(as.integer(active_ineq))
+  active_ineq <- active_ineq[active_ineq %in% ineq_cols]
+
+  if (length(active_ineq) > 0L) {
+    A_aug_full <- cbind(A_base, qp_Amat[, active_ineq, drop = FALSE])
+  } else {
+    A_aug_full <- A_base
+  }
+
+  keep_cols <- integer(0)
+  if (!is.null(A_aug_full) && ncol(A_aug_full) > 0L) {
+    for (j in seq_len(ncol(A_aug_full))) {
+      cand_cols <- c(keep_cols, j)
+      cand_A <- A_aug_full[, cand_cols, drop = FALSE]
+      cand_scales <- .constraint_col_scales(cand_A)
+      cand_A_scaled <- t(t(cand_A) * cand_scales)
+      if (qr(cand_A_scaled, tol = rank_tol)$rank > length(keep_cols)) {
+        keep_cols <- cand_cols
+      }
+    }
+  }
+
+  A_aug <- A_aug_full[, keep_cols, drop = FALSE]
+  n_eq_aug <- sum(keep_cols <= n_eq_base)
+  active_ineq_kept <- if (length(active_ineq) > 0L) {
+    kept_active_pos <- keep_cols[keep_cols > n_eq_base] - n_eq_base
+    active_ineq[kept_active_pos]
+  } else {
+    integer(0)
+  }
+
+  rhs_orig <- .solver_build_constraint_rhs(A, constraint_value_vectors)
+  combined_rhs_full <- rep(0, ncol(A_aug_full))
+  if (length(rhs_orig) > 0L) {
+    combined_rhs_full[seq_len(n_eq_orig)] <- rhs_orig
+  }
+  if (length(permanent_eq_cols) > 0L) {
+    combined_rhs_full[n_eq_orig + seq_along(permanent_eq_cols)] <-
+      qp_bvec[permanent_eq_cols]
+  }
+  if (length(active_ineq) > 0L) {
+    combined_rhs_full[n_eq_base + seq_along(active_ineq)] <-
+      qp_bvec[active_ineq]
+  }
+  combined_rhs <- combined_rhs_full[keep_cols]
+
+  if (length(combined_rhs) > 0L && any(combined_rhs != 0)) {
+    b0_aug <- A_aug %**%
+      (invert(crossprod(A_aug)) %**% cbind(combined_rhs))
+    cv_for_proj <- list(b0_aug)
+  } else {
+    cv_for_proj <- list()
+  }
+
+  list(
+    A_base = A_base,
+    A_aug = A_aug,
+    n_eq_orig = n_eq_orig,
+    n_eq_base = n_eq_base,
+    n_eq_aug = n_eq_aug,
+    keep_cols = keep_cols,
+    ineq_cols = ineq_cols,
+    qp_ineq_Amat = qp_Amat[, ineq_cols, drop = FALSE],
+    qp_ineq_bvec = qp_bvec[ineq_cols],
+    active_ineq_kept = active_ineq_kept,
+    combined_rhs = combined_rhs,
+    cv_for_proj = cv_for_proj
+  )
+}
+
+
+
+
+#' Check Primal Feasibility of Inactive Inequality Constraints
+#'
+#' Computes the slack
+#' \eqn{\mathbf{C}^{\top}\beta - \mathbf{c}}
+#' and reports which inactive inequalities are violated.
+#'
+#' @param beta_full Full coefficient column vector.
+#' @param qp_Amat Inequality constraint matrix.
+#' @param qp_bvec Inequality right-hand side.
+#' @param active_ineq Integer vector of active inequality indices, using
+#'   the local indexing of \code{qp_Amat}.
+#' @param tol Numeric tolerance.
+#'
+#' @return List with \code{slack}, \code{violated}, and \code{feasible}.
+#'
+#' @keywords internal
+.solver_check_primal_feasibility <- function(beta_full,
+                                             qp_Amat,
+                                             qp_bvec,
+                                             active_ineq = integer(0),
+                                             tol = sqrt(.Machine$double.eps)) {
+  if (is.null(qp_Amat) || !is.matrix(qp_Amat) || ncol(qp_Amat) == 0L) {
+    return(list(
+      slack = numeric(0),
+      violated = integer(0),
+      feasible = TRUE
+    ))
+  }
+
+  slack <- crossprod(qp_Amat, beta_full) - cbind(qp_bvec)
+  violated_mask <- c(slack) < -tol
+  inactive_idx <- setdiff(seq_len(ncol(qp_Amat)), active_ineq)
+  violated <- inactive_idx[violated_mask[inactive_idx]]
+
+  list(
+    slack = slack,
+    violated = violated,
+    feasible = length(violated) == 0L
+  )
+}
+
+
+
+
+#' Recover Active-Constraint Multipliers from Transformed OLS
+#'
+#' Given the transformed regression pair
+#' \eqn{(\mathbf{y}^{*}, \mathbf{X}^{*})}, extracts the implied KKT
+#' multipliers for the appended active inequalities.
+#'
+#' @param X_star Transformed constraint matrix.
+#' @param y_star Transformed right-hand side.
+#' @param n_eq_orig Number of leading equality constraints in
+#'   \code{X_star}.
+#' @param K Integer; number of interior knots.
+#' @param tol Numeric tolerance.
+#' @param ineq_sign Numeric sign mapping from transformed-OLS
+#'   coefficients to KKT multipliers. For
+#'   \eqn{\mathbf{C}^{\top}\beta \ge c}, use \code{-1}.
+#'
+#' @return List with \code{multipliers}, \code{drop}, and the full
+#'   transformed-OLS coefficients.
+#'
+#' @keywords internal
+.solver_recover_active_multipliers <- function(X_star,
+                                               y_star,
+                                               n_eq_orig,
+                                               K,
+                                               tol = sqrt(.Machine$double.eps),
+                                               ineq_sign = -1) {
+  if (is.null(X_star) || !is.matrix(X_star) || ncol(X_star) <= n_eq_orig) {
+    return(list(
+      multipliers = numeric(0),
+      drop = integer(0),
+      coefficients = numeric(0)
+    ))
+  }
+
+  col_scales <- .constraint_col_scales(X_star)
+  X_star_scaled <- t(t(X_star) * col_scales)
+  comp_stab_sc <- 1 / sqrt(K + 1)
+  ols_fit <- do.call(".lm.fit", list(
+    x = X_star_scaled * comp_stab_sc,
+    y = y_star * comp_stab_sc
+  ))
+
+  all_coef <- ols_fit$coefficients * col_scales
+  ineq_coef <- all_coef[(n_eq_orig + 1L):length(all_coef)]
+  ineq_multipliers <- ineq_sign * ineq_coef
+
+  list(
+    multipliers = ineq_multipliers,
+    drop = which(ineq_multipliers < -tol),
+    coefficients = all_coef
+  )
+}
+
+
+
+
+#' Build qp_info for an Active-Set Solve
+#'
+#' Packages the final active working set using the same fields returned
+#' by the legacy active-set helpers.
+#'
+#' @param A Base equality constraint matrix.
+#' @param qp_Amat Full QP constraint matrix.
+#' @param active_ineq Final active inequality indices on the original
+#'   \code{qp_Amat} indexing.
+#' @param lagrangian Numeric vector of active inequality multipliers.
+#' @param method Character solver label.
+#'
+#' @return A \code{qp_info} list.
+#'
+#' @keywords internal
+.solver_build_active_qp_info <- function(A,
+                                         qp_Amat,
+                                         active_ineq,
+                                         lagrangian,
+                                         method) {
+  if (length(active_ineq) > 0L) {
+    Amat_active <- cbind(A, qp_Amat[, active_ineq, drop = FALSE])
+  } else {
+    Amat_active <- A
+  }
+
+  list(
+    lagrangian = lagrangian,
+    Amat_active = Amat_active,
+    active_ineq = active_ineq,
+    converged = TRUE,
+    method = method
+  )
+}
+
+
+
+
+#' Re-Solve an Equality Subproblem for a Fixed Active Set
+#'
+#' Uses the generic augmented-constraint builder together with a supplied
+#' equality-only solver to validate and package a fixed active set.
+#'
+#' @param result Current coefficient list.
+#' @param A Base equality constraint matrix.
+#' @param constraint_value_vectors Equality right-hand-side vectors.
+#' @param qp_Amat Full QP constraint matrix.
+#' @param qp_bvec Full QP right-hand side.
+#' @param qp_meq Number of leading equality columns in \code{qp_Amat}.
+#' @param active_ineq Candidate active inequality indices on the original
+#'   \code{qp_Amat} indexing.
+#' @param solve_subproblem Callback taking one augmented-constraint state
+#'   and returning the equality-constrained coefficient list.
+#' @param kkt_subproblem Callback taking \code{(result_new, aug_state)}
+#'   and returning KKT diagnostics.
+#' @param method Character solver label for \code{qp_info}.
+#'
+#' @return Either a converged \code{list(result, qp_info, converged)} or
+#'   \code{NULL} if the supplied active set does not satisfy KKT.
+#'
+#' @keywords internal
+.solver_resolve_active_set <- function(result,
+                                       A,
+                                       constraint_value_vectors,
+                                       qp_Amat,
+                                       qp_bvec,
+                                       qp_meq,
+                                       active_ineq,
+                                       solve_subproblem,
+                                       kkt_subproblem,
+                                       method) {
+  if (length(active_ineq) == 0L) return(NULL)
+
+  aug_state <- .solver_build_augmented_constraints(
+    A = A,
+    constraint_value_vectors = constraint_value_vectors,
+    qp_Amat = qp_Amat,
+    qp_bvec = qp_bvec,
+    qp_meq = qp_meq,
+    active_ineq = active_ineq
+  )
+
+  if (length(aug_state$active_ineq_kept) == 0L) return(NULL)
+
+  result_new <- solve_subproblem(aug_state)
+  kkt <- kkt_subproblem(result_new, aug_state)
+  if (!isTRUE(kkt$feasible) || !isTRUE(kkt$dual_feasible)) {
+    if (isTRUE(getOption("lgspline.debug_active_set", FALSE))) {
+      message(
+        "[seeded-active] active=", paste(aug_state$active_ineq_kept, collapse = ","),
+        " feasible=", isTRUE(kkt$feasible),
+        " dual_feasible=", isTRUE(kkt$dual_feasible),
+        " violated=", length(kkt$violated),
+        " drop=", length(kkt$drop)
+      )
+    }
+    return(NULL)
+  }
+
+  list(
+    result = result_new,
+    qp_info = .solver_build_active_qp_info(
+      A = A,
+      qp_Amat = qp_Amat,
+      active_ineq = aug_state$active_ineq_kept,
+      lagrangian = if (length(kkt$multipliers) > 0L) kkt$multipliers else numeric(0),
+      method = method
+    ),
+    converged = TRUE
+  )
+}
+
+
+
+
+#' Stabilize GLM Working Weights Before Linear Algebra
+#'
+#' Keeps iteratively reweighted least-squares weights finite and bounded
+#' away from zero so the weighted Gram and Woodbury updates stay
+#' numerically well posed.
+#'
+#' @param W Numeric working-weight vector.
+#' @param min_weight Lower bound applied after replacing non-finite
+#'   values.
+#' @param max_weight Upper bound for extremely large finite weights.
+#'
+#' @return Numeric vector of stabilized working weights.
+#'
+#' @keywords internal
+.solver_stabilize_working_weights <- function(
+    W,
+    min_weight = sqrt(.Machine$double.eps),
+    max_weight = 1e4) {
+
+  W <- c(W)
+  if (length(W) == 0L) return(W)
+
+  finite_pos <- W[is.finite(W) & W > 0]
+  fallback_hi <- if (length(finite_pos) > 0L) max(finite_pos) else min_weight
+  fallback_hi <- min(max(fallback_hi, min_weight), max_weight)
+
+  W[is.na(W) | W <= 0] <- min_weight
+  W[is.infinite(W)] <- fallback_hi
+  W[!is.finite(W)] <- fallback_hi
+
+  pmin(pmax(W, min_weight), max_weight)
+}
+
+
+
+
+#' Generic Outer Active-Set Loop Around Equality-Constrained Solves
+#'
+#' Central add/drop controller shared by the dense transformed-OLS and
+#' Woodbury-transformed solvers. The inner equality solve is provided by
+#' \code{solve_subproblem}; this helper only manages the working set.
+#'
+#' @param result Current coefficient list.
+#' @param A Base equality constraint matrix.
+#' @param constraint_value_vectors Equality right-hand-side vectors.
+#' @param qp_Amat Full QP constraint matrix.
+#' @param qp_bvec Full QP right-hand side.
+#' @param qp_meq Number of leading equality columns in \code{qp_Amat}.
+#' @param tol Numeric feasibility tolerance.
+#' @param max_as_iter Maximum active-set iterations.
+#' @param solve_subproblem Callback taking one augmented-constraint state
+#'   and returning the equality-constrained coefficient list.
+#' @param kkt_subproblem Callback taking \code{(result_new, aug_state)}
+#'   and returning a KKT-status list with components
+#'   \code{feasible}, \code{dual_feasible}, \code{violated},
+#'   \code{drop}, and \code{multipliers}.
+#' @param method Character solver label for \code{qp_info}.
+#' @param debug_label Character tag used in optional debug tracing.
+#'
+#' @return List with \code{result}, \code{qp_info}, and \code{converged}.
+#'
+#' @keywords internal
+.solver_active_set <- function(result,
+                               A,
+                               constraint_value_vectors,
+                               qp_Amat,
+                               qp_bvec,
+                               qp_meq,
+                               tol,
+                               max_as_iter,
+                               solve_subproblem,
+                               kkt_subproblem,
+                               method,
+                               debug_label = "active-set") {
+  if (is.null(qp_Amat) || !is.matrix(qp_Amat) || ncol(qp_Amat) == 0L) {
+    return(list(result = result, qp_info = NULL, converged = TRUE))
+  }
+
+  active_ineq <- integer(0)
+  active_ineq_kept <- integer(0)
+  converged <- FALSE
+  kkt <- list(multipliers = numeric(0))
+  recent_drop <- integer(0)
+  visited_states <- character(0)
+
+  for (as_iter in seq_len(max_as_iter)) {
+    aug_state <- .solver_build_augmented_constraints(
+      A = A,
+      constraint_value_vectors = constraint_value_vectors,
+      qp_Amat = qp_Amat,
+      qp_bvec = qp_bvec,
+      qp_meq = qp_meq,
+      active_ineq = active_ineq
+    )
+
+    active_ineq <- aug_state$active_ineq_kept
+    active_ineq_kept <- aug_state$active_ineq_kept
+    state_key <- paste(sort(active_ineq_kept), collapse = ",")
+    visited_states <- unique(c(visited_states, state_key))
+
+    result_new <- solve_subproblem(aug_state)
+    kkt <- kkt_subproblem(result_new, aug_state)
+
+    if (isTRUE(getOption("lgspline.debug_active_set", FALSE))) {
+      beta_new <- cbind(unlist(result_new))
+      slack_all <- if (ncol(aug_state$qp_ineq_Amat) > 0L) {
+        crossprod(aug_state$qp_ineq_Amat, beta_new) -
+          cbind(aug_state$qp_ineq_bvec)
+      } else {
+        numeric(0)
+      }
+      message(
+        "[", debug_label, "] iter=", as_iter,
+        " active=", length(active_ineq),
+        " min_slack=",
+        if (length(slack_all) > 0L) signif(min(c(slack_all)), 6) else NA_character_,
+        " violated=", length(kkt$violated),
+        " dual_drop=", length(kkt$drop),
+        " dual_min=",
+        if (length(kkt$multipliers) > 0L) signif(min(kkt$multipliers), 6) else NA_character_
+      )
+    }
+
+    if (isTRUE(kkt$feasible) && isTRUE(kkt$dual_feasible)) {
+      result <- result_new
+      converged <- TRUE
+      break
+    }
+
+    if (!isTRUE(kkt$dual_feasible)) {
+      ## Standard: drop the single most-negative multiplier.
+      drop_pos <- kkt$drop[which.min(kkt$multipliers[kkt$drop])]
+      drop_idx <- active_ineq_kept[drop_pos]
+      tentative <- active_ineq[!(active_ineq %in% drop_idx)]
+      tentative_key <- paste(sort(tentative), collapse = ",")
+
+      if (tentative_key %in% visited_states && length(kkt$drop) > 1L) {
+        ## Dropping one would revisit a known state.  Drop all
+        # dual-infeasible constraints at once to break the cycle.
+        drop_all_idx <- active_ineq_kept[kkt$drop]
+        active_ineq <- active_ineq[!(active_ineq %in% drop_all_idx)]
+        recent_drop <- drop_all_idx
+      } else {
+        active_ineq <- tentative
+        recent_drop <- drop_idx
+      }
+      result <- result_new
+      next
+    }
+
+    if (!isTRUE(kkt$feasible)) {
+      beta_new <- cbind(unlist(result_new))
+      slack_viol <- crossprod(
+        aug_state$qp_ineq_Amat[, kkt$violated, drop = FALSE],
+        beta_new
+      ) - cbind(aug_state$qp_ineq_bvec[kkt$violated])
+
+      viol_order <- order(c(slack_viol))
+      worst_pool <- aug_state$ineq_cols[kkt$violated[viol_order]]
+      worst_idx <- worst_pool[1]
+      if (length(worst_pool) > 1L || length(recent_drop) > 0L) {
+        candidate_pool <- worst_pool
+        if (length(recent_drop) > 0L) {
+          fresh_pool <- candidate_pool[!(candidate_pool %in% recent_drop)]
+          if (length(fresh_pool) > 0L) {
+            candidate_pool <- c(fresh_pool, setdiff(candidate_pool, fresh_pool))
+          }
+        }
+
+        found_unvisited <- FALSE
+        for (cand_idx in candidate_pool) {
+          cand_state <- .solver_build_augmented_constraints(
+            A = A,
+            constraint_value_vectors = constraint_value_vectors,
+            qp_Amat = qp_Amat,
+            qp_bvec = qp_bvec,
+            qp_meq = qp_meq,
+            active_ineq = c(cand_idx, active_ineq)
+          )
+          cand_key <- paste(sort(cand_state$active_ineq_kept), collapse = ",")
+          if (!(cand_key %in% visited_states)) {
+            worst_idx <- cand_idx
+            found_unvisited <- TRUE
+            break
+          }
+        }
+        ## Every candidate leads to a visited state; terminate to
+        # avoid an infinite cycle.
+        if (!found_unvisited) break
+      }
+      cand_active <- c(worst_idx, active_ineq)
+      cand_A <- cbind(aug_state$A_base, qp_Amat[, cand_active, drop = FALSE])
+      cand_scales <- .constraint_col_scales(cand_A)
+      cand_A_scaled <- t(t(cand_A) * cand_scales)
+      cand_rank <- qr(cand_A_scaled, tol = 1e-10)$rank
+
+      if (!(worst_idx %in% active_ineq) &&
+          cand_rank <= (aug_state$n_eq_base + length(active_ineq)) &&
+          length(active_ineq_kept) > 0L &&
+          length(kkt$multipliers) == length(active_ineq_kept)) {
+        weakest_pos <- which.min(kkt$multipliers)
+        weakest_idx <- active_ineq_kept[weakest_pos]
+        active_ineq <- c(
+          worst_idx,
+          setdiff(active_ineq, c(worst_idx, weakest_idx))
+        )
+      } else {
+        active_ineq <- c(worst_idx, setdiff(active_ineq, worst_idx))
+      }
+      recent_drop <- integer(0)
+      result <- result_new
+    }
+  }
+
+  qp_info <- NULL
+  if (converged) {
+    qp_info <- .solver_build_active_qp_info(
+      A = A,
+      qp_Amat = qp_Amat,
+      active_ineq = active_ineq_kept,
+      lagrangian = if (length(kkt$multipliers) > 0L) kkt$multipliers else numeric(0),
+      method = method
+    )
+  }
+
+  list(result = result, qp_info = qp_info, converged = converged)
+}
+
+
+
+
 #' Recompute G, Ghalf, and GhalfInv at a Supplied Coefficient Estimate
 #'
 #' Given current constrained coefficient estimates \code{result},
