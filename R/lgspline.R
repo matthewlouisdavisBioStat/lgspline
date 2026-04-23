@@ -5053,7 +5053,8 @@ lgspline.fit <- function(predictors,
     K <- max(max(c(N_obs, q_predictors)) - 2, 0)
   }
 
-  ## Default chunking parameters (overridden if parallel cluster detected)
+  ## Default chunking parameters
+  user_chunk_size <- chunk_size
   chunk_size <- K + 1L
   num_chunks <- 1L
   rem_chunks <- 0L
@@ -5070,8 +5071,10 @@ lgspline.fit <- function(predictors,
       }
 
       ## extract the chunk sizes, number of chunks, and odd-out remaining chunks
-      if(is.null(chunk_size)){
+      if(is.null(user_chunk_size)){
         chunk_size <- max(1, ceiling((K + 1) / (4 * ncores)))
+      } else {
+        chunk_size <- user_chunk_size
       }
       num_chunks <- (K+1) %/% chunk_size
       rem_chunks <- (K+1) %% chunk_size

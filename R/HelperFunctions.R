@@ -1547,7 +1547,7 @@ compute_dG_dlambda <- function(G,
 
   if (verbose) cat("        loocv_fxn get predictions\n")
   preds <- .compute_tuning_predictions(env$X, B, env$K,
-                                       env$parallel & env$parallel_matmult,
+                                       FALSE,
                                        env$cl,
                                        env$chunk_size,
                                        env$num_chunks,

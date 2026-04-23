@@ -1,4 +1,5 @@
 set.seed(1234)
+.libPaths(c(normalizePath(".r-lib", winslash = "/"), .libPaths()))
 library(lgspline)
 library(parallel)
 
@@ -30,13 +31,13 @@ predictors_test <- predictors[test_idx, , drop = FALSE]
 response_test <- response[test_idx]
 
 ## Partition counts to test
-K_vals <- c(50, 100, 250) - 1
+K_vals <- c(50, 100, 250, 400) - 1
 n_cores <- 12
-B_reps <- 5
+B_reps <- 1
 
-## Common fit arguments (no tuning)
+## Common fit arguments
 fit_args <- list(
-  opt = FALSE,
+  opt = TRUE,
   include_quadratic_interactions = TRUE,
   include_constrain_first_deriv = FALSE,
   include_constrain_second_deriv = FALSE,
@@ -47,7 +48,8 @@ fit_args <- list(
   return_G = FALSE,
   return_Ghalf = FALSE,
   return_U = FALSE,
-  estimate_dispersion = FALSE
+  estimate_dispersion = FALSE,
+  include_warnings = FALSE
 )
 
 results <- data.frame()
@@ -79,9 +81,15 @@ for (K in K_vals) {
 
   ## Parallel fits
   cl <- makeCluster(n_cores)
+  invisible(clusterEvalQ(cl, {
+    .libPaths(c(normalizePath(".r-lib", winslash = "/"), .libPaths()))
+    library(lgspline)
+    NULL
+  }))
   times_par <- numeric(B_reps)
   rmse_par <- numeric(B_reps)
   for (b in 1:B_reps) {
+    set.seed(1234)
     args <- c(list(predictors = predictors_train, y = response_train, K = K, cl = cl),
               fit_args)
     tm <- system.time({
@@ -106,6 +114,7 @@ for (K in K_vals) {
   times_seq <- numeric(B_reps)
   rmse_seq <- numeric(B_reps)
   for (b in 1:B_reps) {
+    set.seed(1234)
     args    <- c(list(predictors = predictors_train, y = response_train, K = K), fit_args)
     args$cl <- NULL
     Sys.sleep(0.5)
@@ -165,7 +174,10 @@ par(mar = c(5, 5, 3, 2))
 ## Propagate SD via the ratio: sd(seq/par) ~= |seq/par| * sqrt((sd_s/mean_s)^2 + (sd_p/mean_p)^2)
 cv_seq <- results$time_seq_sd / results$time_seq_mean
 cv_par <- results$time_par_sd / results$time_par_mean
-speedup_sd <- results$speedup * sqrt(cv_seq^2 + cv_par^2)
+cv_seq[!is.finite(cv_seq)] <- 0
+cv_par[!is.finite(cv_par)] <- 0
+speedup_sd <- results$speedup_mean * sqrt(cv_seq^2 + cv_par^2)
+speedup_sd[!is.finite(speedup_sd)] <- 0
 
 plot(results$partitions, results$speedup_mean,
      log = 'x',
@@ -196,48 +208,3 @@ text(min(results$partitions) * 1.2, 1.08, '',
 
 dev.off()
 
-################################################################################
-
-## Final fit for illustration, K + 1 = 250 with tuning and plotting
-set.seed(1234)
-cl <- makeCluster(12)
-tm_par <-
-  system.time({
-    final_fit <- lgspline(
-        predictors,
-        response,
-        K = 249,
-        cl = cl,
-        include_quartic_terms = FALSE,
-        include_constrain_first_deriv = FALSE,
-        include_constrain_second_deriv = FALSE,
-        parallel_eigen = TRUE,
-        parallel_find_neighbors = TRUE,
-        parallel_make_constraint = TRUE,
-        return_varcovmat = FALSE,
-        return_G = FALSE,
-        return_Ghalf = FALSE,
-        return_U = FALSE,
-        estimate_dispersion = FALSE,
-        initial_wiggle = 1e-8,
-        initial_flat = 1e-8
-      )})
-stopCluster(cl)
-
-## Plotting on new data with interactive visual + formulas
-new_input <- expand.grid(seq(min(volcano_long[,1]),
-                             max(volcano_long[,1]),
-                             length.out = 350),
-                         seq(max(volcano_long[,2]),
-                             min(volcano_long[,2]),
-                             length.out = 350))
-plot(final_fit,
-     new_predictors = new_input,
-     show_formulas = TRUE,
-     custom_response_lab = "Height",
-     custom_title = 'Volcano 3-D Map',
-     text_size_formula = 14,
-     digits = 4)
-tm_par
-# user  system elapsed
-# 51.27    8.74   80.83

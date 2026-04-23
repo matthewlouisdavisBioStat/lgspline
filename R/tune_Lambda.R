@@ -218,8 +218,8 @@
 #' \code{return_G_getB} is set to TRUE by the callers so that
 #' \code{B_list$G_list} contains the updated G matrices (after any GLM
 #' weight iteration inside \code{get_B} or \code{blockfit_solve}).
-#' These are needed immediately after this call for \code{AGAmult_wrapper},
-#' \code{GXX}, and the trace computation.
+#' These are needed immediately after this call for \code{AGAmult_wrapper}
+#' and the trace computation.
 #'
 #' When correlation structure inputs are supplied, this wrapper does not
 #' introduce a separate tuning-specific notation or solver path. Instead, the
@@ -575,7 +575,7 @@
                            env$p_expansions,
                            env$R_constraints,
                            env$K,
-                           env$parallel,
+                           env$parallel & env$parallel_trace,
                            env$cl,
                            env$chunk_size,
                            env$num_chunks,
@@ -586,7 +586,7 @@
   ## Predictions
   if (verbose) cat("        gcvu_fxn get predictions\n")
   preds <- .compute_tuning_predictions(env$X, B, env$K,
-                                       env$parallel & env$parallel_matmult,
+                                       FALSE,
                                        env$cl,
                                        env$chunk_size,
                                        env$num_chunks,
@@ -791,7 +791,7 @@
                              env$p_expansions,
                              env$R_constraints,
                              env$K,
-                             env$parallel,
+                             env$parallel & env$parallel_trace,
                              env$cl,
                              env$chunk_size,
                              env$num_chunks,
@@ -801,7 +801,7 @@
 
     if (verbose) cat("        gr fxn preds\n")
     preds <- .compute_tuning_predictions(env$X, B, env$K,
-                                         env$parallel & env$parallel_matmult,
+                                         FALSE,
                                          env$cl,
                                          env$chunk_size,
                                          env$num_chunks,
@@ -995,7 +995,7 @@
                                  function(r) -2 * t(r)),
                           env$X,
                           env$K,
-                          env$parallel & env$parallel_matmult,
+                          FALSE,
                           env$cl,
                           env$chunk_size,
                           env$num_chunks,
