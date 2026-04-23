@@ -44,47 +44,6 @@
   rem_chunks,
   ...
 )
-
-.get_B_gee_glm_woodbury(
-  X,
-  y,
-  K,
-  p_expansions,
-  VhalfInv_perm,
-  order_list,
-  A,
-  R_constraints,
-  constraint_value_vectors,
-  family,
-  return_G_getB,
-  iterate,
-  tol,
-  quadprog,
-  qp_Amat,
-  qp_bvec,
-  qp_meq,
-  qp_score_function,
-  observation_weights,
-  Lambda,
-  Lambda_block,
-  unique_penalty_per_partition,
-  L_partition_list,
-  wb_decomp_init,
-  wb_sqrt_init,
-  glm_weight_function,
-  schur_correction_function,
-  need_dispersion_for_estimation,
-  dispersion_function,
-  VhalfInv,
-  parallel_eigen,
-  parallel_aga,
-  parallel_matmult,
-  cl,
-  chunk_size,
-  num_chunks,
-  rem_chunks,
-  ...
-)
 }
 \arguments{
 \item{X, y}{Lists of partition-specific design matrices and responses.}
@@ -137,16 +96,8 @@ ordering.}
 }
 \value{
 Same structure as \code{.get_B_gee_glm}.
-
-Same structure as \code{.get_B_gee_glm}.
 }
 \description{
-Non-Gaussian correlated solve using the Woodbury factorization. At each
-damped Newton step, the current weighted information matrix is split into
-a block-diagonal part defining \eqn{\mathbf{G}_{\mathrm{on}}} and a
-low-rank cross-partition part.  The constrained step is then taken
-through \code{.lagrangian_project_woodbury()}.
-
 Non-Gaussian correlated solve using the Woodbury factorization. At each
 damped Newton step, the current weighted information matrix is split into
 a block-diagonal part defining \eqn{\mathbf{G}_{\mathrm{on}}} and a
