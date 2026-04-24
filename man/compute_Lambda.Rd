@@ -21,28 +21,42 @@ compute_Lambda(
 \arguments{
 \item{custom_penalty_mat}{Matrix; optional custom ridge penalty structure}
 
-\item{L1}{Matrix; integrated squared second derivative penalty (\eqn{\textbf{L}_1})}
+\item{L1}{Matrix; implementation label for the integrated squared
+second-derivative penalty \eqn{\boldsymbol{\Lambda}_s}.}
 
-\item{wiggle_penalty, flat_ridge_penalty}{Numeric; smoothing and ridge penalty parameters}
+\item{wiggle_penalty, flat_ridge_penalty}{Numeric; the tuning scalars
+\eqn{\lambda_w} and \eqn{\lambda_r}.}
 
 \item{K}{Integer; number of interior knots (\eqn{K})}
 
 \item{p_expansions}{Integer; number of basis columns per partition}
 
-\item{unique_penalty_per_predictor, unique_penalty_per_partition}{Logical; enable predictor/partition-specific penalties}
+\item{unique_penalty_per_predictor, unique_penalty_per_partition}{Logical;
+enable additional \eqn{\lambda_{l,k}\boldsymbol{\Lambda}_{l,k}}
+components through predictor- or partition-specific tuning directions.}
 
-\item{penalty_vec}{Named numeric; custom penalty values for predictors/partitions}
+\item{penalty_vec}{Named numeric; custom values for the additional
+\eqn{\lambda_{l,k}} parameters.}
 
 \item{colnm_expansions}{Character; column names for linking penalties to predictors}
 
-\item{just_Lambda}{Logical; return only combined penalty matrix (\eqn{\boldsymbol{\Lambda}})}
+\item{just_Lambda}{Logical; return only the baseline shared penalty block
+rather than the full list of implementation pieces.}
 }
 \value{
-List containing Lambda, L1, L2, L_predictor_list, L_partition_list;
-  or just Lambda if \code{just_Lambda=TRUE} and no partition penalties.
+List containing \code{Lambda}, \code{L1}, \code{L2},
+  \code{L_predictor_list}, and \code{L_partition_list}; or just
+  \code{Lambda} if \code{just_Lambda = TRUE} and there are no
+  partition-specific penalties. Here \code{L1}/\code{L2} are
+  implementation labels for \eqn{\boldsymbol{\Lambda}_s} and
+  \eqn{\boldsymbol{\Lambda}_r}, while the list outputs store the
+  additional \eqn{\boldsymbol{\Lambda}_{l,k}} components.
 }
 \description{
-Builds penalty matrix combining smoothing spline and ridge penalties with optional
-predictor/partition-specific components.
+Builds the per-partition penalty
+\eqn{\boldsymbol{\Lambda}_k =
+\lambda_w(\boldsymbol{\Lambda}_s + \lambda_r\boldsymbol{\Lambda}_r +
+\sum_{l=1}^{L}\lambda_{l,k}\boldsymbol{\Lambda}_{l,k})},
+together with the implementation objects used to store those pieces.
 }
 \keyword{internal}

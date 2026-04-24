@@ -1,6 +1,6 @@
 ## get_B.R
-## Constrained coefficient estimation for the main lgspline fitting paths.
-##
+#  Constrained coefficient estimation for the main fitting paths.
+#
 ## Main pieces
 #   get_B()
 #   the three fitting paths
@@ -9,7 +9,7 @@
 #   Woodbury helpers for the GEE paths
 
 
-## Small wrappers around shared helpers
+## Shared-helper wrappers
 
 #' Build Block-Diagonal Penalty Matrix
 #'
@@ -199,7 +199,7 @@
 }
 
 
-## Sub-function: .lagrangian_project_woodbury
+## Woodbury Lagrangian projection
 
 #' Woodbury-Corrected Lagrangian Projection
 #'
@@ -217,8 +217,8 @@
 #' \eqn{\mathbf{G}_{\mathrm{on}}^{1/2}} plus a rank-\eqn{r} update.
 #'
 #' Internally, \eqn{\mathbf{F}^{1/2}} is stored as
-#' \eqn{\mathbf{I} - \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}}, where
-#' \code{U_Q} spans the same subspace as the supplement matrix
+#' \eqn{\mathbf{I} - \mathbf{Q}\mathbf{C}\mathbf{Q}^{\top}}, where
+#' \code{Q} is the basis corresponding to the supplement matrix
 #' \eqn{\mathbf{Q}} and \code{C} is diagonal.
 #'
 #' @param GhalfXy_V Numeric column vector of length \eqn{P};
@@ -234,10 +234,10 @@
 #' @param family GLM family object.
 #' @param wb_sqrt Output of \code{.woodbury_halfsqrt_components},
 #'   containing the internal rank-\eqn{r} representation of
-#'   \eqn{\mathbf{F}^{1/2}}: \code{U_Q} / \code{Q_basis}
+#'   \eqn{\mathbf{F}^{1/2}}: \code{Q}
 #'   (basis matching supplement \eqn{\mathbf{Q}}), \code{C} and \code{C_inv} (diagonal correction
-#'   coefficients), and \code{GchalfUQ} (partition-wise copies of
-#'   \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}\mathbf{U}_Q[rows_k,]}).
+#'   coefficients), and \code{GhalfQ} (partition-wise copies of
+#'   \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}\mathbf{Q}[rows_k,]}).
 #' @param parallel_aga,parallel_matmult Logical flags.
 #' @param cl,chunk_size,num_chunks,rem_chunks Parallel parameters.
 #'
@@ -254,24 +254,22 @@
                                          cl, chunk_size, num_chunks,
                                          rem_chunks) {
 
-  U_Q <- wb_sqrt$U_Q
+  Q <- wb_sqrt$Q
   C <- wb_sqrt$C
-  GchalfUQ <- wb_sqrt$GchalfUQ
+  GhalfQ <- wb_sqrt$GhalfQ
 
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-  ## Step 1: the caller has already formed the full transformed
-  ## right-hand side y* = G^{1/2} X^T V^{-1} y through the same
-  ## Woodbury-corrected operator used below for X*.
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+  ## Step 1: transformed right-hand side
+  #  The caller already formed y* = G^{1/2} X^T V^{-1} y through the
+  #  same Woodbury-corrected operator used below for X*.
   y_star <- GhalfXy_V
 
   ## Replace NAs with link-transformed zero (same as .lagrangian_project).
   y_star <- ifelse(is.na(y_star), family$linkinv(0), y_star)
 
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-  ## Step 2: Form X* = L^T A, where L = G_on^{1/2} F^{1/2}.
-  ## For non-commuting factors, the transpose orientation is required.
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+  ## Step 2: transformed constraint matrix
+  #  Form X* = (G^{1/2})^T A with
+  #  G^{1/2} = G_on^{1/2} F^{1/2}. For non-commuting factors,
+  #  the transpose orientation is required.
 
   X_star <- .woodbury_transform_constraint_matrix_transpose(
     Ghalf_corrected = Ghalf_corrected,
@@ -286,9 +284,8 @@
     rem_chunks = rem_chunks
   )
 
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-  ## Step 3: OLS residuals -- IDENTICAL to .lagrangian_project.
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+  ## Step 3: transformed OLS residuals
+  #  Same residual calculation as .lagrangian_project().
   col_scales <- .constraint_col_scales(X_star)
   X_star_scaled <- t(t(X_star) * col_scales)
   comp_stab_sc <- 1 / sqrt(K + 1)
@@ -297,10 +294,8 @@
     y = y_star * comp_stab_sc
   ))$residuals / comp_stab_sc
 
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-  ## Nonzero constraint values (A^T beta = j with j != 0).
-  ## Same logic as .lagrangian_project.
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+  ## Nonzero constraint values
+  #  Same adjustment as .lagrangian_project() when A^T beta = j with j != 0.
   if (length(constraint_value_vectors) > 0) {
     if (any(unlist(constraint_value_vectors) != 0)) {
       comp_stab_sc <- 1 / sqrt(K + 1)
@@ -313,11 +308,9 @@
     }
   }
 
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-  ## Step 4: Back-transform beta_tilde = G^{1/2} r* with the same
-  ## block-plus-rank-r operator used in Steps 1 and 2.
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-  v_r <- crossprod(U_Q, cbind(resids_star))  # r x 1
+  ## Step 4: back-transform to beta_tilde
+  #  Apply the same block-plus-rank-r operator used in Steps 1 and 2.
+  v_r <- crossprod(Q, cbind(resids_star))  # r x 1
   C_v_r <- C %**% v_r                        # r x 1
 
   result <- lapply(1:(K + 1), function(k) {
@@ -326,7 +319,7 @@
     block_part <- Ghalf_corrected[[k]] %**%
       cbind(resids_star[rows_k])
     ## Rank-r correction.
-    correction_part <- GchalfUQ[[k]] %**% C_v_r
+    correction_part <- GhalfQ[[k]] %**% C_v_r
     block_part - correction_part
   })
 
@@ -334,7 +327,7 @@
 }
 
 
-## Sub-function: .lagrangian_project_full
+## Full-system Lagrangian projection
 
 #' Full-System Lagrangian Projection
 #'
@@ -378,7 +371,7 @@
 }
 
 
-## Sub-function: .check_kkt_full
+## Full-system KKT check
 
 #' Check KKT Conditions for Full-System Active-Set Refinement
 #'
@@ -420,7 +413,7 @@
 }
 
 
-## Sub-function: .active_set_refine_full
+## Full-system active set
 
 #' Full-System Active-Set Refinement for Correlated Paths
 #'
@@ -516,10 +509,10 @@
                                   ncol(A), parallel_aga, cl,
                                   chunk_size, num_chunks, rem_chunks))
 
-  UQtA <- crossprod(wb_sqrt$U_Q, A)
-  C_UQtA <- wb_sqrt$C %**% UQtA
-  GchalfUQ_full <- do.call(rbind, wb_sqrt$GchalfUQ)
-  correction_A <- GchalfUQ_full %**% C_UQtA
+  QtA <- crossprod(wb_sqrt$Q, A)
+  C_QtA <- wb_sqrt$C %**% QtA
+  GhalfQ_full <- do.call(rbind, wb_sqrt$GhalfQ)
+  correction_A <- GhalfQ_full %**% C_QtA
 
   GhalfA - correction_A
 }
@@ -527,25 +520,25 @@
 
 #' Form the Transpose Woodbury-Corrected Constraint Matrix
 #'
-#' Applies \eqn{\mathbf{L}^{\top}\mathbf{A}} for
-#' \eqn{\mathbf{L} = \mathbf{G}_{on}^{1/2}\mathbf{F}^{1/2}}.  The
-#' transformed OLS system uses this orientation for \eqn{y^*} and
-#' \eqn{X^*}, then maps residuals back with \eqn{\mathbf{L}}.
+#' Applies \eqn{(\mathbf{G}^{1/2})^{\top}\mathbf{A}} with
+#' \eqn{\mathbf{G}^{1/2} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{F}^{1/2}}.
+#' The transformed OLS system uses this orientation for \eqn{y^*} and
+#' \eqn{X^*}, then maps residuals back with \eqn{\mathbf{G}^{1/2}}.
 #'
 #' @keywords internal
 .woodbury_transform_constraint_matrix_transpose <- function(
     Ghalf_corrected, A, K, p_expansions, wb_sqrt,
     parallel_aga, cl, chunk_size, num_chunks, rem_chunks) {
 
-  GchalfA <- Reduce("rbind",
-                    GAmult_wrapper(Ghalf_corrected, A, K, p_expansions,
-                                   ncol(A), parallel_aga, cl,
-                                   chunk_size, num_chunks, rem_chunks))
+  GhalfA <- Reduce("rbind",
+                   GAmult_wrapper(Ghalf_corrected, A, K, p_expansions,
+                                  ncol(A), parallel_aga, cl,
+                                  chunk_size, num_chunks, rem_chunks))
 
-  UQtGchalfA <- crossprod(wb_sqrt$U_Q, GchalfA)
-  C_UQtGchalfA <- wb_sqrt$C %**% UQtGchalfA
+  QtGhalfA <- crossprod(wb_sqrt$Q, GhalfA)
+  C_QtGhalfA <- wb_sqrt$C %**% QtGhalfA
 
-  GchalfA - wb_sqrt$U_Q %**% C_UQtGchalfA
+  GhalfA - wb_sqrt$Q %**% C_QtGhalfA
 }
 
 
@@ -716,7 +709,7 @@
     rem_chunks = rem_chunks
   )
 
-  ## Match the dense active-set budget for large derivative grids.
+  ## Use the same larger budget as the full-system active-set path.
   if (is.null(max_as_iter)) {
     max_as_iter <- max(200, min(1000, 10 * max(1, n_ineq)))
   }
@@ -930,7 +923,7 @@
 
 ## QP helpers
 
-#' Detect Whether Inequality Constraints Require Global (Dense) QP
+#' Detect Whether Inequality Constraints Need the Global Bridge
 #'
 #' Thin wrapper around \code{.solver_detect_qp_global()}.
 #' This preserves the original helper name inside \code{get_B()} while
@@ -941,8 +934,9 @@
 #' @param p_expansions Integer; number of basis terms per partition.
 #' @param K Integer; number of interior knots.
 #'
-#' @return Logical; \code{TRUE} if dense QP is needed, \code{FALSE} if
-#'   partition-wise active-set is valid.
+#' @return Logical; \code{TRUE} if the active-set loop must use the
+#'   global equality bridge, \code{FALSE} if the equality re-solves can
+#'   remain partition-wise.
 #'
 #' @keywords internal
 .detect_qp_global <- function(qp_Amat, p_expansions, K) {
@@ -954,7 +948,7 @@
 }
 
 
-## Sub-function: .check_kkt_partitionwise
+## Partition-wise KKT check
 
 #' Check KKT Conditions for Partition-Wise Active-Set Method
 #'
@@ -1075,7 +1069,7 @@
 }
 
 
-## Sub-function: .active_set_refine
+## Partition-wise active set
 
 #' Partition-Wise Active-Set Refinement for Inequality Constraints
 #'
@@ -1221,7 +1215,7 @@
 }
 
 
-## Sub-function: .qp_refine
+## Dense QP fallback
 
 .solve_qp_stable <- function(Dmat, dvec, Amat, bvec, meq) {
 
@@ -1501,7 +1495,7 @@
 }
 
 
-## Sub-function: .woodbury_decompose_V
+## Woodbury decomposition
 
 #' Woodbury Decomposition of Correlation Structure
 #'
@@ -1552,7 +1546,7 @@
 #'   \item{E}{Off-diagonal low-rank factor (\eqn{P \times r}) from the
 #'     supplement factorization
 #'     \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.}
-#'   \item{J_signs}{Length-\eqn{r} vector giving the diagonal of
+#'   \item{J}{Length-\eqn{r} vector giving the diagonal of
 #'     \eqn{\mathbf{J}}.}
 #'   \item{r}{Integer effective rank.}
 #'   \item{inner_inv}{Precomputed \eqn{r \times r} Woodbury inner inverse. In
@@ -1562,9 +1556,6 @@
 #'   \item{GL}{List of \eqn{K+1} matrices storing
 #'     \eqn{\mathbf{G}_{\mathrm{on},k}\mathbf{E}[rows_k,]} in supplement notation,
 #'     each \eqn{p \times r}.}
-#'   \item{L,S_signs,M}{Legacy internal aliases for
-#'     \code{E}, \code{J_signs}, and \code{inner_inv}, retained for
-#'     compatibility within the package code.}
 #' }
 #'
 #' @keywords internal
@@ -1583,13 +1574,13 @@
   ## Step 1a: form V^{-1} and the correlation-induced perturbation
   ## V^{-1} - I in partition ordering.
   Vinv <- crossprod(VhalfInv_perm)
-  N <- nrow(Vinv)
-  Delta_V <- Vinv - diag(N)
+  N_obs <- nrow(Vinv)
+  Delta_V <- Vinv - diag(N_obs)
 
   ## Sparsity check: if V^{-1} - I is too dense, Woodbury is not
   #  worthwhile (the off-diagonal rank will be high).
   nnz <- sum(abs(Delta_V) > sqrt(.Machine$double.eps))
-  nnz_fraction <- nnz / (N * N)
+  nnz_fraction <- nnz / (N_obs * N_obs)
   if (nnz_fraction > 0.5) {
     return(list(use_woodbury = FALSE,
                 reason = "dense_correlation_perturbation",
@@ -1597,7 +1588,8 @@
                 P = P))
   }
 
-  ## Step 1b: assemble M = X^T (V^{-1} - I) X.
+  ## Step 1b: assemble the cross-partition information correction
+  ## X^T (V^{-1} - I) X.
   X_block <- collapse_block_diagonal(X)
   Delta_mat <- crossprod(X_block, Delta_V %**% X_block)
 
@@ -1663,7 +1655,7 @@
   ## Supplement notation: E J E^T for the retained off-diagonal remainder.
   E <- eig_off$vectors[, 1:r, drop = FALSE] %**%
     diag(sqrt(abs(eig_off$values[1:r])), r, r)
-  J_signs <- sign(eig_off$values[1:r])
+  J <- sign(eig_off$values[1:r])
 
   ## Precompute G_{on,k} E_k blockwise for the later Woodbury inverse and
   ## square-root steps.
@@ -1678,7 +1670,7 @@
 
   ## Precompute (J^{-1} + E^T G_on E)^{-1}; this is the only dense inverse
   ## in the Woodbury correction.
-  inner_inv <- invert(diag(1 / J_signs, r, r) + LtGL)
+  inner_inv <- invert(diag(1 / J, r, r) + LtGL)
 
   list(
     use_woodbury = TRUE,
@@ -1686,21 +1678,18 @@
     GhalfInv_corrected = G_list_c$GhalfInv,
     G_corrected = G_list_c$G,
     E = E,
-    J_signs = J_signs,
+    J = J,
     r = r,
     P = P,
     rank_threshold = P * rank_threshold_fraction,
     nnz_fraction = nnz_fraction,
     inner_inv = inner_inv,
-    GL = GL,
-    L = E,
-    S_signs = J_signs,
-    M = inner_inv
+    GL = GL
   )
 }
 
 
-## Sub-function: .woodbury_redecompose_weighted
+## Weighted Woodbury update
 
 #' Per-Iteration Weighted Woodbury Redecomposition
 #'
@@ -1743,7 +1732,7 @@
 #'   \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}}.}
 #'   \item{E}{Off-diagonal low-rank factor (\eqn{P \times r}), denoted by
 #'     \eqn{\mathbf{E}} in the supplement.}
-#'   \item{J_signs}{Length-\eqn{r} sign vector, i.e.\ the diagonal of
+#'   \item{J}{Length-\eqn{r} sign vector, i.e.\ the diagonal of
 #'     \eqn{\mathbf{J}}.}
 #'   \item{r}{Integer effective rank.}
 #'   \item{inner_inv}{Precomputed \eqn{r \times r} Woodbury inner inverse; in
@@ -1752,8 +1741,6 @@
 #'     \mathbf{E})^{-1}}.}
 #'   \item{GL}{List of per-partition matrices corresponding to
 #'     \eqn{\mathbf{G}_{\mathrm{on},k}\mathbf{E}[rows_k,]} in supplement notation.}
-#'   \item{L,S_signs,M}{Legacy internal aliases for
-#'     \code{E}, \code{J_signs}, and \code{inner_inv}.}
 #' }
 #'
 #' @keywords internal
@@ -1772,7 +1759,7 @@
   P <- p_expansions * (K + 1)
   W <- .solver_stabilize_working_weights(W)
 
-  ## Weighted analogue of manuscript M:
+  ## Weighted analogue of the cross-partition information correction:
   ## X^T diag(W) (V^{-1} - I) X.
   ## Since DV_X = (V^{-1} - I) X is precomputed, this is:
   #    crossprod(X_block, W * DV_X)
@@ -1828,13 +1815,10 @@
       GhalfInv_corrected = G_list_c$GhalfInv,
       G_corrected = G_list_c$G,
       E = matrix(0, P, 0),
-      J_signs = numeric(0),
+      J = numeric(0),
       r = 0L,
       inner_inv = matrix(0, 0, 0),
-      GL = lapply(1:(K + 1), function(k) matrix(0, p_expansions, 0)),
-      L = matrix(0, P, 0),
-      S_signs = numeric(0),
-      M = matrix(0, 0, 0)
+      GL = lapply(1:(K + 1), function(k) matrix(0, p_expansions, 0))
     ))
   }
 
@@ -1846,7 +1830,7 @@
   ## Supplement notation: E J E^T for the weighted off-diagonal remainder.
   E <- eig_off$vectors[, 1:r, drop = FALSE] %**%
     diag(sqrt(abs(eig_off$values[1:r])), r, r)
-  J_signs <- sign(eig_off$values[1:r])
+  J <- sign(eig_off$values[1:r])
 
   ## Precompute G_{c,k} E_k blockwise for the current iterate.
   GL <- lapply(1:(K + 1), function(k) {
@@ -1859,7 +1843,7 @@
   LtGL <- crossprod(E, GL_full)
 
   ## Precompute (J^{-1} + E^T G_on E)^{-1} on the retained subspace.
-  inner_inv <- invert(diag(1 / J_signs, r, r) + LtGL)
+  inner_inv <- invert(diag(1 / J, r, r) + LtGL)
 
   list(
     use_woodbury = TRUE,
@@ -1867,18 +1851,15 @@
     GhalfInv_corrected = G_list_c$GhalfInv,
     G_corrected = G_list_c$G,
     E = E,
-    J_signs = J_signs,
+    J = J,
     r = r,
     inner_inv = inner_inv,
-    GL = GL,
-    L = E,
-    S_signs = J_signs,
-    M = inner_inv
+    GL = GL
   )
 }
 
 
-## Sub-function: .woodbury_halfsqrt_components
+## Woodbury half-square-root pieces
 
 #' Compute Woodbury Half-Square-Root Components
 #'
@@ -1887,8 +1868,8 @@
 #' \eqn{\mathbf{N} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{E}}, it builds
 #' a basis for the supplement matrix \eqn{\mathbf{Q}} and stores
 #' \eqn{\mathbf{F}^{1/2}} and \eqn{\mathbf{F}^{-1/2}} in the internal forms
-#' \eqn{\mathbf{I} - \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}} and
-#' \eqn{\mathbf{I} + \mathbf{U}_Q\mathbf{C}_{\mathrm{inv}}\mathbf{U}_Q^{\top}}.
+#' \eqn{\mathbf{I} - \mathbf{Q}\mathbf{C}\mathbf{Q}^{\top}} and
+#' \eqn{\mathbf{I} + \mathbf{Q}\mathbf{C}_{\mathrm{inv}}\mathbf{Q}^{\top}}.
 #'
 #' This helper is standalone: its output is the complete square-root state
 #' consumed by \code{.lagrangian_project_woodbury()}.
@@ -1896,7 +1877,7 @@
 #' @param Ghalf_corrected List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}}.
 #' @param E Off-diagonal low-rank factor (\eqn{P \times r}), denoted
 #'   \eqn{\mathbf{E}} in the supplement.
-#' @param J_signs Length-\eqn{r} sign vector corresponding to the
+#' @param J Length-\eqn{r} sign vector corresponding to the
 #'   diagonal of \eqn{\mathbf{J}}.
 #' @param r Integer effective rank.
 #' @param K,p_expansions Integer dimensions.
@@ -1905,41 +1886,39 @@
 #' \describe{
 #'   \item{valid}{Logical; FALSE if \eqn{\mathbf{F}} is not positive
 #'     definite (signals fallback to dense).}
-#'   \item{U_Q}{\eqn{P \times r} left singular vectors of
+#'   \item{Q}{\eqn{P \times r} basis corresponding to the supplement factor
+#'     \eqn{\mathbf{Q}} in the QR decomposition of
 #'     \eqn{\mathbf{N} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{E}}. This spans the same
-#'     subspace as the supplement QR factor \eqn{\mathbf{Q}}.}
-#'   \item{Q_basis}{Alias for \code{U_Q}, included so the stored object can
-#'     be read directly against the supplement notation \eqn{\mathbf{Q}}.}
+#'     subspace as that QR factor.}
 #'   \item{C}{\eqn{r \times r} diagonal matrix
 #'     encoding the rank-\eqn{r} update in the internal form
-#'     \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{U}_Q\mathbf{C}
-#'     \mathbf{U}_Q^{\top}}.}
+#'     \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{Q}\mathbf{C}
+#'     \mathbf{Q}^{\top}}.}
 #'   \item{C_inv}{\eqn{r \times r} diagonal matrix
 #'     encoding the inverse update in the internal form
 #'     \eqn{\mathbf{F}^{-1/2} = \mathbf{I}_P +
-#'     \mathbf{U}_Q\mathbf{C}_{\mathrm{inv}}\mathbf{U}_Q^{\top}}.}
-#'   \item{GchalfUQ}{List of \eqn{K+1} matrices, each \eqn{p \times r}:
-#'     \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2} \mathbf{U}_Q[rows_k,]}.}
+#'     \mathbf{Q}\mathbf{C}_{\mathrm{inv}}\mathbf{Q}^{\top}}.}
+#'   \item{GhalfQ}{List of \eqn{K+1} matrices, each \eqn{p \times r}:
+#'     \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2} \mathbf{Q}[rows_k,]}.}
 #' }
 #'
 #' @keywords internal
-.woodbury_halfsqrt_components <- function(Ghalf_corrected, E, J_signs,
+.woodbury_halfsqrt_components <- function(Ghalf_corrected, E, J,
                                           r, K, p_expansions) {
   P <- p_expansions * (K + 1)
 
   ## Handle the degenerate case r = 0 (no off-diagonal coupling).
   #  Return an identity-like structure with trivial correction matrices.
   if (r == 0) {
-    GchalfUQ <- lapply(1:(K + 1), function(k) {
+    GhalfQ <- lapply(1:(K + 1), function(k) {
       matrix(0, p_expansions, 0)
     })
     return(list(
       valid = TRUE,
-      U_Q = matrix(0, P, 0),
-      Q_basis = matrix(0, P, 0),
+      Q = matrix(0, P, 0),
       C = matrix(0, 0, 0),
       C_inv = matrix(0, 0, 0),
-      GchalfUQ = GchalfUQ
+      GhalfQ = GhalfQ
     ))
   }
 
@@ -1950,16 +1929,16 @@
     N_mat[rows_k, ] <- Ghalf_corrected[[k]] %**% E[rows_k, , drop = FALSE]
   }
 
-  ## Thin SVD of N. The left singular vectors span the same subspace as
-  ## the manuscript QR factor Q.  The square-root itself is computed from
+  ## Thin SVD of manuscript N. The resulting basis spans the same subspace as
+  ## the manuscript QR factor Q. The square-root itself is computed from
   #  the small r x r F matrix, preserving mixed-sign Woodbury updates.
   svd_Q <- svd(N_mat, nu = r, nv = r)
-  U_Q <- svd_Q$u[, 1:r, drop = FALSE]
+  Q <- svd_Q$u[, 1:r, drop = FALSE]
 
-  N_in_Q <- crossprod(U_Q, N_mat)
+  N_in_Q <- crossprod(Q, N_mat)
   NtN <- crossprod(N_mat)
-  M <- invert(diag(1 / J_signs, r, r) + NtN)
-  F_sub <- diag(1, r, r) - N_in_Q %**% M %**% t(N_in_Q)
+  N_inner_inv <- invert(diag(1 / J, r, r) + NtN)
+  F_sub <- diag(1, r, r) - N_in_Q %**% N_inner_inv %**% t(N_in_Q)
   F_sub <- 0.5 * (F_sub + t(F_sub))
 
   eig_F <- eigen(F_sub, symmetric = TRUE)
@@ -1975,23 +1954,22 @@
   C <- diag(1, r, r) - F_sub_half
   C_inv <- F_sub_inv_half - diag(1, r, r)
 
-  ## Precompute G_{c,k}^{1/2} U_Q blockwise so the Woodbury-corrected
+  ## Precompute G_{on,k}^{1/2} Q blockwise so the Woodbury-corrected
   ## projection can apply the rank-r update partition by partition.
-  GchalfUQ <- lapply(1:(K + 1), function(k) {
+  GhalfQ <- lapply(1:(K + 1), function(k) {
     rows_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
-    Ghalf_corrected[[k]] %**% U_Q[rows_k, , drop = FALSE]
+    Ghalf_corrected[[k]] %**% Q[rows_k, , drop = FALSE]
   })
 
   list(valid = TRUE,
-       U_Q = U_Q,
-       Q_basis = U_Q,
+       Q = Q,
        C = C,
        C_inv = C_inv,
-       GchalfUQ = GchalfUQ)
+       GhalfQ = GhalfQ)
 }
 
 
-## Sub-function: .compute_Xy_V
+## Partitioned GLS cross-products
 
 #' Compute Partitioned GLS Cross-Products
 #'
@@ -2030,7 +2008,7 @@
 }
 
 
-## Sub-function: .compute_score_V_partitioned
+## Partitioned GEE score
 
 #' Compute Partitioned GEE Score Vector
 #'
@@ -2086,7 +2064,7 @@
 }
 
 
-## Sub-function: .get_B_gee_gaussian
+## Path 1a: Gaussian GEE
 
 #' Path 1a: Gaussian Identity + GEE (Closed-Form Full-System Solve)
 #'
@@ -2347,7 +2325,8 @@
 #' @param parallel_aga,parallel_matmult Logical flags.
 #' @param cl,chunk_size,num_chunks,rem_chunks Parallel parameters.
 #' @param qp_global Logical; TRUE when inequality constraints couple
-#'   partitions and therefore require the dense global QP refinement.
+#'   partitions and therefore require the global equality bridge inside
+#'   the active-set refinement.
 #' @param tol Numeric tolerance used by the Woodbury active-set refinement.
 #' @param ... Passed to sub-functions.
 #'
@@ -2584,7 +2563,7 @@
 }
 
 
-## Sub-function: .get_B_gee_glm
+## Path 1b: non-Gaussian GEE
 
 #' Path 1b: Non-Gaussian GEE (Damped SQP with Full Whitened Design)
 #'
@@ -2968,10 +2947,10 @@
   ## Precomputation (done once, fixed across Newton iterations).
   X_block <- collapse_block_diagonal(X)
   y_block <- cbind(unlist(y))
-  N <- nrow(X_block)
+  N_obs <- nrow(X_block)
 
   ## Delta_V = V^{-1} - I: fixed across iterations.
-  Delta_V <- crossprod(VhalfInv_perm) - diag(N)
+  Delta_V <- crossprod(VhalfInv_perm) - diag(N_obs)
 
   ## DV_X = (V^{-1} - I) X: fixed across iterations.
   DV_X <- Delta_V %**% X_block
@@ -3051,7 +3030,7 @@
     }
 
     wb_sqrt <- .woodbury_halfsqrt_components(
-      wb$Ghalf_corrected, wb$E, wb$J_signs,
+    wb$Ghalf_corrected, wb$E, wb$J,
       wb$r, K, p_expansions)
 
     if (!wb_sqrt$valid) {
@@ -3249,7 +3228,7 @@
     as_out <- NULL
     if (isTRUE(wb_final$use_woodbury)) {
       wb_sqrt_final <- .woodbury_halfsqrt_components(
-        wb_final$Ghalf_corrected, wb_final$E, wb_final$J_signs,
+        wb_final$Ghalf_corrected, wb_final$E, wb_final$J,
         wb_final$r, K, p_expansions
       )
       if (isTRUE(wb_sqrt_final$valid)) {
@@ -3461,8 +3440,8 @@
 
   ## Optional QP refinement for inequality constraints.
   if (quadprog) {
-    ## Always try the active-set wrapper first. Dense SQP remains a
-    #  guarded fallback if the repeated equality solves fail.
+    ## Active set first.
+    #  If repeated equality re-solves fail, drop to the dense QP fallback.
     as_out <- try(.active_set_refine(
       result, X, y, K, p_expansions,
       A, R_constraints, constraint_value_vectors,
@@ -3507,7 +3486,7 @@
 }
 
 
-## Sub-function: .get_B_glm_nocorr
+## Path 3: non-Gaussian without correlation
 
 #' Path 3: Non-Gaussian GLM, No Correlation
 #'
@@ -3661,9 +3640,7 @@
                                 family, parallel_aga, parallel_matmult,
                                 cl, chunk_size, num_chunks, rem_chunks)
 
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-  ## Iterative projection for non-canonical links.
-  ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+  ## Iterative projection for non-canonical links
   if (iterate) {
     prevB_IRWLS <- NULL
     prev_diff_IRWLS <- Inf
@@ -3754,8 +3731,8 @@
 
   ## Optional QP refinement for inequality constraints.
   if (quadprog) {
-    ## Always try the active-set wrapper first. Dense SQP remains a
-    #  guarded fallback if the repeated equality solves fail.
+    ## Active set first.
+    #  If repeated equality re-solves fail, drop to the dense QP fallback.
     as_out <- try(.active_set_refine(
       result, X, y, K, p_expansions,
       A, R_constraints, constraint_value_vectors,
@@ -3813,9 +3790,7 @@
 }
 
 
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Main function: get_B
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 
 #' Compute Constrained GLM Coefficient Estimates via Lagrangian Multipliers
 #'
@@ -4017,9 +3992,9 @@ get_B <- function(X,
     is_gauss_id <- (paste0(family)[1] == 'gaussian' &
                       paste0(family)[2] == 'identity')
 
-    ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-    ## Attempt Woodbury decomposition for structured V.
-    ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+    ## Woodbury gate
+    #  If the off-block correlated piece is low rank, keep the solve on the
+    #  reduced Woodbury path instead of forming the full dense system.
     wb_decomp <- .woodbury_decompose_V(
       VhalfInv_perm, X, K, p_expansions,
       Lambda, Lambda_block,
@@ -4037,17 +4012,18 @@ get_B <- function(X,
       } else if (length(obs_wt_full) == 1L) {
         obs_wt_full <- rep(obs_wt_full, nrow(VhalfInv_perm))
       }
+      ## The Gaussian Woodbury path currently assumes unit observation weights.
       can_use_gauss_woodbury <- all(abs(obs_wt_full - 1) <
                                       sqrt(.Machine$double.eps))
 
       if (wb_decomp$use_woodbury && can_use_gauss_woodbury) {
-        ## Compute F^{1/2} components for the Woodbury path.
+        ## Compute the low-rank F^{1/2} pieces once for this solve.
         wb_sqrt <- .woodbury_halfsqrt_components(
-          wb_decomp$Ghalf_corrected, wb_decomp$E, wb_decomp$J_signs,
+          wb_decomp$Ghalf_corrected, wb_decomp$E, wb_decomp$J,
           wb_decomp$r, K, p_expansions)
 
         if (wb_sqrt$valid) {
-          ## Path 1a-Woodbury: Gaussian identity + GEE, efficient.
+          ## Path 1a-Woodbury.
           out <- .get_B_gee_woodbury(
             X, y, K, p_expansions,
             VhalfInv_perm, order_list,
@@ -4064,7 +4040,7 @@ get_B <- function(X,
             qp_global = .detect_qp_global(qp_Amat, p_expansions, K),
             tol = tol, ...)
         } else {
-          ## F not positive definite; fall back to dense.
+          ## F failed the half-square-root step, so use the dense path.
           out <- .get_B_gee_gaussian(
             X_block, X_tilde, y_tilde, VhalfInv_perm,
             Lambda_block, A, K, p_expansions,
@@ -4077,7 +4053,7 @@ get_B <- function(X,
             out, "woodbury_square_root_not_positive_definite", wb_decomp)
         }
       } else {
-        ## Otherwise use the dense Gaussian GEE path.
+        ## If the gate fails, stay on the dense Gaussian GEE path.
         out <- .get_B_gee_gaussian(
           X_block, X_tilde, y_tilde, VhalfInv_perm,
           Lambda_block, A, K, p_expansions,
@@ -4096,12 +4072,11 @@ get_B <- function(X,
     } else {
       if (wb_decomp$use_woodbury) {
         wb_sqrt <- .woodbury_halfsqrt_components(
-          wb_decomp$Ghalf_corrected, wb_decomp$E, wb_decomp$J_signs,
+          wb_decomp$Ghalf_corrected, wb_decomp$E, wb_decomp$J,
           wb_decomp$r, K, p_expansions)
 
         if (wb_sqrt$valid) {
-          ## Path 1b-Woodbury: non-Gaussian GEE, efficient.
-          ## CHANGED: now passes quadprog as a formal argument.
+          ## Path 1b-Woodbury.
           out <- .get_B_gee_glm_woodbury(
             X, y, K, p_expansions,
             VhalfInv_perm, order_list,
@@ -4121,7 +4096,7 @@ get_B <- function(X,
             parallel_eigen, parallel_aga, parallel_matmult,
             cl, chunk_size, num_chunks, rem_chunks, ...)
         } else {
-          ## F not positive definite; fall back to dense.
+          ## F failed the half-square-root step, so use the dense path.
           out <- .get_B_gee_glm(
             X_block, X_tilde, y_block, y_tilde,
             VhalfInv_perm, Lambda_block, A, K, p_expansions,
@@ -4137,7 +4112,7 @@ get_B <- function(X,
             out, "woodbury_square_root_not_positive_definite", wb_decomp)
         }
       } else {
-        ## Otherwise use the dense non-Gaussian GEE path.
+        ## If the gate fails, stay on the dense non-Gaussian GEE path.
         out <- .get_B_gee_glm(
           X_block, X_tilde, y_block, y_tilde,
           VhalfInv_perm, Lambda_block, A, K, p_expansions,

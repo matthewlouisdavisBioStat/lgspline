@@ -2,7 +2,7 @@
 % Please edit documentation in R/get_B.R
 \name{.detect_qp_global}
 \alias{.detect_qp_global}
-\title{Detect Whether Inequality Constraints Require Global (Dense) QP}
+\title{Detect Whether Inequality Constraints Need the Global Bridge}
 \usage{
 .detect_qp_global(qp_Amat, p_expansions, K)
 }
@@ -15,8 +15,9 @@ or \code{NULL}.}
 \item{K}{Integer; number of interior knots.}
 }
 \value{
-Logical; \code{TRUE} if dense QP is needed, \code{FALSE} if
-  partition-wise active-set is valid.
+Logical; \code{TRUE} if the active-set loop must use the
+  global equality bridge, \code{FALSE} if the equality re-solves can
+  remain partition-wise.
 }
 \description{
 Thin wrapper around \code{.solver_detect_qp_global()}.

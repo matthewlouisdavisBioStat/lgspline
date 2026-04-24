@@ -266,13 +266,13 @@ test_that("default tuning is LOO and gcv_gamma affects only the GCV objective", 
 
 test_that("LOO and GCV tuning helpers stay finite for a non-Gaussian case", {
   set.seed(2)
-  x <- seq(-1, 1, length.out = 40)
-  eta <- -0.3 + 1.2 * x
+  t <- seq(-1, 1, length.out = 40)
+  eta <- -0.3 + 1.2 * t
   p <- plogis(eta)
-  y <- rbinom(length(x), 1, p)
+  y <- rbinom(length(t), 1, p)
 
   fit <- lgspline(
-    cbind(x),
+    cbind(t),
     y,
     family = binomial(),
     K = 1,
@@ -301,11 +301,11 @@ test_that("LOO and GCV tuning helpers stay finite for a non-Gaussian case", {
 })
 
 test_that("use_custom_bfgs = FALSE works for both tuning criteria", {
-  x <- seq(-1, 1, length.out = 12)
-  y <- x^2 + 0.1 * x
+  t <- seq(-1, 1, length.out = 12)
+  y <- t^2 + 0.1 * t
 
   fit_loo <- lgspline(
-    cbind(x), y,
+    cbind(t), y,
     K = 0,
     opt = TRUE,
     use_custom_bfgs = FALSE,
@@ -319,7 +319,7 @@ test_that("use_custom_bfgs = FALSE works for both tuning criteria", {
     include_warnings = FALSE
   )
   fit_gcv <- lgspline(
-    cbind(x), y,
+    cbind(t), y,
     K = 0,
     opt = TRUE,
     use_custom_bfgs = FALSE,
@@ -339,14 +339,14 @@ test_that("use_custom_bfgs = FALSE works for both tuning criteria", {
 })
 
 test_that("post-optimization sample-size adjustment shrinks tuned penalties for both criteria", {
-  x <- seq(-1, 1, length.out = 14)
-  y <- sin(pi * x) + 0.05 * x^2
+  t <- seq(-1, 1, length.out = 14)
+  y <- sin(pi * t) + 0.05 * t^2
   initial_wiggle <- c(1e-4, 5e-4)
   initial_flat <- c(0.2, 0.5)
-  sample_size_adjustment <- ((length(x) - 2) / (length(x) + 2))^2
+  sample_size_adjustment <- (length(t) - 1) / (length(t) + 1)
 
   base_fit <- lgspline(
-    cbind(x), y,
+    cbind(t), y,
     K = 1,
     opt = FALSE,
     wiggle_penalty = 5e-3,
@@ -385,7 +385,7 @@ test_that("post-optimization sample-size adjustment shrinks tuned penalties for 
     raw_penalties <- exp(opt_res$par[1:2])
 
     fit_tuned <- lgspline(
-      cbind(x), y,
+      cbind(t), y,
       K = 1,
       opt = TRUE,
       use_custom_bfgs = FALSE,
@@ -417,11 +417,11 @@ test_that("post-optimization sample-size adjustment shrinks tuned penalties for 
 
 test_that(".damped_bfgs never returns a GCV solution worse than the grid start", {
   set.seed(123)
-  x <- seq(-2, 2, length.out = 30)
-  y <- sin(2 * x) + 0.15 * x^2
+  t <- seq(-2, 2, length.out = 30)
+  y <- sin(2 * t) + 0.15 * t^2
 
   fit <- lgspline(
-    cbind(x), y,
+    cbind(t), y,
     K = 1,
     opt = FALSE,
     wiggle_penalty = 5e-3,
@@ -490,13 +490,13 @@ test_that(".damped_bfgs preserves the start point when the first step is worse",
 
 test_that("custom GCV tuning does not inflate partition penalties relative to finite differences", {
   set.seed(1234)
-  x <- sort(runif(80, -3, 3))
-  eta <- sin(x) - 0.2 * x^2
-  y <- rbinom(length(x), 1, plogis(eta))
-  dat <- data.frame(x = x, y = y)
+  t <- sort(runif(80, -3, 3))
+  eta <- sin(t) - 0.2 * t^2
+  y <- rbinom(length(t), 1, plogis(eta))
+  dat <- data.frame(t = t, y = y)
 
   fit_fd <- lgspline(
-    y ~ spl(x),
+    y ~ spl(t),
     K = 1,
     dat,
     tuning_criterion = "gcv",
@@ -506,7 +506,7 @@ test_that("custom GCV tuning does not inflate partition penalties relative to fi
     include_warnings = FALSE
   )
   fit_custom <- lgspline(
-    y ~ spl(x),
+    y ~ spl(t),
     K = 1,
     dat,
     tuning_criterion = "gcv",

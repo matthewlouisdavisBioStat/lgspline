@@ -22,14 +22,14 @@ test_that("Cox PH helpers", {
   ## Test 2: Score at MLE should be approximately zero
   set.seed(42)
   n <- 200
-  x1 <- rnorm(n)
-  x2 <- rbinom(n, 1, 0.5)
-  time <- rexp(n, exp(0.3 * x1 + 0.2 * x2))
+  t1 <- rnorm(n)
+  t2 <- rbinom(n, 1, 0.5)
+  time <- rexp(n, exp(0.3 * t1 + 0.2 * t2))
   status <- rbinom(n, 1, 0.8)
 
   ord <- order(time)
   time_s <- time[ord]
-  X_s <- cbind(x1, x2)[ord, ]
+  X_s <- cbind(t1, t2)[ord, ]
   st_s <- status[ord]
 
   b <- cbind(rep(0, 2))
@@ -47,9 +47,9 @@ test_that("Cox PH helpers", {
 
   ## Test 3: Compare with survival::coxph
   skip_if_not_installed("survival")
-  df_test <- data.frame(time = time, status = status, x1 = x1, x2 = x2)
+  df_test <- data.frame(time = time, status = status, t1 = t1, t2 = t2)
   coxfit <- survival::coxph(
-    survival::Surv(time, status) ~ x1 + x2,
+    survival::Surv(time, status) ~ t1 + t2,
     data = df_test, ties = "breslow"
   )
   b_coxph <- coef(coxfit)
@@ -81,7 +81,7 @@ test_that("Cox PH helpers", {
   LambdaHalf_zero <- matrix(0, p, p)
 
   b_fit <- unconstrained_fit_cox(
-    X = cbind(x1, x2), y = time,
+    X = cbind(t1, t2), y = time,
     LambdaHalf = LambdaHalf_zero, Lambda = Lambda_zero,
     keep_weighted_Lambda = FALSE, family = cox_family(),
     tol = 1e-10, K = 0,
@@ -92,7 +92,7 @@ test_that("Cox PH helpers", {
   expect_equal(c(b_fit), c(b), tolerance = 1e-2)
 
   ## Test 7: cox_qp_score_function near zero at MLE
-  X_full <- cbind(x1, x2)
+  X_full <- cbind(t1, t2)
   mu_test <- exp(c(X_full %**% b))
   order_list_test <- list(1:n)
 

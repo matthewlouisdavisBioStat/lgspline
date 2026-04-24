@@ -852,7 +852,9 @@ generate_posterior_correlation <- function(
 
   ## 4. Precompute the full block-diagonal penalty matrix Lambda_full.
   #     This is fixed across draws and can be computed once.
-  #     Lambda_full = blockdiag(Lambda + L_partition_list[[k]])
+  #     In paper notation:
+  #     Lambda_full = blockdiag(Lambda_k),
+  #     with Lambda_k = Lambda + lambda_{l,k} Lambda_{l,k} when active.
 
   Lambda_full <- collapse_block_diagonal(
     lapply(1:(K + 1), function(k){
@@ -3844,7 +3846,6 @@ integrate <- function(f, ...) UseMethod("integrate")
 integrate.default <- function(f, ...){
   stats::integrate(f, ...)
 }
-
 
 
 

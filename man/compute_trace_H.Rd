@@ -110,9 +110,12 @@ and GLM weights \eqn{\mathbf{W}}, which enter only through
 
 \subsection{Partition-specific penalties}{
 When \code{unique_penalty_per_partition = TRUE}, each partition \eqn{k}
-has an additional penalty matrix \eqn{\mathbf{L}_k} from
-\code{L_partition_list}, so the effective per-partition penalty becomes
-\eqn{\boldsymbol{\Lambda}_k = \boldsymbol{\Lambda} + \mathbf{L}_k}.
+has an additional penalty component from \code{L_partition_list}. In the
+notation of the paper, this is an added
+\eqn{\lambda_{l,k}\boldsymbol{\Lambda}_{l,k}}, so the effective
+per-partition penalty becomes
+\eqn{\boldsymbol{\Lambda}_k = \boldsymbol{\Lambda} +
+\lambda_{l,k}\boldsymbol{\Lambda}_{l,k}}.
 All block-wise traces and products use \eqn{\boldsymbol{\Lambda}_k}
 in place of the shared \eqn{\boldsymbol{\Lambda}}.
 }

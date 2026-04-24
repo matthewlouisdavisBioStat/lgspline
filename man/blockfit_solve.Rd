@@ -261,24 +261,24 @@ configuration:
     \code{.bf_case_gauss_gee}.}
   \item{Case (b)}{Gaussian identity, no correlation: standard
     backfitting via \code{.bf_case_gauss_no_corr}.}
-  \item{Case (c)}{GLM + GEE: two-stage (damped Newton-Raphson warm start then
-    Woodbury active-set when available, otherwise damped SQP) via
+  \item{Case (c)}{GLM + GEE: two-stage (damped Newton-Raphson warm start
+    followed by active-set refinement on the whitened system, using the
+    Woodbury path when available and dense SQP only as fallback) via
     \code{.bf_case_glm_gee}.}
   \item{Case (d)}{GLM without GEE: damped Newton-Raphson + backfitting via
     \code{.bf_case_glm_no_corr}.}
 }
 
-When \code{quadprog = TRUE} without GEE, inequality constraints are
-enforced after backfitting convergence.  The constraint handling
-method is selected automatically by inspecting the sparsity pattern
-of \code{qp_Amat}: if every column has nonzeros in only one
-partition block (e.g.\ derivative sign or range constraints),
-a partition-wise active-set method is used via
-\code{.active_set_refine}, avoiding the dense \eqn{P \times P}
-system.  If any column spans multiple partition blocks (e.g.\
-cross-knot monotonicity), or if the active-set method does not
-converge, the dense SQP fallback via \code{.bf_sqp_loop} is used.
-GEE paths always use the dense system.
+When \code{quadprog = TRUE}, inequality constraints are enforced after
+backfitting convergence through the same active-set-first strategy used
+in \code{get_B()}. The sparsity pattern of \code{qp_Amat} still decides
+whether the equality re-solve inside the active-set loop remains
+partition-wise or switches to the global bridge, but it no longer
+decides whether active-set is attempted at all. For GEE paths, the same
+logic is applied on the whitened system, using the Woodbury
+factorization when the low-rank gate succeeds. Dense SQP via
+\code{.bf_sqp_loop} is kept as fallback only when the active-set route
+is unavailable or does not converge.
 
 After convergence, coefficients are reassembled into the standard
 per-partition format (flat coefficients replicated across partitions)

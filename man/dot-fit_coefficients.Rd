@@ -40,8 +40,8 @@ The blockfit condition mirrors \code{lgspline.fit}:
 \code{return_G_getB} is set to TRUE by the callers so that
 \code{B_list$G_list} contains the updated G matrices (after any GLM
 weight iteration inside \code{get_B} or \code{blockfit_solve}).
-These are needed immediately after this call for \code{AGAmult_wrapper},
-\code{GXX}, and the trace computation.
+These are needed immediately after this call for \code{AGAmult_wrapper}
+and the trace computation.
 
 When correlation structure inputs are supplied, this wrapper does not
 introduce a separate tuning-specific notation or solver path. Instead, the

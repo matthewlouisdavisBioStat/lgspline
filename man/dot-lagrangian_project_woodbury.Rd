@@ -42,10 +42,10 @@ assembled through the Woodbury-corrected operator.}
 
 \item{wb_sqrt}{Output of \code{.woodbury_halfsqrt_components},
 containing the internal rank-\eqn{r} representation of
-\eqn{\mathbf{F}^{1/2}}: \code{U_Q} / \code{Q_basis}
+\eqn{\mathbf{F}^{1/2}}: \code{Q}
 (basis matching supplement \eqn{\mathbf{Q}}), \code{C} and \code{C_inv} (diagonal correction
-coefficients), and \code{GchalfUQ} (partition-wise copies of
-\eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}\mathbf{U}_Q[rows_k,]}).}
+coefficients), and \code{GhalfQ} (partition-wise copies of
+\eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}\mathbf{Q}[rows_k,]}).}
 
 \item{parallel_aga, parallel_matmult}{Logical flags.}
 
@@ -70,8 +70,8 @@ as a block-diagonal multiplication through
 \eqn{\mathbf{G}_{\mathrm{on}}^{1/2}} plus a rank-\eqn{r} update.
 
 Internally, \eqn{\mathbf{F}^{1/2}} is stored as
-\eqn{\mathbf{I} - \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}}, where
-\code{U_Q} spans the same subspace as the supplement matrix
+\eqn{\mathbf{I} - \mathbf{Q}\mathbf{C}\mathbf{Q}^{\top}}, where
+\code{Q} is the basis corresponding to the supplement matrix
 \eqn{\mathbf{Q}} and \code{C} is diagonal.
 }
 \keyword{internal}

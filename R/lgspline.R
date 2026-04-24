@@ -20,38 +20,26 @@
 #'
 #' @description
 #'
-#' A comprehensive software package for fitting a variant of smoothing splines
-#' as a constrained optimization problem, avoiding the need to algebraically
-#' disentangle a spline basis after fitting, and allowing for interpretable
-#' interactions and non-spline effects to be included.
+#' \code{lgspline} fits penalized piecewise-polynomial regression splines in
+#' a monomial basis, with smoothness imposed directly as linear constraints at
+#' partition boundaries rather than absorbed into a special spline basis.
 #'
-#' \code{lgspline} fits piecewise polynomial regression splines constrained to be smooth where
-#' they meet, penalized by the squared, integrated, second-derivative of the
-#' estimated function with respect to predictors, using a monomial basis.
-#'
-#' The method of Lagrangian multipliers is used to derive a polynomial regression spline
-#' that enforces the following smoothing constraints:
+#' The estimator is obtained with Lagrangian multipliers and enforces the
+#' usual smoothing restrictions:
 #' \itemize{
 #'   \item Equivalent fitted values at knots
 #'   \item Equivalent first derivatives at knots, with respect to predictors
 #'   \item Equivalent second derivatives at knots, with respect to predictors
 #' }
 #'
-#' The coefficients are penalized by a closed-form of the traditional
-#' cubic smoothing spline penalty, as well as tunable modifications that allow
-#' for unique penalization of multiple predictors and partitions.
-#'
-#' This package supports model fitting for multiple spline and non-spline effects,
-#' GLM families, Weibull accelerated failure time (AFT) models,
-#' Cox proportional-Hazards models, negative-binomial regression,
-#' arbitrary correlation structures, shape constraints, and extensive
-#' customization for user-defined models and constraints.
-#'
-#' In addition, parallel processing capabilities and comprehensive
-#' tools for visualization, frequentist, and Bayesian inference are provided.
+#' The coefficients are penalized by the closed-form cubic smoothing-spline
+#' penalty, with optional predictor- and partition-specific modifications.
+#' The same framework extends to GLMs, shape constraints, and correlated
+#' responses, while keeping the fitted partition-wise polynomials explicit and
+#' interpretable.
 #'
 #' @details
-#' A flexible and interpretable implementation of smoothing splines including:
+#' Main features include:
 #' \itemize{
 #'   \item Multiple predictors and interaction terms
 #'   \item Various GLM families and link functions
@@ -135,8 +123,14 @@
 #'   neighboring partitions using k-means clustering. Intended for internal use.
 #'
 #' @section Penalty:
-#' These arguments configure the smoothing penalty itself and the optional
-#' tuning procedure, using exact leave-one-out by default and GCV optionally.
+#' These arguments control the per-partition penalty
+#' \eqn{\boldsymbol{\Lambda}_k =
+#' \lambda_w(\boldsymbol{\Lambda}_s + \lambda_r\boldsymbol{\Lambda}_r +
+#' \sum_{l=1}^{L}\lambda_{l,k}\boldsymbol{\Lambda}_{l,k})}, and hence the
+#' full block-diagonal penalty
+#' \eqn{\boldsymbol{\Lambda} = \mathrm{blockdiag}(\boldsymbol{\Lambda}_0,
+#' \ldots, \boldsymbol{\Lambda}_K)}. By default, tuning uses exact
+#' leave-one-out on the transformed problem; modified GCV is also available.
 #' @param previously_tuned_penalties Default: NULL. Optional list of pre-computed penalty
 #'   components from a previous model fit.
 #' @param smoothing_spline_penalty Default: NULL. Optional custom smoothing spline penalty
@@ -228,8 +222,10 @@
 #'   factor or character variables when using the formula interface.
 #'
 #' @section Constraints:
-#' These arguments govern the smoothness equalities and any additional user
-#' supplied linear equality constraints.
+#' These arguments govern the smoothness equalities at partition boundaries
+#' and any additional user-supplied linear equality constraints. Shape
+#' restrictions such as monotonicity, convexity, or range bounds are handled
+#' separately in the quadratic-programming stage below.
 #' @param include_constrain_fitted Default: TRUE. Logical switch to constrain fitted
 #'   values at knot points.
 #' @param include_constrain_first_deriv Default: TRUE. Logical switch to constrain first
@@ -249,8 +245,10 @@
 #'   \code{constraint_values} is left empty.
 #'
 #' @section Quadratic Programming:
-#' These arguments activate built-in or custom inequality constraints handled
-#' through quadratic programming.
+#' These arguments activate built-in or custom linear inequality constraints
+#' on fitted values or derivatives. Internally they are assembled in the form
+#' \eqn{\mathbf{C}^{\top}\boldsymbol{\beta} \ge \mathbf{c}} and passed to the
+#' constrained solver only when requested.
 #' @param qp_score_function Default: \eqn{\mathbf{X}^{\top}(\mathbf{y} - \boldsymbol{\mu})}.
 #'   Score function for quadratic programming, blockfit, and GEE formulations.
 #'   Accepts arguments \code{"X, y, mu, order_list, dispersion, VhalfInv,
@@ -268,14 +266,27 @@
 #' @param qp_meq Default: 0. Optional number of equality constraints paired
 #'   with \code{qp_Amat}. Like \code{qp_Amat}, it is currently treated as an
 #'   advanced placeholder rather than merged into the built-in constructor.
-#' @param qp_positive_derivative Default: FALSE. Constrain function to have positive first derivatives. Accepts: \code{FALSE} (no constraint), \code{TRUE} (all predictors), or a character/integer vector naming specific predictor variables to constrain. For example, \code{qp_positive_derivative = "Dose"} constrains only the Dose variable, while \code{qp_positive_derivative = c(1, 3)} constrains columns 1 and 3 of the predictor matrix.
-#' @param qp_negative_derivative Default: FALSE. Constrain function to have negative first derivatives. Same input types as \code{qp_positive_derivative}. Can be used simultaneously with \code{qp_positive_derivative} on different variables.
-#' @param qp_positive_2ndderivative Default: FALSE. Constrain function to have positive (convex) second derivatives. Same input types as \code{qp_positive_derivative}.
-#' @param qp_negative_2ndderivative Default: FALSE. Constrain function to have negative (concave) second derivatives. Same input types as \code{qp_positive_derivative}.
-#' @param qp_monotonic_increase Default: FALSE. Logical only. Constrain fitted values to be monotonically increasing in observation order.
-#' @param qp_monotonic_decrease Default: FALSE. Logical only. Constrain fitted values to be monotonically decreasing in observation order.
-#' @param qp_range_upper Default: NULL. Numeric upper bound for constrained fitted values.
-#' @param qp_range_lower Default: NULL. Numeric lower bound for constrained fitted values.
+#' @param qp_positive_derivative Default: FALSE. Require nonnegative first
+#'   derivatives. Accepts \code{FALSE} (inactive), \code{TRUE} (all
+#'   predictors), or a character / integer vector selecting the predictor
+#'   variables to constrain.
+#' @param qp_negative_derivative Default: FALSE. Require nonpositive first
+#'   derivatives. Same input types as \code{qp_positive_derivative}; may be
+#'   used simultaneously on different predictors.
+#' @param qp_positive_2ndderivative Default: FALSE. Require nonnegative second
+#'   derivatives (convexity). Same input types as
+#'   \code{qp_positive_derivative}.
+#' @param qp_negative_2ndderivative Default: FALSE. Require nonpositive second
+#'   derivatives (concavity). Same input types as
+#'   \code{qp_positive_derivative}.
+#' @param qp_monotonic_increase Default: FALSE. Logical only. Require fitted
+#'   values to be nondecreasing in observation order.
+#' @param qp_monotonic_decrease Default: FALSE. Logical only. Require fitted
+#'   values to be nonincreasing in observation order.
+#' @param qp_range_upper Default: NULL. Optional upper bound on constrained
+#'   fitted values.
+#' @param qp_range_lower Default: NULL. Optional lower bound on constrained
+#'   fitted values.
 #' @param qp_Amat_fxn Default: NULL. Custom function generating Amat.
 #' @param qp_bvec_fxn Default: NULL. Custom function generating bvec.
 #' @param qp_meq_fxn Default: NULL. Custom function generating meq.
@@ -309,9 +320,10 @@
 #'   penalty tuning.
 #' @param iterate_final_fit Default: TRUE. Logical switch for iterative optimization in
 #'   final model fitting.
-#' @param blockfit Default: TRUE. Logical switch for backfitting with mixed spline and
-#'   non-interactive linear terms. Requires flat columns, \code{K > 0}, and no active
-#'   correlation structure. Falls back to \code{get_B} on failure.
+#' @param blockfit Default: TRUE. Logical switch for backfitting with mixed
+#'   spline and non-interactive linear terms. When the blockfit conditions are
+#'   met, both tuning and the final fit use \code{blockfit_solve}; otherwise
+#'   the code uses \code{get_B}. Any failure falls back to \code{get_B}.
 #'
 #' @section Return Control:
 #' These arguments determine which intermediate matrices and inferential
@@ -351,15 +363,18 @@
 #' @section Correlation Structures:
 #' These arguments enable built-in or custom working-correlation structures for
 #' longitudinal, clustered, or spatially indexed responses. In the notation
-#' used throughout \code{\link{Details}}, the correlated penalized
-#' information is written as
+#' of \code{\link{Details}}, the correlated penalized information is written as
 #' \eqn{\mathbf{G}^{-1} =
 #' \mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1}}.
-#' When the cross-partition part is low rank, the internal Woodbury helpers
-#' factor
+#' When the cross-partition part is low rank, the Woodbury path factors
 #' \eqn{\mathbf{G}_{\mathrm{off}}^{-1} =
-#' \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}
-#' and accelerate the correlated solve without changing the final estimator.
+#' \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}, define
+#' \eqn{\mathbf{N} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{E}},
+#' and works through
+#' \eqn{\mathbf{G}^{1/2} =
+#' \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{F}^{1/2}} without changing the final
+#' estimator. If that low-rank path is unavailable or fails its numerical
+#' checks, the code falls back to the dense correlated solve.
 #' @param correlation_id,spacetime Default: NULL. N-length vector and N-row matrix of
 #'   cluster ids and longitudinal/spatial variables, respectively.
 #' @param correlation_structure Default: NULL. Native implementations: \code{"exchangeable"},
@@ -493,11 +508,21 @@
 #'   \item{N}{Number of observations.}
 #'   \item{penalties}{List containing optimized penalty matrices and components:
 #'     \itemize{
-#'       \item Lambda: Combined penalty matrix (\eqn{\boldsymbol{\Lambda}}), includes \eqn{\mathbf{L}_{\mathrm{predictor\_list}}} contributions but not \eqn{\mathbf{L}_{\mathrm{partition\_list}}}.
-#'       \item L1: Smoothing spline penalty matrix (\eqn{\mathbf{L}_{1}}).
-#'       \item L2: Ridge penalty matrix (\eqn{\mathbf{L}_{2}}).
-#'       \item L_predictor_list: Predictor-specific penalty matrices (\eqn{\mathbf{L}_{\mathrm{predictor\_list}}}).
-#'       \item L_partition_list: Partition-specific penalty matrices (\eqn{\mathbf{L}_{\mathrm{partition\_list}}}).
+#'       \item Lambda: Baseline per-partition penalty matrix corresponding to
+#'         \eqn{\lambda_w(\boldsymbol{\Lambda}_s +
+#'         \lambda_r\boldsymbol{\Lambda}_r + \sum_l
+#'         \lambda_{l,k}\boldsymbol{\Lambda}_{l,k})} before any
+#'         partition-specific block is added.
+#'       \item L1: Implementation label for the curvature penalty matrix
+#'         \eqn{\boldsymbol{\Lambda}_s}.
+#'       \item L2: Implementation label for the ridge penalty matrix
+#'         \eqn{\boldsymbol{\Lambda}_r}.
+#'       \item L_predictor_list: Implementation lists for additional
+#'         penalty matrices \eqn{\boldsymbol{\Lambda}_{l,k}} associated with
+#'         predictor-specific tuning directions.
+#'       \item L_partition_list: Implementation lists for additional
+#'         penalty matrices \eqn{\boldsymbol{\Lambda}_{l,k}} associated with
+#'         partition-specific tuning directions.
 #'     }
 #'   }
 #'   \item{knot_scale_transf}{Function for transforming predictors to standardized scale used for knot placement.}
@@ -708,13 +733,15 @@
 #' find_extremum(model_fit, minimize = TRUE) # find the minimum of the fitted function
 #'
 #' ## Incorporate range constraints, custom knots, keep penalization identical
-#' # across partitions
+#' # across partitions and predictors
 #' model_fit <- lgspline(y ~ spl(t),
 #'                       unique_penalty_per_partition = FALSE,
+#'                       unique_penalty_per_predictor = FALSE,
 #'                       custom_knots = cbind(c(-2, -1, 0, 1, 2)),
 #'                       data = data.frame(t = t, y = y),
 #'                       qp_range_lower = -150,
-#'                       qp_range_upper = 150)
+#'                       qp_range_upper = 150,
+#'                       opt = FALSE)
 #'
 #' ## Plotting the constraints and knots
 #' plot(model_fit,

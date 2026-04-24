@@ -2,7 +2,7 @@
 % Please edit documentation in R/solver_utils.R
 \name{.solver_detect_qp_global}
 \alias{.solver_detect_qp_global}
-\title{Detect Whether Inequality Constraints Require a Dense Global QP}
+\title{Detect Whether Inequality Constraints Need the Global Bridge}
 \usage{
 .solver_detect_qp_global(qp_Amat, p_expansions, K)
 }
@@ -24,8 +24,9 @@ inequality constraint is confined to a single partition block
 across partitions.
 }
 \details{
-Returns \code{FALSE} (partition-wise active-set is valid) when all
-columns have nonzeros in at most one block.  Returns \code{TRUE}
-(dense SQP required) when any column spans multiple blocks.
+Returns \code{FALSE} when all columns have nonzeros in at most one
+block, so the active-set loop can keep partition-wise equality
+re-solves. Returns \code{TRUE} when any column spans multiple blocks,
+so the active-set loop must use the global equality bridge instead.
 }
 \keyword{internal}

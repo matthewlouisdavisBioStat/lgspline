@@ -1,9 +1,10 @@
 test_that("basic correlation structure runs without error", {
   set.seed(1234)
-  x <- seq(-9, 9, length.out = 1000)
-  y <- sin(x) + rnorm(1000, 0, 0.1)
-  model_fit <- lgspline(x, y, K = 1, standardize_response = FALSE,
-                  VhalfInv = diag(length(y)))
+  t <- seq(-9, 9, length.out = 1000)
+  y <- sin(t) + rnorm(1000, 0, 0.1)
+  model_fit <- lgspline(t, y, K = 1, standardize_response = FALSE,
+                        VhalfInv = diag(length(y)),
+                        opt = FALSE)
   expect_error(model_fit$model_fit$VhalfInv_params_estimates, NA)
 })
 
@@ -12,10 +13,10 @@ test_that("built-in Gaussian correlation structures provide Vhalf_fxn", {
   set.seed(1234)
 
   id <- rep(1:12, each = 4)
-  x <- rep(seq(0, 1, length.out = 4), 12)
-  y <- sin(2 * pi * x) + rnorm(length(x), 0, 0.05)
+  t <- rep(seq(0, 1, length.out = 4), 12)
+  y <- sin(2 * pi * t) + rnorm(length(t), 0, 0.05)
 
-  fit <- lgspline(cbind(x), y,
+  fit <- lgspline(cbind(t), y,
                   K = 1,
                   correlation_id = id,
                   correlation_structure = "exchangeable",
@@ -36,12 +37,12 @@ test_that("exchangeable correlation supports unconstrained K = 0 GLM fits", {
   set.seed(456)
 
   id <- rep(1:18, each = 4)
-  x <- rep(seq(0, 1, length.out = 4), 18)
-  eta <- 0.25 + 0.9 * x
-  y <- rpois(length(x), lambda = exp(eta))
+  t <- rep(seq(0, 1, length.out = 4), 18)
+  eta <- 0.25 + 0.9 * t
+  y <- rpois(length(t), lambda = exp(eta))
 
   expect_error({
-    fit <- lgspline(cbind(x), y,
+    fit <- lgspline(cbind(t), y,
                     family = quasipoisson(),
                     K = 0,
                     opt = FALSE,
@@ -60,15 +61,15 @@ test_that("weighted correlated Gaussian varcov and logLik use the whitened-syste
   set.seed(20260314)
 
   n <- 10
-  x <- seq(-1, 1, length.out = n)
-  y <- 1 + 0.4 * x + rnorm(n, 0, 0.03)
+  t <- seq(-1, 1, length.out = n)
+  y <- 1 + 0.4 * t + rnorm(n, 0, 0.03)
   w <- seq(0.8, 1.7, length.out = n)
   rho <- 0.35
   V <- rho ^ abs(outer(seq_len(n), seq_len(n), `-`))
   VhalfInv <- t(chol(solve(V)))
 
   fit <- lgspline(
-    cbind(x),
+    cbind(t),
     y,
     K = 0,
     opt = FALSE,

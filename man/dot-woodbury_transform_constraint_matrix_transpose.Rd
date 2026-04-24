@@ -18,9 +18,9 @@
 )
 }
 \description{
-Applies \eqn{\mathbf{L}^{\top}\mathbf{A}} for
-\eqn{\mathbf{L} = \mathbf{G}_{on}^{1/2}\mathbf{F}^{1/2}}.  The
-transformed OLS system uses this orientation for \eqn{y^*} and
-\eqn{X^*}, then maps residuals back with \eqn{\mathbf{L}}.
+Applies \eqn{(\mathbf{G}^{1/2})^{\top}\mathbf{A}} with
+\eqn{\mathbf{G}^{1/2} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{F}^{1/2}}.
+The transformed OLS system uses this orientation for \eqn{y^*} and
+\eqn{X^*}, then maps residuals back with \eqn{\mathbf{G}^{1/2}}.
 }
 \keyword{internal}

@@ -59,7 +59,7 @@ A list with components:
   \item{E}{Off-diagonal low-rank factor (\eqn{P \times r}) from the
     supplement factorization
     \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.}
-  \item{J_signs}{Length-\eqn{r} vector giving the diagonal of
+  \item{J}{Length-\eqn{r} vector giving the diagonal of
     \eqn{\mathbf{J}}.}
   \item{r}{Integer effective rank.}
   \item{inner_inv}{Precomputed \eqn{r \times r} Woodbury inner inverse. In
@@ -69,9 +69,6 @@ A list with components:
   \item{GL}{List of \eqn{K+1} matrices storing
     \eqn{\mathbf{G}_{\mathrm{on},k}\mathbf{E}[rows_k,]} in supplement notation,
     each \eqn{p \times r}.}
-  \item{L,S_signs,M}{Legacy internal aliases for
-    \code{E}, \code{J_signs}, and \code{inner_inv}, retained for
-    compatibility within the package code.}
 }
 }
 \description{

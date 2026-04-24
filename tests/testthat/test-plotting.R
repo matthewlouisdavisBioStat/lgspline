@@ -1,13 +1,11 @@
 test_that("basic plotting functions work", {
   set.seed(1234)
-  x <- seq(-9, 9, length.out = 100)
-  y <- sin(x) + rnorm(100, 0, 0.1)
-  fit <- lgspline(cbind(x), y, K = 5)
-
+  t <- seq(-9, 9, length.out = 100)
+  y <- sin(t) + rnorm(100, 0, 0.1)
+  fit <- lgspline(cbind(t), y, K = 5)
   # Test 1D plot
   expect_error(plot(fit), NA)
   expect_error(plot(fit, show_formulas = TRUE), NA)
-
   # Test 2D plot, include quartic terms
   data(volcano)
   volcano_long <- Reduce('rbind', lapply(1:nrow(volcano), function(i){

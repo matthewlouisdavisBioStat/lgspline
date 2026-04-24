@@ -280,9 +280,10 @@ penalty tuning.}
 \item{iterate_final_fit}{Default: TRUE. Logical switch for iterative optimization in
 final model fitting.}
 
-\item{blockfit}{Default: TRUE. Logical switch for backfitting with mixed spline and
-non-interactive linear terms. Requires flat columns, \code{K > 0}, and no active
-correlation structure. Falls back to \code{get_B} on failure.}
+\item{blockfit}{Default: TRUE. Logical switch for backfitting with mixed
+spline and non-interactive linear terms. When the blockfit conditions are
+met, both tuning and the final fit use \code{blockfit_solve}; otherwise
+the code uses \code{get_B}. Any failure falls back to \code{get_B}.}
 
 \item{qp_score_function}{Default: \eqn{\mathbf{X}^{\top}(\mathbf{y} - \boldsymbol{\mu})}.
 Score function for quadratic programming, blockfit, and GEE formulations.
@@ -306,21 +307,34 @@ advanced placeholder rather than merged into the built-in constructor.}
 with \code{qp_Amat}. Like \code{qp_Amat}, it is currently treated as an
 advanced placeholder rather than merged into the built-in constructor.}
 
-\item{qp_positive_derivative}{Default: FALSE. Constrain function to have positive first derivatives. Accepts: \code{FALSE} (no constraint), \code{TRUE} (all predictors), or a character/integer vector naming specific predictor variables to constrain. For example, \code{qp_positive_derivative = "Dose"} constrains only the Dose variable, while \code{qp_positive_derivative = c(1, 3)} constrains columns 1 and 3 of the predictor matrix.}
+\item{qp_positive_derivative}{Default: FALSE. Require nonnegative first
+derivatives. Accepts \code{FALSE} (inactive), \code{TRUE} (all
+predictors), or a character / integer vector selecting the predictor
+variables to constrain.}
 
-\item{qp_negative_derivative}{Default: FALSE. Constrain function to have negative first derivatives. Same input types as \code{qp_positive_derivative}. Can be used simultaneously with \code{qp_positive_derivative} on different variables.}
+\item{qp_negative_derivative}{Default: FALSE. Require nonpositive first
+derivatives. Same input types as \code{qp_positive_derivative}; may be
+used simultaneously on different predictors.}
 
-\item{qp_positive_2ndderivative}{Default: FALSE. Constrain function to have positive (convex) second derivatives. Same input types as \code{qp_positive_derivative}.}
+\item{qp_positive_2ndderivative}{Default: FALSE. Require nonnegative second
+derivatives (convexity). Same input types as
+\code{qp_positive_derivative}.}
 
-\item{qp_negative_2ndderivative}{Default: FALSE. Constrain function to have negative (concave) second derivatives. Same input types as \code{qp_positive_derivative}.}
+\item{qp_negative_2ndderivative}{Default: FALSE. Require nonpositive second
+derivatives (concavity). Same input types as
+\code{qp_positive_derivative}.}
 
-\item{qp_monotonic_increase}{Default: FALSE. Logical only. Constrain fitted values to be monotonically increasing in observation order.}
+\item{qp_monotonic_increase}{Default: FALSE. Logical only. Require fitted
+values to be nondecreasing in observation order.}
 
-\item{qp_monotonic_decrease}{Default: FALSE. Logical only. Constrain fitted values to be monotonically decreasing in observation order.}
+\item{qp_monotonic_decrease}{Default: FALSE. Logical only. Require fitted
+values to be nonincreasing in observation order.}
 
-\item{qp_range_upper}{Default: NULL. Numeric upper bound for constrained fitted values.}
+\item{qp_range_upper}{Default: NULL. Optional upper bound on constrained
+fitted values.}
 
-\item{qp_range_lower}{Default: NULL. Numeric lower bound for constrained fitted values.}
+\item{qp_range_lower}{Default: NULL. Optional lower bound on constrained
+fitted values.}
 
 \item{qp_Amat_fxn}{Default: NULL. Custom function generating Amat.}
 

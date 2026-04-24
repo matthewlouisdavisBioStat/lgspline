@@ -575,10 +575,9 @@
 
   qp_info <- NULL
 
-  ## Optional inequality refinement.
-  #  For block-separable constraints under a sparse low-rank correlation
-  #  structure, reuse the Woodbury active-set method before falling back
-  #  to dense solve.QP on the whitened system.
+  ## Optional inequality refinement
+  #  Try the Woodbury active-set path first when the correlated system
+  #  admits the same low-rank factorization used in get_B().
   if (quadprog && !is.null(qp_Amat) && ncol(cbind(qp_Amat)) > 0) {
     can_use_gauss_woodbury <- all(abs(obs_wt_bf - 1) < sqrt(.Machine$double.eps))
 
@@ -599,7 +598,7 @@
         wb_sqrt <- .woodbury_halfsqrt_components(
           wb_decomp$Ghalf_corrected,
           wb_decomp$E,
-          wb_decomp$J_signs,
+          wb_decomp$J,
           wb_decomp$r,
           K, p_expansions
         )
@@ -643,6 +642,7 @@
     }
 
     if (is.null(qp_info)) {
+      ## Dense fallback on the full whitened system.
       beta_block <- cbind(unlist(result))
 
       if (K == 0 | any(all.equal(unique(A), 0) == TRUE)) {
@@ -1441,17 +1441,17 @@
   })
   beta_block <- cbind(unlist(result_ws))
 
-  ## If the current weighted correlated system admits a Woodbury
-  #  factorization, try the same active-set refinement used by get_B()
-  #  before entering the dense SQP loop.
+  ## Woodbury active-set attempt
+  #  Rebuild the current weighted correlated system, then try the same
+  #  Woodbury active-set refinement used by get_B() before entering SQP.
   if (quadprog && !is.null(qp_Amat) && ncol(cbind(qp_Amat)) > 0) {
 
     perm <- unlist(order_list)
     VhalfInv_perm <- VhalfInv[perm, perm]
     X_block <- collapse_block_diagonal(X)
     y_block <- cbind(unlist(y))
-    N <- nrow(X_block)
-    Delta_V <- crossprod(VhalfInv_perm) - diag(N)
+    N_obs <- nrow(X_block)
+    Delta_V <- crossprod(VhalfInv_perm) - diag(N_obs)
     DV_X <- Delta_V %**% X_block
 
     mu_ws_as <- family$linkinv(X_block %**% beta_block)
@@ -1504,7 +1504,7 @@
 
     if (isTRUE(wb_as$use_woodbury)) {
       wb_sqrt_as <- .woodbury_halfsqrt_components(
-        wb_as$Ghalf_corrected, wb_as$E, wb_as$J_signs,
+        wb_as$Ghalf_corrected, wb_as$E, wb_as$J,
         wb_as$r, K, p_expansions
       )
 
@@ -1576,7 +1576,7 @@
           ))
         }
 
-        ## Dense active-set bridge remains the last stop before SQP.
+        ## Full-system active-set bridge before SQP.
         info_as <- crossprod(X_tilde_as, W_as * X_tilde_as) +
           Lambda_block_as + schur_coll_as
         G_as <- invert(info_as)
@@ -1618,7 +1618,7 @@
     }
   }
 
-  ## Stage 2: Damped SQP on full whitened system
+  ## Stage 2: damped SQP on the full whitened system
   if(verbose) cat("  GEE full-system refinement (Path 1b)\n")
 
   perm <- unlist(order_list)
@@ -1651,21 +1651,7 @@
     }
   }
 
-  ## [Diagnostic 2026-03-05] Verify qp_Amat_combined dimensions and
-  #  equality count for GEE + blockfit path.
-  #
-  #  Expected:
-  #    qp_Amat_combined has nrow = P = p_expansions * (K+1)
-  #    qp_meq_combined  = ncol(A) + qp_meq
-  #    ncol(qp_Amat_combined) = ncol(A) + ncol(qp_Amat)  [if qp present]
-  #                           = ncol(A)                    [if no ineq]
-  #
-  #  If qp_meq_combined > ncol(qp_Amat_combined), solve.QP will fail
-  #  silently or produce garbage Lagrangians.
-  #
-  #  If ncol(A) doesn't match the number of smoothness constraints
-  #  (should be ~K * p_expansions - K for typical models), something
-  #  upstream changed A unexpectedly.
+  ## Sanity check the combined equality / inequality layout before SQP.
   if(verbose){
     cat("  GEE SQP setup:",
         "nrow(qp_Amat_combined) =", nrow(qp_Amat_combined),
@@ -1675,7 +1661,7 @@
         "| qp_meq =", ifelse(is.null(qp_meq), "NULL", qp_meq),
         "| P =", p_expansions * (K + 1), "\n")
     if(qp_meq_combined > ncol(qp_Amat_combined)){
-      warning("\n\t [BUG] qp_meq_combined (", qp_meq_combined,
+      warning("\n\t qp_meq_combined (", qp_meq_combined,
               ") > ncol(qp_Amat_combined) (", ncol(qp_Amat_combined),
               "). solve.QP will treat inequality columns as equalities.\n")
     }
@@ -1709,11 +1695,7 @@
     qp_Amat_combined, qp_bvec_combined, qp_meq_combined,
     sqp$converged, sqp$final_deviance)
 
-  ## [Diagnostic 2026-03-05] Verify Amat_active from GEE path.
-  #  Should have ncol = qp_meq_combined + (number of binding inequalities).
-  #  The number of binding inequalities should be small relative to total.
-  #  If ncol(Amat_active) == ncol(qp_Amat_combined), all constraints
-  #  are "active" which likely indicates the old iact bug resurfacing.
+  ## Quick check on the returned active set from the dense SQP path.
   if(verbose && !is.null(qp_info)){
     n_ineq_active <- ncol(qp_info$Amat_active) - qp_meq_combined
     cat("  GEE qp_info:",
@@ -1724,7 +1706,7 @@
         sum(abs(qp_info$lagrangian) > sqrt(.Machine$double.eps)),
         "\n")
     if(n_ineq_active > 0.5 * (ncol(qp_Amat_combined) - qp_meq_combined)){
-      warning("\n\t [SUSPECT] More than half of inequality constraints ",
+      warning("\n\t More than half of inequality constraints ",
               "are active (", n_ineq_active, " of ",
               ncol(qp_Amat_combined) - qp_meq_combined,
               "). Check .bf_assemble_qp_info logic.\n")
@@ -1965,24 +1947,24 @@
 #'     \code{.bf_case_gauss_gee}.}
 #'   \item{Case (b)}{Gaussian identity, no correlation: standard
 #'     backfitting via \code{.bf_case_gauss_no_corr}.}
-#'   \item{Case (c)}{GLM + GEE: two-stage (damped Newton-Raphson warm start then
-#'     Woodbury active-set when available, otherwise damped SQP) via
+#'   \item{Case (c)}{GLM + GEE: two-stage (damped Newton-Raphson warm start
+#'     followed by active-set refinement on the whitened system, using the
+#'     Woodbury path when available and dense SQP only as fallback) via
 #'     \code{.bf_case_glm_gee}.}
 #'   \item{Case (d)}{GLM without GEE: damped Newton-Raphson + backfitting via
 #'     \code{.bf_case_glm_no_corr}.}
 #' }
 #'
-#' When \code{quadprog = TRUE} without GEE, inequality constraints are
-#' enforced after backfitting convergence.  The constraint handling
-#' method is selected automatically by inspecting the sparsity pattern
-#' of \code{qp_Amat}: if every column has nonzeros in only one
-#' partition block (e.g.\ derivative sign or range constraints),
-#' a partition-wise active-set method is used via
-#' \code{.active_set_refine}, avoiding the dense \eqn{P \times P}
-#' system.  If any column spans multiple partition blocks (e.g.\
-#' cross-knot monotonicity), or if the active-set method does not
-#' converge, the dense SQP fallback via \code{.bf_sqp_loop} is used.
-#' GEE paths always use the dense system.
+#' When \code{quadprog = TRUE}, inequality constraints are enforced after
+#' backfitting convergence through the same active-set-first strategy used
+#' in \code{get_B()}. The sparsity pattern of \code{qp_Amat} still decides
+#' whether the equality re-solve inside the active-set loop remains
+#' partition-wise or switches to the global bridge, but it no longer
+#' decides whether active-set is attempted at all. For GEE paths, the same
+#' logic is applied on the whitened system, using the Woodbury
+#' factorization when the low-rank gate succeeds. Dense SQP via
+#' \code{.bf_sqp_loop} is kept as fallback only when the active-set route
+#' is unavailable or does not converge.
 #'
 #' After convergence, coefficients are reassembled into the standard
 #' per-partition format (flat coefficients replicated across partitions)
@@ -2366,8 +2348,8 @@ blockfit_solve <- function(
   ## Inequality constraint refinement (non-GEE cases only)
   if(quadprog & !needs_gee_glm & !(is_gauss_id & has_corr)){
 
-    ## Always try the active-set wrapper first. Dense SQP remains the
-    #  guarded fallback if the repeated equality solves fail.
+    ## Active set first.
+    #  If repeated equality re-solves fail, drop to dense SQP.
     if(verbose) cat("  QP refinement (active-set wrapper)\n")
 
     if(is_gauss_id){
@@ -2447,10 +2429,8 @@ blockfit_solve <- function(
     return(list(B = result, G_list = NULL, qp_info = qp_info))
   }
 
-  ## Recompute G at final estimates using the same path as get_B Path 3.
-  #  Since point estimates coincide with get_B, this produces identical
-  #  G/Ghalf/GhalfInv and therefore identical U, varcovmat, and
-  #  generate_posterior draws.
+  ## Recompute G at the final estimates using the same path as get_B Path 3.
+  #  This keeps downstream U / varcovmat / posterior calculations aligned.
   if(is_gauss_id){
     G_list_out <- compute_G_eigen(
       X_gram, Lambda, K,
@@ -2464,38 +2444,10 @@ blockfit_solve <- function(
     )
     G_list_out$G <- lapply(G_list_out$Ghalf, tcrossprod)
 
-    ## [Debug 2026-03-05] Flat-column pooling for blockfit.
-    #  The flat columns were estimated with pooled information across
-    #  all K+1 partitions (single shared coefficient), but compute_G_eigen
-    #  treats each partition independently. The per-partition G blocks
-    #  therefore reflect only partition-k's X_flat_k^T X_flat_k, not the
-    #  pooled sum. Rather than patching G/Ghalf here (which breaks the
-    #  identity G = tcrossprod(Ghalf) when cross-terms are zeroed), the
-    #  fix is applied in lgspline.fit by augmenting the constraint matrix
-    #  A with flat-equality constraints before U is constructed. This
-    #  ensures U projects out the flat-equality directions, correctly
-    #  pooling flat-column information in varcovmat and generate_posterior.
-    #
-    #  If posterior draws or confint still show inflated variance for
-    #  blockfit vs non-blockfit, check:
-    #    1. Is A augmented with flat-equality constraints in lgspline.fit
-    #       BEFORE U is constructed? (Search for "flat_eq_cols")
-    #    2. Is return_list$A updated after augmentation?
-    #    3. Are G_list$Ghalf[[k]] identical between blockfit and non-blockfit?
-    #       They should be, since both call compute_G_eigen on the same
-    #       X_gram and Lambda.
-    #    4. Is model_fit$Ghalf populated? (requires return_Ghalf = TRUE)
-    #       generate_posterior uses model_fit$Ghalf to build L_post.
-    #    5. Compare diag(model_fit$varcovmat) between blockfit and non-blockfit.
-    #       Spline-column variances should be similar; flat-column variances
-    #       will differ slightly because blockfit pools via U projection
-    #       while non-blockfit pools via the original A constraint.
-    #
-    #  Diagnostic snippet (run after fitting):
-    #    cat("G[[1]] diag:", diag(G_list_out$G[[1]]), "\n")
-    #    cat("Ghalf[[1]] diag:", diag(G_list_out$Ghalf[[1]]), "\n")
-    #    cat("flat_cols:", flat_cols, "\n")
-    #    cat("spline_cols:", spline_cols, "\n")
+    ## Flat-column pooling is enforced through the augmented constraint
+    #  matrix in lgspline.fit(), not by patching the per-partition G blocks
+    #  here. That keeps G = tcrossprod(Ghalf) intact while letting U carry
+    #  the shared-flat structure into varcovmat and posterior draws.
 
   } else {
     G_list_out <- .solver_recompute_G_at_estimate(
@@ -2514,21 +2466,9 @@ blockfit_solve <- function(
       L_partition_list = L_partition_list, ...
     )
 
-    ## [Debug 2026-03-05] Non-Gaussian blockfit G recomputation.
-    #  .solver_recompute_G_at_estimate computes per-partition weighted Gram
-    #  matrices using GLM working weights at the final estimates. For
-    #  flat columns, this again reflects only per-partition information.
-    #  The A augmentation in lgspline.fit handles pooling via U, same
-    #  as the Gaussian case.
-    #
-    #  If non-Gaussian blockfit shows inflated variance:
-    #    1. Verify .solver_recompute_G_at_estimate returns proper matrices
-    #       (not NULL for GhalfInv -- it should exist for non-Gaussian).
-    #    2. Check that the A augmentation in lgspline.fit fires for
-    #       non-Gaussian families (use_blockfit && length(flat_cols) > 0).
-    #    3. Compare G_list_out$G[[k]] diagonal between blockfit and
-    #       non-blockfit for the spline columns -- these should match
-    #       if working weights are identical (same point estimates).
+    ## Same idea as the Gaussian case: G is recomputed partition by
+    #  partition, while the shared-flat structure is carried by the
+    #  augmented constraint matrix upstream.
   }
 
   if(verbose){

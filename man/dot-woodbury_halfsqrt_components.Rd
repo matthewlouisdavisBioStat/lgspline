@@ -4,7 +4,7 @@
 \alias{.woodbury_halfsqrt_components}
 \title{Compute Woodbury Half-Square-Root Components}
 \usage{
-.woodbury_halfsqrt_components(Ghalf_corrected, E, J_signs, r, K, p_expansions)
+.woodbury_halfsqrt_components(Ghalf_corrected, E, J, r, K, p_expansions)
 }
 \arguments{
 \item{Ghalf_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2}}.}
@@ -12,7 +12,7 @@
 \item{E}{Off-diagonal low-rank factor (\eqn{P \times r}), denoted
 \eqn{\mathbf{E}} in the supplement.}
 
-\item{J_signs}{Length-\eqn{r} sign vector corresponding to the
+\item{J}{Length-\eqn{r} sign vector corresponding to the
 diagonal of \eqn{\mathbf{J}}.}
 
 \item{r}{Integer effective rank.}
@@ -24,21 +24,20 @@ A list with components:
 \describe{
   \item{valid}{Logical; FALSE if \eqn{\mathbf{F}} is not positive
     definite (signals fallback to dense).}
-  \item{U_Q}{\eqn{P \times r} left singular vectors of
+  \item{Q}{\eqn{P \times r} basis corresponding to the supplement factor
+    \eqn{\mathbf{Q}} in the QR decomposition of
     \eqn{\mathbf{N} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{E}}. This spans the same
-    subspace as the supplement QR factor \eqn{\mathbf{Q}}.}
-  \item{Q_basis}{Alias for \code{U_Q}, included so the stored object can
-    be read directly against the supplement notation \eqn{\mathbf{Q}}.}
+    subspace as that QR factor.}
   \item{C}{\eqn{r \times r} diagonal matrix
     encoding the rank-\eqn{r} update in the internal form
-    \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{U}_Q\mathbf{C}
-    \mathbf{U}_Q^{\top}}.}
+    \eqn{\mathbf{F}^{1/2} = \mathbf{I}_P - \mathbf{Q}\mathbf{C}
+    \mathbf{Q}^{\top}}.}
   \item{C_inv}{\eqn{r \times r} diagonal matrix
     encoding the inverse update in the internal form
     \eqn{\mathbf{F}^{-1/2} = \mathbf{I}_P +
-    \mathbf{U}_Q\mathbf{C}_{\mathrm{inv}}\mathbf{U}_Q^{\top}}.}
-  \item{GchalfUQ}{List of \eqn{K+1} matrices, each \eqn{p \times r}:
-    \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2} \mathbf{U}_Q[rows_k,]}.}
+    \mathbf{Q}\mathbf{C}_{\mathrm{inv}}\mathbf{Q}^{\top}}.}
+  \item{GhalfQ}{List of \eqn{K+1} matrices, each \eqn{p \times r}:
+    \eqn{\mathbf{G}_{\mathrm{on},k}^{1/2} \mathbf{Q}[rows_k,]}.}
 }
 }
 \description{
@@ -47,8 +46,8 @@ used directly by the solver. Starting from
 \eqn{\mathbf{N} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{E}}, it builds
 a basis for the supplement matrix \eqn{\mathbf{Q}} and stores
 \eqn{\mathbf{F}^{1/2}} and \eqn{\mathbf{F}^{-1/2}} in the internal forms
-\eqn{\mathbf{I} - \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}} and
-\eqn{\mathbf{I} + \mathbf{U}_Q\mathbf{C}_{\mathrm{inv}}\mathbf{U}_Q^{\top}}.
+\eqn{\mathbf{I} - \mathbf{Q}\mathbf{C}\mathbf{Q}^{\top}} and
+\eqn{\mathbf{I} + \mathbf{Q}\mathbf{C}_{\mathrm{inv}}\mathbf{Q}^{\top}}.
 }
 \details{
 This helper is standalone: its output is the complete square-root state

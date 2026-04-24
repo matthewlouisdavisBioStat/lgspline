@@ -75,7 +75,8 @@ ordering.}
 \item{cl, chunk_size, num_chunks, rem_chunks}{Parallel parameters.}
 
 \item{qp_global}{Logical; TRUE when inequality constraints couple
-partitions and therefore require the dense global QP refinement.}
+partitions and therefore require the global equality bridge inside
+the active-set refinement.}
 
 \item{tol}{Numeric tolerance used by the Woodbury active-set refinement.}
 

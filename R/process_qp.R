@@ -237,15 +237,16 @@
 #' Prepare Quadratic Programming Constraints for lgspline
 #'
 #' @description
-#' Constructs \code{qp_Amat}, \code{qp_bvec}, and \code{qp_meq} from the
-#' built-in quadratic programming constraints handled here: range bounds,
-#' derivative sign constraints (first and second), monotonicity constraints,
-#' and user-supplied custom constraint functions.
+#' Builds the linear inequality system used for shape-restricted fitting.
+#' The helper collects built-in range, derivative-sign, second-derivative,
+#' and monotonicity restrictions, together with any user-supplied custom
+#' constraint functions, and returns the resulting
+#' \eqn{\mathbf{C}^{\top}\boldsymbol{\beta} \ge \mathbf{c}} objects.
 #'
-#' This function was refactored from the inline QP setup block in
-#' \code{\link{lgspline.fit}} to improve readability and testability.
-#' The interface is fully backward-compatible: existing calls that pass
-#' \code{TRUE}/\code{FALSE} for derivative flags continue to work.
+#' This logic was refactored out of \code{\link{lgspline.fit}} so the
+#' constraint construction can be reviewed and tested on its own. Existing
+#' calls that pass \code{TRUE}/\code{FALSE} for derivative flags remain
+#' backward-compatible.
 #'
 #' @section Per-Variable Derivative Constraints:
 #' The arguments \code{qp_positive_derivative}, \code{qp_negative_derivative},
@@ -261,9 +262,9 @@
 #'     predictor matrix.}
 #' }
 #'
-#' This allows, for example, enforcing a positive first derivative for
-#' variable \code{"Dose"} and a negative first derivative for variable
-#' \code{"Time"} simultaneously:
+#' This allows, for example, enforcing a nonnegative first derivative for
+#' \code{"Dose"} and a nonpositive first derivative for \code{"Time"}
+#' simultaneously:
 #' \preformatted{
 #'   lgspline(...,
 #'            qp_positive_derivative = "Dose",
@@ -351,29 +352,29 @@
 #' stopifnot(all(diff(preds2) >= -1e-8))
 #'
 #' ## Per-variable constraints: 2-D example
-#' x1 <- runif(500, -5, 5)
-#' x2 <- runif(500, -5, 5)
-#' y2 <- x1 + sin(x2) + rnorm(500, 0, 0.5)
-#' dat2 <- data.frame(x1 = x1, x2 = x2, y = y2)
+#' t1 <- runif(500, -5, 5)
+#' t2 <- runif(500, -5, 5)
+#' y2 <- t1 + sin(t2) + rnorm(500, 0, 0.5)
+#' dat2 <- data.frame(t1 = t1, t2 = t2, y = y2)
 #'
-#' ## Constrain x1 to have positive derivative, x2 to have negative
-#' fit3 <- lgspline(y ~ spl(x1, x2), data = dat2, K = 2,
-#'                  qp_positive_derivative = "x1",
-#'                  qp_negative_derivative = "x2")
+#' ## Constrain t1 to have positive derivative, t2 to have negative
+#' fit3 <- lgspline(y ~ spl(t1, t2), data = dat2, K = 2,
+#'                  qp_positive_derivative = "t1",
+#'                  qp_negative_derivative = "t2")
 #'
 #' ## Verify per-variable derivatives
-#' newdat <- expand.grid(x1 = seq(-4, 4, length.out = 50),
-#'                       x2 = seq(-4, 4, length.out = 50))
+#' newdat <- expand.grid(t1 = seq(-4, 4, length.out = 50),
+#'                       t2 = seq(-4, 4, length.out = 50))
 #' d3 <- predict(fit3, new_predictors = newdat,
 #'               take_first_derivatives = TRUE)
 #'
-#' ## x1 derivative should be >= 0
+#' ## t1 derivative should be >= 0
 #' stopifnot(all(unlist(d3$first_deriv[["_1_"]]) >= -1e-6))
-#' ## x2 derivative should be <= 0
+#' ## t2 derivative should be <= 0
 #' stopifnot(all(unlist(d3$first_deriv[["_2_"]]) <= 1e-6))
 #'
 #' ## Numeric column indices work identically
-#' fit4 <- lgspline(y ~ spl(x1, x2), data = dat2, K = 2,
+#' fit4 <- lgspline(y ~ spl(t1, t2), data = dat2, K = 2,
 #'                  qp_positive_derivative = 1,
 #'                  qp_negative_derivative = 2)
 #'

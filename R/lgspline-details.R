@@ -302,13 +302,15 @@
 #' is large and allowing for parallelism.
 #'
 #' When correlation is present, \eqn{\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X}}
-#' is no longer block-diagonal, so the full-dimensional system must be handled
-#' directly unless the Woodbury acceleration
-#' (see \code{\link{.woodbury_decompose_V}}) applies.
-#' When additional inequality constraints are present, the code either augments the equality system with a
-#' partition-wise active-set refinement (block-separable case) or falls back to
-#' dense SQP via the Goldfarb-Idnani dual active-set method implemented in
-#' \code{\link[quadprog]{solve.QP}}.
+#' is no longer block-diagonal, so the equality-only solve must use either
+#' the full correlated system or, when available, the Woodbury reduction
+#' (see \code{\link{.woodbury_decompose_V}}).
+#' When additional inequality constraints are present, the same active-set
+#' controller is still called first. Block structure now determines only how
+#' each equality-only re-solve is carried out: partition-wise when available,
+#' Woodbury on the low-rank correlated path, or full-system otherwise. Dense
+#' \code{\link[quadprog]{solve.QP}} and damped SQP are retained as fallback
+#' paths only when the active-set route is unavailable or does not converge.
 #' }
 #'
 #' @section GLM Extension and Iterative Updates:
@@ -359,9 +361,9 @@
 #' See \code{\link{.get_B_gee_gaussian}}.
 #'
 #' \emph{Path 1b} (non-Gaussian GEE) uses a damped SQP iteration on the
-#' whitened system. The first iterate is a constrained Newton step from the
-#' projection matrix \eqn{\mathbf{U}}; subsequent iterates solve the
-#' quadratic subproblem via \code{\link[quadprog]{solve.QP}}.
+#' whitened system. Each quadratic subproblem first attempts the same
+#' active-set refinement used elsewhere in the package; the dense
+#' \code{\link[quadprog]{solve.QP}} bridge is used only as fallback.
 #' See \code{\link{.get_B_gee_glm}}.
 #'
 #' Both sub-paths have Woodbury-accelerated variants described below.
@@ -443,30 +445,27 @@
 #'   \tilde{\boldsymbol{\beta}} = \mathbf{G}^{1/2}\mathbf{r}^{*},}
 #' where \eqn{\mathbf{w} = \mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{y}}.
 #' The full-space operations remain the QR on \eqn{\mathbf{X}^{*}} and a
-#' rank-\eqn{r} correction through \eqn{\mathbf{Q}}.
+#' rank-\eqn{r} correction through the manuscript basis \eqn{\mathbf{Q}}.
 #'
 #' \strong{Implementation map.} The code uses the same algebra but stores a
 #' numerically convenient representation. The correspondence is:
 #' \itemize{
 #'   \item manuscript \eqn{\mathbf{E}} \eqn{\leftrightarrow} helper output
-#'     \code{E} (legacy alias \code{L});
+#'     \code{E};
 #'   \item manuscript diagonal sign matrix \eqn{\mathbf{J}}
-#'     \eqn{\leftrightarrow} helper output \code{J_signs}
-#'     (legacy alias \code{S_signs});
+#'     \eqn{\leftrightarrow} helper output \code{J};
 #'   \item manuscript inverse
 #'     \eqn{(\mathbf{J}^{-1} + \mathbf{E}^{\top}\mathbf{G}_{\mathrm{on}}\mathbf{E})^{-1}}
-#'     \eqn{\leftrightarrow} helper output \code{inner_inv}
-#'     (legacy alias \code{M});
+#'     \eqn{\leftrightarrow} helper output \code{inner_inv};
 #'   \item manuscript projector basis \eqn{\mathbf{Q}}
-#'     \eqn{\leftrightarrow} internal basis \code{U_Q}
-#'     (alias \code{Q_basis});
+#'     \eqn{\leftrightarrow} helper output \code{Q};
 #'   \item manuscript projector \eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}}
 #'     is not stored explicitly, but is represented through rank-\eqn{r}
-#'     multiplies involving \code{U_Q};
+#'     multiplies involving \code{Q};
 #'   \item manuscript factors \eqn{\mathbf{F}^{1/2}} and
 #'     \eqn{\mathbf{F}^{-1/2}} are stored internally as
-#'     \eqn{\mathbf{I} - \mathbf{U}_Q\mathbf{C}\mathbf{U}_Q^{\top}} and
-#'     \eqn{\mathbf{I} + \mathbf{U}_Q\mathbf{C}_{\mathrm{inv}}\mathbf{U}_Q^{\top}},
+#'     \eqn{\mathbf{I} - \mathbf{Q}\mathbf{C}\mathbf{Q}^{\top}} and
+#'     \eqn{\mathbf{I} + \mathbf{Q}\mathbf{C}_{\mathrm{inv}}\mathbf{Q}^{\top}},
 #'     where \code{C} and \code{C_inv} are diagonal.
 #' }
 #' These are just storage choices; the notation matches the supplement.
@@ -1423,18 +1422,32 @@
 #'
 #' Because the smoothing penalty has zero eigenvalues for the intercept and
 #' linear terms (whose second derivatives vanish), an optional ridge penalty on
-#' lower-order terms is added for computational stability. The full penalty
-#' block for partition \eqn{k} is:
-#' \deqn{\boldsymbol{\Lambda}_k = \lambda_w\bigl(\boldsymbol{\Lambda}_s + \lambda_r\boldsymbol{\Lambda}_r + \sum_{m=1}^{M}\xi_{mk}\mathbf{L}_{mk}\bigr)}
-#' where \eqn{\lambda_w} is the global wiggle penalty (\code{wiggle_penalty}),
-#' \eqn{\lambda_r} is ridge penalty on linear and intercept terms
-#' (\code{flat_ridge_penalty}) multiplied by the wiggle penalty, and
-#' \eqn{\xi_{mk}} and \eqn{\mathbf{L}_{mk}} denote optional additional
-#' penalty multipliers and matrices, including the predictor- and
-#' partition-specific components activated through
-#' \code{unique_penalty_per_predictor}, \code{unique_penalty_per_partition},
-#' \code{predictor_penalties}, and \code{partition_penalties}. This assembly is handled by
-#' \code{\link{compute_Lambda}}.
+#' lower-order terms is added for computational stability.
+#'
+#'
+#'
+#'
+#'
+#' The full penalty block for partition \eqn{k} is:
+#' \deqn{\boldsymbol{\Lambda}_k
+#'   = \lambda_w\Bigl(\boldsymbol{\Lambda}_s +
+#'     \lambda_r\boldsymbol{\Lambda}_r +
+#'     \sum_{l=1}^{L}\lambda_{l,k}\boldsymbol{\Lambda}_{l,k}\Bigr),}
+#' and the full penalty matrix is
+#' \deqn{\boldsymbol{\Lambda}
+#'   = \mathrm{blockdiag}(\boldsymbol{\Lambda}_0, \ldots,
+#'     \boldsymbol{\Lambda}_K).}
+#' Here \eqn{\boldsymbol{\Lambda}_s} is the integrated curvature penalty,
+#' \eqn{\boldsymbol{\Lambda}_r} is the ridge penalty on the null space, and
+#' \eqn{\boldsymbol{\Lambda}_{l,k}} denotes any additional penalty matrix
+#' attached to partition \eqn{k}. The tuning scalars are
+#' \eqn{\lambda_w} (\code{wiggle_penalty}), \eqn{\lambda_r}
+#' (\code{flat_ridge_penalty}), and \eqn{\lambda_{l,k}}
+#' (represented through \code{predictor_penalties} and
+#' \code{partition_penalties} in the current interface). Internally, the
+#' package stores these components with implementation labels such as
+#' \code{L1}, \code{L2}, \code{L_predictor_list}, and
+#' \code{L_partition_list}. This assembly is handled by \code{\link{compute_Lambda}}.
 #'
 #' The penalty matrix \eqn{\boldsymbol{\Lambda}} is stored as a list
 #' of \eqn{K+1} \eqn{p \times p} square, symmetric, positive semi-definite
@@ -1459,19 +1472,6 @@
 #' assembled penalty pieces are returned in the fitted object's
 #' \code{penalties} component.
 #'
-#' The total penalty matrix \eqn{\boldsymbol{\Lambda}} is constructed as:
-#' \deqn{\boldsymbol{\Lambda} = \lambda_w\mathbf{L}_{w} + \lambda_r\mathbf{L}_{r}
-#'   + \sum_{j}\nu_j\mathbf{L}_j^{(\mathrm{pred})}
-#'   + \sum_{k}\tau_k\mathbf{L}_k^{(\mathrm{part})},}
-#' where \eqn{\mathbf{L}_{w}} is the integrated squared second-derivative
-#' penalty (i.e., \eqn{\boldsymbol{\Lambda}_s} above), \eqn{\mathbf{L}_{r}} is
-#' a ridge penalty on intercept and linear coefficients,
-#' \eqn{\mathbf{L}_j^{(\mathrm{pred})}} are predictor-specific penalties, and
-#' \eqn{\mathbf{L}_k^{(\mathrm{part})}} are partition-specific penalties. The
-#' scalars \eqn{\lambda_w} (\code{wiggle_penalty}), \eqn{\lambda_r}
-#' (\code{flat_ridge_penalty}), \eqn{\{\nu_j\}}
-#' (\code{predictor_penalties}), and \eqn{\{\tau_k\}}
-#' (\code{partition_penalties}) are tuned.
 #' With \code{tuning_criterion = "loo"}, the criterion is
 #' \deqn{\mathrm{LOO}
 #'   = \frac{1}{N}\sum_{i=1}^{N}\left(\frac{r_i}{1-h_{ii}}\right)^2,}
@@ -1487,7 +1487,7 @@
 #' available. This exact observation-wise calculation is also the main reason
 #' LOO tuning becomes more expensive than GCV as \eqn{N} grows; in routine use,
 #' \code{tuning_criterion = "gcv"} is often the more practical choice once the
-#' sample size is above about 250,000.
+#' sample size is above about 250,000, although this varies by data set.
 #'
 #' With \code{tuning_criterion = "gcv"}, the package instead uses
 #' \deqn{\mathrm{GCV}_{u,\gamma}
@@ -1525,13 +1525,14 @@
 #' \strong{Meta-penalty regularization.} A regularization term pulls the
 #' predictor- and partition-specific penalty parameters toward 1 on the raw
 #' scale:
-#' \deqn{P_{\mathrm{meta}}(\lambda_w, \nu_j, \tau_k)
-#'   = \frac{1}{2}c_{\mathrm{meta}}\sum_j(\nu_j - 1)^{2}
+#' \deqn{P_{\mathrm{meta}}(\lambda_w, \lambda_{l,k})
+#'   = \frac{1}{2}c_{\mathrm{meta}}\sum_k\sum_l(\lambda_{l,k} - 1)^{2}
 #'   + \frac{1}{2}\cdot 10^{-32}(\lambda_w - 1)^{2}}
 #' where \eqn{c_{\mathrm{meta}}} is a user-specified coefficient
 #' (\code{meta_penalty}). The gradient of \eqn{P_{\mathrm{meta}}} on the log
 #' scale, incorporating the exp chain rule, is
-#' \eqn{\partial P_{\mathrm{meta}}/\partial\theta_j = c_{\mathrm{meta}}(\nu_j - 1)\nu_j}
+#' \eqn{\partial P_{\mathrm{meta}}/\partial\theta_{l,k} =
+#'   c_{\mathrm{meta}}(\lambda_{l,k} - 1)\lambda_{l,k}}
 #' and
 #' \eqn{\partial P_{\mathrm{meta}}/\partial\theta_1 = 10^{-32}(\lambda_w - 1)\lambda_w}.
 #' The total objective is the selected tuning criterion plus
@@ -1626,22 +1627,22 @@
 #' \eqn{\boldsymbol{\phi}^{(t+1)} = \boldsymbol{\phi}^{(t)} - \alpha\nabla_{\boldsymbol{\phi}}}.
 #'
 #' \emph{Iterations 3+: BFGS.} From iteration 3, an inverse Hessian
-#' approximation \eqn{\mathbf{J}^{(t)}} is maintained via the standard secant
+#' approximation \eqn{\mathbf{K}^{(t)}} is maintained via the standard secant
 #' update. Let
 #' \eqn{\mathbf{s}^{(t)} = \boldsymbol{\phi}^{(t)} - \boldsymbol{\phi}^{(t-1)}}
 #' and
 #' \eqn{\mathbf{v}^{(t)} = \nabla^{(t)} - \nabla^{(t-1)}}. The BFGS update
 #' is:
-#' \deqn{\mathbf{J}^{(t+1)}
+#' \deqn{\mathbf{K}^{(t+1)}
 #'   = (\mathbf{I} - \mathbf{u}\mathbf{s}\mathbf{v}^{\top})
-#'   \mathbf{J}^{(t)}
+#'   \mathbf{K}^{(t)}
 #'   (\mathbf{I} - \mathbf{u}\mathbf{v}\mathbf{s}^{\top})
 #'   + \mathbf{u}\mathbf{s}\mathbf{s}^{\top},
 #'   \qquad \mathbf{u} = (\mathbf{v}^{\top}\mathbf{s})^{-1}.}
 #' When \eqn{|\mathbf{v}^{\top}\mathbf{s}| < 10^{-64}}, the approximation is
 #' reset to \eqn{\mathbf{I}} and the iteration is flagged for restart. The
 #' search direction is
-#' \eqn{\mathbf{d}^{(t)} = -\mathbf{J}^{(t)}\nabla^{(t)}}.
+#' \eqn{\mathbf{d}^{(t)} = -\mathbf{K}^{(t)}\nabla^{(t)}}.
 #'
 #' \emph{Step acceptance.} A step is accepted if the new tuning criterion value
 #' is no larger than the old one.
@@ -1653,7 +1654,7 @@
 #' the absolute change in the tuning criterion is less than \eqn{\epsilon}, or
 #' \eqn{\|\boldsymbol{\phi}^{(t)} - \boldsymbol{\phi}^{(t-1)}\|_{\infty} < \epsilon},
 #' provided at least 10 iterations have elapsed, for penalties
-#' \eqn{\boldsymbol{\phi} = \lambda_w, \lambda_r, \nu_j, \tau_j, ...}.
+#' \eqn{\boldsymbol{\phi} = \lambda_w, \lambda_r, \lambda_{l,k}, ...}.
 #'
 #' \emph{Alternative.} A base-R
 #' \code{\link[stats]{optim}} call with method \code{"BFGS"} and
@@ -1661,8 +1662,8 @@
 #' \code{use_custom_bfgs = FALSE}.
 #'
 #' \strong{Post-optimization sample-size adjustment.} After optimization, the
-#' tuned penalty parameters are divided by \eqn{((N+2)/(N-2))^{2}}
-#' (equivalently multiplied by \eqn{((N-2)/(N+2))^{2}}) for both GCV- and
+#' tuned penalty parameters are divided by \eqn{(N+1)/(N-1)}
+#' (equivalently multiplied by \eqn{(N-1)/(N+1)}) for both GCV- and
 #' LOO-based tuning. This decreases the final penalties at small sample sizes.
 #'
 #' The tuning loop is implemented in \code{\link{tune_Lambda}}.

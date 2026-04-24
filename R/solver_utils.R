@@ -1,5 +1,5 @@
 ## solver_utils.R
-#  Shared helpers used by get_B() and blockfit_solve().
+#  Shared solver helpers used by get_B() and blockfit_solve().
 #
 ## Main pieces
 #   .solver_build_lambda_block()
@@ -50,16 +50,17 @@
 
 
 
-#' Detect Whether Inequality Constraints Require a Dense Global QP
+#' Detect Whether Inequality Constraints Need the Global Bridge
 #'
 #' Inspects the columns of \code{qp_Amat} to determine whether every
 #' inequality constraint is confined to a single partition block
 #' (block-separable) or whether any constraint couples coefficients
 #' across partitions.
 #'
-#' Returns \code{FALSE} (partition-wise active-set is valid) when all
-#' columns have nonzeros in at most one block.  Returns \code{TRUE}
-#' (dense SQP required) when any column spans multiple blocks.
+#' Returns \code{FALSE} when all columns have nonzeros in at most one
+#' block, so the active-set loop can keep partition-wise equality
+#' re-solves. Returns \code{TRUE} when any column spans multiple blocks,
+#' so the active-set loop must use the global equality bridge instead.
 #'
 #' @param qp_Amat Inequality constraint matrix
 #'   (\eqn{P \times n_{\mathrm{ineq}}}), or \code{NULL}.
@@ -544,6 +545,7 @@
   visited_states <- character(0)
 
   for (as_iter in seq_len(max_as_iter)) {
+    ## Build the equality system for the current working set.
     aug_state <- .solver_build_augmented_constraints(
       A = A,
       constraint_value_vectors = constraint_value_vectors,
@@ -558,6 +560,7 @@
     state_key <- paste(sort(active_ineq_kept), collapse = ",")
     visited_states <- unique(c(visited_states, state_key))
 
+    ## Re-solve the equality-only problem, then check KKT.
     result_new <- solve_subproblem(aug_state)
     kkt <- kkt_subproblem(result_new, aug_state)
 
@@ -588,15 +591,15 @@
     }
 
     if (!isTRUE(kkt$dual_feasible)) {
-      ## Standard: drop the single most-negative multiplier.
+      ## Drop the most-negative multiplier unless that would cycle.
       drop_pos <- kkt$drop[which.min(kkt$multipliers[kkt$drop])]
       drop_idx <- active_ineq_kept[drop_pos]
       tentative <- active_ineq[!(active_ineq %in% drop_idx)]
       tentative_key <- paste(sort(tentative), collapse = ",")
 
       if (tentative_key %in% visited_states && length(kkt$drop) > 1L) {
-        ## Dropping one would revisit a known state.  Drop all
-        # dual-infeasible constraints at once to break the cycle.
+        ## If one-at-a-time dropping would revisit a prior state,
+        # drop the whole dual-infeasible set and move on.
         drop_all_idx <- active_ineq_kept[kkt$drop]
         active_ineq <- active_ineq[!(active_ineq %in% drop_all_idx)]
         recent_drop <- drop_all_idx
@@ -609,6 +612,8 @@
     }
 
     if (!isTRUE(kkt$feasible)) {
+      ## Add the most-violated inactive inequality, avoiding fresh cycles
+      #  when there are ties or a recent drop.
       beta_new <- cbind(unlist(result_new))
       slack_viol <- crossprod(
         aug_state$qp_ineq_Amat[, kkt$violated, drop = FALSE],

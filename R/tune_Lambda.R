@@ -1587,12 +1587,11 @@
 #' Tune Smoothing and Ridge Penalties via Leave-One-Out or Generalized Cross-Validation
 #'
 #' @description
-#' Optimizes smoothing spline and ridge regression penalties by minimizing the
-#' selected tuning criterion, either exact leave-one-out on the transformed
-#' tuning problem or modified GCV. Uses BFGS optimization with analytical
-#' gradients or finite differences. This is the top-level entry point that
-#' orchestrates grid search initialization and quasi-Newton optimization via
-#' internal subfunctions.
+#' Tunes the penalty matrix by minimizing either exact leave-one-out on the
+#' transformed problem or modified GCV. This is the top-level tuning entry
+#' point: it assembles \eqn{\boldsymbol{\Lambda}}, initializes from a small
+#' grid search, and then refines the penalty parameters by quasi-Newton
+#' optimization with either closed-form or finite-difference gradients.
 #'
 #' @param y List; response vectors by partition.
 #' @param X List; design matrices by partition.
@@ -1685,12 +1684,20 @@
 #'
 #' @return List containing:
 #' \describe{
-#'   \item{Lambda}{Final combined penalty matrix.}
+#'   \item{Lambda}{Baseline per-partition penalty matrix corresponding to
+#'     \eqn{\lambda_w(\boldsymbol{\Lambda}_s +
+#'     \lambda_r\boldsymbol{\Lambda}_r +
+#'     \sum_{l=1}^{L}\lambda_{l,k}\boldsymbol{\Lambda}_{l,k})}.}
 #'   \item{flat_ridge_penalty}{Optimized ridge penalty.}
 #'   \item{wiggle_penalty}{Optimized smoothing penalty.}
-#'   \item{other_penalties}{Optimized predictor/partition penalties.}
-#'   \item{L_predictor_list}{Predictor-specific penalty matrices.}
-#'   \item{L_partition_list}{Partition-specific penalty matrices.}
+#'   \item{other_penalties}{Optimized additional penalties
+#'     \eqn{\lambda_{l,k}}.}
+#'   \item{L_predictor_list}{Implementation lists storing additional
+#'     penalty matrices \eqn{\boldsymbol{\Lambda}_{l,k}} for
+#'     predictor-specific directions.}
+#'   \item{L_partition_list}{Implementation lists storing additional
+#'     penalty matrices \eqn{\boldsymbol{\Lambda}_{l,k}} for
+#'     partition-specific directions.}
 #' }
 #'
 #' @details
@@ -1718,11 +1725,11 @@
 #'     fallback.
 #'   \item \strong{Criterion choice}: \code{"loo"} uses exact per-observation
 #'     leverages on the transformed tuning problem, while \code{"gcv"} uses the
-#'     existing trace-based denominator with optional \code{gcv_gamma}
+#'     usual trace-based denominator with optional \code{gcv_gamma}
 #'     inflation.
 #'   \item \strong{Sample-size adjustment}: After optimization, divide the tuned
-#'     penalties by \eqn{((N+2)/(N-2))^{2}} (equivalently multiply by
-#'     \eqn{((N-2)/(N+2))^{2}}) for both GCV- and LOO-based tuning so that the
+#'     penalties by \eqn{(N+1)/(N-1)} (equivalently multiply by
+#'     \eqn{(N-1)/(N+1)}) for both GCV- and LOO-based tuning so that the
 #'     final penalties are decreased at small sample sizes.
 #'   \item \strong{Final Lambda}: Compute the final penalty matrix from
 #'     optimized parameters via \code{compute_Lambda}.
@@ -1734,33 +1741,36 @@
 #' The chain rule factor d(exp(theta))/d(theta) = exp(theta) = raw_penalty.
 #'
 #' For predictor- and partition-specific penalties, the current implementation
-#' still uses the existing low-cost ratio approximation rather than a full
-#' direct derivative in each extra penalty direction. Thus the most accurate
-#' closed-form tuning gradients are presently the shared wiggle and flat
-#' directions.
+#' still uses the lower-cost ratio approximation rather than a full direct
+#' derivative in every extra penalty direction. The shared wiggle and flat
+#' directions therefore remain the most accurate closed-form gradients.
 #'
-#' The resulting penalty matrix follows the same decomposition used throughout
-#' the paper and package documentation:
+#' The resulting penalty follows the same notation used in the paper:
+#' \deqn{
+#'   \boldsymbol{\Lambda}_k
+#'   =
+#'   \lambda_w\Bigl(\boldsymbol{\Lambda}_s +
+#'   \lambda_r\boldsymbol{\Lambda}_r +
+#'   \sum_{l=1}^{L}\lambda_{l,k}\boldsymbol{\Lambda}_{l,k}\Bigr),
+#' }
+#' with full penalty
 #' \deqn{
 #'   \boldsymbol{\Lambda}
 #'   =
-#'   \lambda_{w}\mathbf{L}_{1}
-#'   +
-#'   \lambda_{r}\mathbf{L}_{2}
-#'   +
-#'   \sum_{j}\nu_{j}\mathbf{L}^{(\mathrm{pred})}_{j}
-#'   +
-#'   \sum_{k}\tau_{k}\mathbf{L}^{(\mathrm{part})}_{k},
+#'   \mathrm{blockdiag}(\boldsymbol{\Lambda}_0, \ldots,
+#'   \boldsymbol{\Lambda}_K).
 #' }
-#' where the predictor- and partition-specific sums are included only when the
-#' corresponding options are active. Internally these components are returned as
-#' \code{L1}, \code{L2}, \code{L_predictor_list}, and \code{L_partition_list}.
+#' The current package stores these pieces using the implementation labels
+#' \code{L1}, \code{L2}, \code{L_predictor_list}, and
+#' \code{L_partition_list}, corresponding to
+#' \eqn{\boldsymbol{\Lambda}_s}, \eqn{\boldsymbol{\Lambda}_r}, and the
+#' additional \eqn{\boldsymbol{\Lambda}_{l,k}} components.
 #'
-#' If correlation structure inputs are supplied, each tuning-objective evaluation calls the
-#' same constrained correlated solver used by the final model fit. In the
-#' structured-correlation case, the low-rank Woodbury correction described in
-#' \code{lgspline-details} is therefore inherited automatically through
-#' \code{get_B}; no separate tuning-specific notation is introduced here.
+#' If correlation structure inputs are supplied, each tuning-objective
+#' evaluation calls the same constrained correlated solver used by the final
+#' model fit. In the structured-correlation case, the Woodbury reduction
+#' described in \code{lgspline-details} is inherited automatically through
+#' \code{get_B}; there is no separate tuning-specific notation or solver.
 #'
 #' @seealso
 #' \itemize{
@@ -1804,10 +1814,10 @@
 #'
 #' set.seed(7)
 #' n  <- 300
-#' x1 <- runif(n, 0, 5)
-#' x2 <- rnorm(n)
-#' y2 <- sin(x1) + 0.5 * x2 + rnorm(n, 0, 0.3)
-#' df <- data.frame(x1 = x1, x2 = x2)
+#' t1 <- runif(n, 0, 5)
+#' t2 <- rnorm(n)
+#' y2 <- sin(t1) + 0.5 * t2 + rnorm(n, 0, 0.3)
+#' df <- data.frame(t1 = t1, t2 = t2)
 #'
 #' ## blockfit = TRUE uses blockfit_solve during tuning
 #' fit_bf  <- lgspline(df, y2, K = 2, blockfit = TRUE,
@@ -2126,8 +2136,8 @@ tune_Lambda <- function(
     if (verbose) cat("    Finished tuning penalties\n")
 
     ## Decrease tuned penalties at small sample sizes by dividing the
-    #  optimizer solution by ((N+2)/(N-2))^2 for both tuning criteria.
-    sample_size_adjustment <- ((N_obs - 2) / (N_obs + 2))^2
+    #  optimizer solution by (N+1)/(N-1) for both tuning criteria.
+    sample_size_adjustment <- (N_obs - 1) / (N_obs + 1)
     wiggle_penalty     <- exp(par[1]) * sample_size_adjustment
     flat_ridge_penalty <- exp(par[2]) * sample_size_adjustment
 

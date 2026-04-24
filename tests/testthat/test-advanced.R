@@ -1,21 +1,19 @@
 test_that("Weibull accelerated failure time (AFT) models can be fit under custom constraints", {
-
   ## Setup
   set.seed(1234)
-  x1 <- rnorm(1000)
-  x2 <- rbinom(1000, 1, 0.5)
-  yraw <- rexp(exp(0.01*x1 + 0.01*x2))
+  t1 <- rnorm(1000)
+  t2 <- rbinom(1000, 1, 0.5)
+  yraw <- rexp(exp(0.01*t1 + 0.01*t2))
   status <- rbinom(1000, 1, 0.25)
   yobs <- ifelse(status, runif(1, 0, yraw), yraw)
   df <- data.frame(
     y = yobs,
-    x1 = x1,
-    x2 = x2
+    t1 = t1,
+    t2 = t2
   )
-
   ## Weibull AFT
   model_fit_aft <- lgspline(
-    y ~ spl(x1) + x2,
+    y ~ spl(t1) + t2,
     df,
     unconstrained_fit_fxn = unconstrained_fit_weibull,
     family = weibull_family(),
@@ -40,12 +38,11 @@ test_that("Weibull accelerated failure time (AFT) models can be fit under custom
     verbose_tune = TRUE
   )
   print(model_fit_aft)
-
   ## Check sum-to-P constraint only if model_fit_aft is a list
   if (is.list(model_fit_aft)) {
     expect_equal(round(sum(unlist(model_fit_aft$B)), 8), 12)
   } else {
-  ## Skip the test on platforms when model returns a try-error instead
+    ## Skip the test on platforms when model returns a try-error instead
     expect_error(invisible(), NA)
   }
 })

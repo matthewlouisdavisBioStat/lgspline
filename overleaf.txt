@@ -96,9 +96,7 @@ We propose a computationally efficient method for fitting penalized piecewise
 polynomial splines directly in monomial form, where smoothness at partition
 boundaries is enforced through explicit linear constraints on the coefficients
 rather than construction of a smooth basis. The constrained penalized estimate is obtained via a transformed ordinary least squares projection that exploits block-diagonal structure across partitions, avoiding large dense systems and enabling parallel computation. A closed-form integrated curvature penalty on the monomial basis is used for regularization, and the block-diagonal
-structure is preserved under generalized linear model working weights, certain
-inequality constraints, and structured correlation through a Woodbury
-decomposition. In a simulation study, the proposed method is competitive with tensor product cubic regression and thin-plate spline constructions in terms of performance with improvements in runtimes at larger sample sizes. In a pharmacokinetic application, the
+structure is preserved for generalized linear models, inequality constraints, and certain covariance structures. In a simulation study, the proposed method is competitive with tensor product cubic regression and thin-plate spline constructions in terms of performance with improvements in runtimes at larger sample sizes. In a pharmacokinetic application, the
 monomial framework supports simultaneous shape constraints, structured
 within-subject correlation, and direct extraction of non-compartmental
 parameter summaries with fully propagated posterior uncertainty in a single
@@ -155,19 +153,19 @@ interaction terms. In this form, derivatives, integrals, and extrema are
 straightforward to express, and the model can be communicated or evaluated
 without reference to knots, basis functions, or the method used to fit it.
 
-B-splines and truncated power splines are often considered difficult to
+In contrast, B-splines and truncated power splines are often considered difficult to
 interpret directly from the model output in terms of basis expansions and
 coefficients alone \citep{ezhov2018, acharjee2022}. While many statisticians
 are comfortable viewing splines through a purely nonparametric lens, a
 parametric interpretation is often desired in practice by subject-matter
-researchers. Examples include pharmacokinetic modeling
+researchers. Examples include applications to pharmacokinetic modeling
 \citep{yeh1989, popovic2006}, epidemiology \citep{schuster2022}, and
 exposure-response analyses \citep{malloy2017}. For clinical trial submissions
 in particular, having an interpretable estimand expressible as a linear
 combination of one or several coefficients from a parametric model targeting
 a predictor-response relationship, and that can be written out cleanly with
 notation for a statistical analysis plan, is not optional for many regulatory
-bodies. For example, a treatment and treatment-time interaction at the end of the treatment period is often reported.
+bodies, which B-splines and truncated power bases are not ideal for.
 
 An alternative formulation of splines as piecewise polynomial regression
 models subject to linear restrictions on the coefficients enforcing smoothness
@@ -183,7 +181,7 @@ algorithm, but was not the focus of the work. The approach has otherwise seen li
 basis in the single-predictor case is a poorly conditioned Vandermonde
 matrix, the approach requires the additional step of constructing external
 constraints, and the resulting system of equations is much greater in
-dimension than for B-splines or truncated power splines when fit naively. To the best of our knowledge, the monomial formulation has never been explored with multiple predictors.
+dimension than for B-splines or truncated power splines when fit naively. To the best of our knowledge, the monomial formulation has never been formally explored with multiple predictors, penalization, nor outside of the scenario of independent Gaussian-distributed homoscedastic error terms.
 
 In this article we develop a computational framework that revisits the
 constrained formulation and makes direct fitting in monomial form
@@ -328,7 +326,7 @@ $\bA^\T\bU = \bm{0}$ and $\bU\bG\bU^\T = \bU\bG$.
 Effective degrees of freedom are $\nu = \tr(\bH)$ and
 for Gaussian identity-link models a variance estimate is
 $\tilde{\sigma}^2 = \|\by - \tilde{\by}\|^2/(N - \nu)$
-\citep[\S6.2.1]{wood2017} can be obtained by maximizing the REML objective as described in Supplement~E. 
+\citep[\S6.2.1]{wood2017} can be obtained by maximizing the REML objective as described in Supplement~D. 
 
 For Gaussian identity-link models, the exact frequentist
 variance-covariance matrix of $\btbeta$ is
@@ -382,7 +380,7 @@ penalty matrix $\bLam = \bigl(\begin{smallmatrix} \ddots & & \\
 $K+1$, $p \times p$ blocks. The parameterization is chosen such that,
 once derivatives of $\lambda_w$ are computed, the derivatives for
 $\lambda_r$ and $\lambda_{l,k}$ are much faster to compute; details
-go beyond this paper but are covered in \pkg{lgspline} documentation.
+go beyond this paper but are covered in \pkg{lgspline} documentation and covered briefly in Supplement~C.
 
 The penalty matrix $\bLam_s$ serves as the integrated curvature penalty
 matrix, and can be derived as follows for a single predictor with minimum
@@ -444,24 +442,21 @@ Root mean squared error (RMSE) for constrained leave-one-out cross-validation \c
 constrained variant of generalized cross-validation \citep{golub1979}
 are reasonable choices of optimization criteria for tuning the penalties,
 and are implemented in \pkg{lgspline} using gradient-based optimization
-offered in base \textsf{R} \citep{r}. See Supplement~D for more details.
+offered in base \textsf{R} \citep{r}. See Supplement~C for more details.
 
 \subsection{Relationship to Other Spline Representations}\label{sec:backconversion}
 
 The practical distinction of the present framework is that the model is
-fit directly in monomial form. In the cubic single-predictor case the
+fit directly in monomial form. For example, in the cubic single-predictor case the
 fitted function across all partitions is
 $\tilde{f}(t)
 = \sum_{k=0}^{K}(\tilde{\beta}_{0,k}
   + \tilde{\beta}_{1,k}t
   + \tilde{\beta}_{2,k}t^2
   + \tilde{\beta}_{3,k}t^3)\mathbb{I}(t \in \mathcal{P}_k)$,
-sharing the same functional form in every partition without reference
-to knot locations. For B-spline bases the fitted function is
+sharing the same functional form without reference to knot locations. For B-spline bases the fitted function is
 $\tilde{f}(t) = \sum_{j=1}^{P}B_j(t)\tilde{\beta}_{j}$, where the
-$B_j$ are basis functions with compact support; the design matrix is
-banded, but the expansions do not reveal the predictor-response
-relationship without algebraic rearrangement. For truncated power
+$B_j$ are $B$-spline basis functions with compact support, which do not reveal the underlying predictor-response relationship without algebraic rearrangement. For truncated power
 bases the fitted function may be written as
 $\tilde{f}(t)
   = \tilde{\beta}_0 + \tilde{\beta}_1 t + \tilde{\beta}_2 t^2
@@ -530,36 +525,30 @@ information matrix $\bG_k$ is now a function of $\bbeta$ and takes the
 form $\bG_k = (\bX_k^\T\bW_k\bX_k + \bLam_k)^{-1}$ with
 $\bW_k = \diag(w_i : i \in \mathcal{P}_k)$. Because $\bW$ is diagonal
 the block-diagonal structure is preserved, and the four-step procedure
-applies with the weighted $\bG_k$. Supplement~F can be referenced for
+applies with the weighted $\bG_k$. Supplement~E can be referenced for
 more justification.
 
-When the link is non-identity, $\bG = \bm{G}(\btbeta)$ depends on fitted
+When the link is non-identity, $\bm{\tilde{G}} = \bm{G}(\btbeta)$ depends on fitted
 values through the working weights. At the $m$th iteration, the approach
 holds $\bhbeta$ fixed at the partition-wise unconstrained solution,
 recomputes $\bG^{(m)}$ using the constrained estimate $\btbeta^{(m)}$,
-and re-applies the projection: $\btbeta^{(m+1)} = \bU^{(m)}\bhbeta$,
+and re-applies the projection: $\btbeta^{(m+1)} = \bm{\tilde{U}}^{(m)}\bhbeta$,
 iterating until the mean absolute coefficient change falls below a
 tolerance without worsening in-sample performance. Convergence is typically rapid, usually fewer than 10
 iterations. In practice, the computational technique of
 \ref{sec:estimator} can be used to avoid explicit construction of
-$\bm{U}^{(m)}$ for each iteration. Note that the unconstrained estimates only need to be computed once. The supplement \texttt{simple\_implementation.R} provides code for demonstrating this. 
+$\bm{\tilde{U}}^{(m)}$ for each iteration. Note that the unconstrained estimates only need to be computed once. The supplement \texttt{simple\_implementation.R} provides code for demonstrating this. 
 
 For general inequality constraints $\bC^\T\bbeta \succeq \bm{c}$ it is
-possible that the block-diagonal structure is broken, but for many
-useful shape constraints, inequality constraints can respect the
-block-diagonal operations described thus far. When each column of $\bC$
-has nonzero entries in only a single partition block, as holds for
-derivative-sign constraints, range bounds, and within-partition
-monotonicity, an active-set method preserves the block-diagonal
-structure. Active constraints are appended to $\bA$ as equalities,
+possible that the block-diagonal structure is broken, but this is irrelevant; inequality constraints enter only through the constraint matrix. This is achieved using an active-set method, whereby the inequality constraints that happen to be met using the most recent estimate of $\bbeta$ are ignored as ``inactive", while inequality constraints that are not yet met get appended to $\bA$ as ``active" equalities,
 $\bA_{\mathrm{aug}} = [\bA \mid \bC_\mathcal{A}]$, and the same four-step
-projection applies. The active set is updated by checking primal and
+transformed OLS remains unchanged after. The active set is updated by checking primal and
 dual feasibility until the Karush-Kuhn-Tucker conditions hold
 \citep{nocedal2006}.
 
-Structured covariance requires a different extension. When an arbitrary
+Handling correlated response requires a more detailed extension of the proposed procedure. When an arbitrary
 working covariance structure $\bV$ is present,
-$\bG^{-1} = \bX^\T\bV^{-1}\bX + \bLam$ is generally dense, so the
+$\bG^{-1} = \bX^\T\bV^{-1}\bX + \bLam$ is possibly dense, so the
 block-diagonal factorization used in the independent case is lost
 naively. But for many covariance structures, the block-diagonal structure
 can be retained using a Woodbury decomposition. First we separate the
@@ -785,13 +774,13 @@ first-derivative constraints, in the case the model collapses to a single
 global polynomial. Relaxation triggered only once across all replications,
 in a single replication at $q = 4$, $N = 500$, $\sigma = 2.0$ under
 automatic tuning, where the first-derivative relaxation was invoked. Full
-constraints were maintained in every other replication, and the additional time for re-fitting is counted in the total fitting time. The truncated polynomial fails at $q = 4$: under the fixed $10^{-4}$ penalty the design matrix entries from quartic terms of $t_2 \in [40\pi, 560\pi]$ reach magnitudes on the order of $10^{13}$, and every one of the 24 replications produced numerical failure (reported as \texttt{NaN} in Supplement~H). The tuned variant using \texttt{mgcv::magic} avoids outright failure but produces RMSE of 3.9-3.95 across every $q = 4$ cell, effectively not fitting the signal at all. These cells are marked with $\dagger$ in
+constraints were maintained in every other replication, and the additional time for re-fitting is counted in the total fitting time. The truncated polynomial fails at $q = 4$: under the fixed $10^{-4}$ penalty the design matrix entries from quartic terms of $t_2 \in [40\pi, 560\pi]$ reach magnitudes on the order of $10^{13}$, and every one of the 24 replications produced numerical failure (reported as \texttt{NaN} in Supplement~G). The tuned variant using \texttt{mgcv::magic} avoids outright failure but produces RMSE of 3.9-3.95 across every $q = 4$ cell, effectively not fitting the signal at all. These cells are marked with $\dagger$ in
 Tables~\ref{tab:rmse_tuned} and~\ref{tab:timing_tuned} and excluded from the bolding comparison.
 
 \paragraph{Accuracy across DGPs.}
 Table~\ref{tab:rmse_tuned} reports mean RMSE under automatic smoothness
 selection; fixed-penalty results are similar and are deferred to
-Supplement~H. No single method uniformly dominates, and the separation
+Supplement~G. No single method uniformly dominates, and the separation
 between methods differs across $q$.
 
 At $q = 1$, \pkg{lgspline} achieves the lowest RMSE at $N = 5{,}000$ and
@@ -1039,13 +1028,10 @@ Specifically, within each partition the model takes the form
   \tilde{f}(\text{Time}, \text{Dose}) = \beta_0 + \beta_1 \text{Time} + \beta_2 \text{Time}^2
     + \beta_3 \cdot \text{Dose} + \beta_4 \cdot \text{Dose} \cdot \text{Time}^2,
 \]
-with $\text{Time}$ in hours since last dose, $Dose=$ weight-normalized ``Dose" in $mg/L/kg$, and the Dose-Time interaction is included as a
+with $\text{Time}$ in hours since last dose, and $\text{Dose}$ as weight-normalized dosage of Theophyline in $mg/L/kg$, and the Dose-Time interaction is included as a
 quadratic-linear interaction term. The interaction allows dose to modulate
 the curvature of the concentration-time profile in a manner that is both
-interpretable and non-constant across the time domain through a single parameter. Only continuity and
-first-derivative smoothness were imposed; second-derivative constraints
-were excluded for this quadratic spline, leaving the second derivative free
-to be discontinuous at knot boundaries. 
+interpretable and non-constant across the time domain through a single parameter. By excluding a linear interaction $\text{Time} *\text{Dose}$, the initial rate of absorption does not depend on the initial Dose while the initial acceleration does, which is in alignment with general understanding of pharmacokinetics. Only continuity and first-derivative smoothness were imposed; second-derivative constraints were excluded, which is typical for a quadratic spline.
 
 Within-subject correlation was modeled via a customized tridiagonal
 exchangeable correlation matrix with a common estimated parameter $\rho$,
@@ -1065,15 +1051,12 @@ during terminal elimination; and non-negative fitted values for $\text{Time} > 5
 The time threshold of 5 hours was chosen to exclude the absorption and
 early distribution phase.
 
-A notable feature of the fitted model is that three consecutive partitions
-in the mid-elimination phase produced nearly identical coefficient vectors,
-reflecting a near-linear decline over that interval. Furthermore, the
-quadratic interaction of dose and time is held constant across partitions.
+A notable feature of the fitted model is that the quadratic interaction of dose and time is held constant across partitions.
 This is a natural consequence of the smoothness constraints and this
 specific dataset rather than a modeling artifact or computational issue,
 and is convenient in that it reduces the number of partitions with
-differing functional relationships. Both phenomena can be avoided by
-including higher-order polynomial terms and linear interactions, but are
+differing functional relationships. This phenomenon can be avoided by
+including higher-order polynomial terms and the linear interaction term, but is
 argued here to be an interpretable advantage of the simple formulation,
 and likely attractive to applied researchers.
 
@@ -1083,12 +1066,11 @@ closed-form quadratic polynomial
   \tilde{f}(\text{Time}, \text{Dose}) = -1.3388 + 7.0434\,\text{Time} + 7.7965\,\text{Time}^2
     + 0.2941 \cdot \text{Dose} + 0.001 \cdot \text{Dose} \cdot \text{Time}^2.
 \]
-The first derivative at $\text{Time} = 0$ is $\tilde{f}'(0,\cdot) = 7.0434$ mg/L/h, giving
-the estimated initial rate of absorption directly from the monomial
-coefficients without numerical differentiation. The second derivative at
+The first derivative at $\text{Time} = 0$ is $\tilde{f}'(0,\text{Dose}) = 7.0434$ mg/L/h, giving the estimated initial rate of absorption directly from the monomial
+coefficients, which does not depend on dosage. The second derivative at
 $\text{Time} = 0$ is $\tilde{f}''(0, \text{Dose}) = 2 \times 7.7965 + 2 \times 0.001 \times
 \text{Dose} = 15.593 + 0.002 \cdot \text{Dose}$ mg/L/h$^2$, representing
-the initial acceleration of absorption. Both quantities are available as
+the initial acceleration of absorption, which is modeled to increase linearly with dosage. Both quantities are available as
 closed-form expressions in every partition and can be evaluated at any
 covariate value without post-hoc algebra by someone with elementary
 calculus, which would not be immediately possible with a truncated power
@@ -1097,9 +1079,8 @@ or B-spline basis.
 For posterior inference, let $\tilde{f}^{(m)}$ denote the fit concentration-time curve at dose $d$ implied by the posterior draw $mth$ of the coefficients $\btbeta^{(m)}$. Each
 of the $M = 1{,}000$ posterior draws is generated following
 Section~\ref{subsec:bayesian}, satisfying smoothness constraints without imposing inequality constraints (e.g. ellipstic slice sampling was not used). Draws of the correlation parameter $\rho$ were obtained from a normal approximation on the $\tanh^{-1}$ scale, using the
-REML point estimate as the mean and the inverse approximate Hessian from
-the BFGS algorithm used to optimize REML as the covariance, then back-transformed. The variance parameter $\sigma^2$ was drawn from its marginal posterior density of $\sigma^2|\bm{y}, \bX\sim InvGamma \big(\frac{1}{2}(N-\tr(\bH)),\frac{1}{2}(N-\tr(\bH))\tilde{\sigma}^2 \big)$, with $\tilde{\sigma}^2$ as defined in \ref{sec:estimator}. The six pharmacokinetic summaries extracted from each posterior draw are listed in Table~\ref{tab:pk_parameters}; each follows standard non-compartmental definitions \citep{gabrielsson2016} and are widely used in practice. Because each partition is a polynomial, all derivatives and function evaluations needed for these summaries are available directly from $\tilde{f}^{(m)}(t; d)$ without basis conversion. Area under the curve (AUC) at 24 hours was computed using Gauss–Legendre quadrature applied to the posterior concentration curve. Draws producing a negative predicted concentration at $\text{Time} = 24$ hours, corresponding to draws for which $\mathrm{AUC}_{0\text{-}24} \leq 0$ or for which the
-AUC-24/AUC-$\infty$ ratio is at least 1, were excluded as biologically implausible. Fewer than 1.5\% of draws fell into this category. 
+REML point estimate as the mean and the inverse approximate second derivative from
+the BFGS algorithm used to optimize REML as the covariance, then back-transformed. The variance parameter $\sigma^2$ was drawn from its marginal posterior density of $\sigma^2|\bm{y}, \bX\sim InvGamma \big(\frac{1}{2}(N-\tr(\bH)),\frac{1}{2}(N-\tr(\bH))\tilde{\sigma}^2 \big)$, with $\tilde{\sigma}^2$ as defined in \ref{sec:estimator} which follows from \pkg{lgspline} defaults. The six pharmacokinetic summaries extracted from each posterior draw are listed in Table~\ref{tab:pk_parameters}; each follows standard non-compartmental definitions \citep{gabrielsson2016} and are widely used in practice. As each partition is a polynomial, all derivatives and function evaluations needed for these summaries are available directly from $\tilde{f}^{(m)}(t; d)$ without basis conversion. Area under the curve (AUC) at 24 hours was computed using Gauss–Legendre quadrature applied to the posterior concentration curve. Draws producing a negative predicted concentration at $\text{Time} = 24$ hours, corresponding to draws for which $\mathrm{AUC}_{0\text{-}24} \leq 0$ or for which the AUC-24/AUC-$\infty$ ratio is at least 1, were excluded as biologically implausible. Fewer than 1.5\% of draws fell into this category. 
 
 \begin{table}[t]
 \centering
@@ -1393,9 +1374,8 @@ fitting penalized polynomial splines in monomial form using constrained
 optimization. The transformed OLS formulation exploits the
 block-diagonal partition structure for both memory savings and faster
 computation, while also creating a natural path to parallel execution.
-This computational convenience is retained under GLM weights,
-partition-local inequality constraints, and certain correlated settings
-through the Woodbury decomposition.
+This computational convenience is retained under GLM weights, inequality constraints including shape constraints,
+and certain correlated settings.
 
 Relative to truncated polynomial splines, the proposed method keeps the
 representation local. Each partition depends on only $p$ coefficients
@@ -1447,7 +1427,7 @@ easily interpretable compared to linear terms, and interpreting a piecewise fit 
 We argue in favor of using the proposed monomial spline in practice, but it has intrinsic value as an educational device alone. Not only is it a particularly rich application of constrained optimization to statistics, but many students may appreciate seeing a polynomial in a familiar form before moving on to more complicated basis constructions, which is in agreement with \citet{ezhov2018}. Even a reader who prefers
 B-splines for their numerical properties may find the monomial
 formulation useful as an educational complement, particularly through the single-predictor base \textsf{R} reference implementation provided
-in Supplement~I.
+in Supplement~H.
 
 Potential future work includes quantile regression and location-scale extensions in the spirit of \pkg{qgam} \citep{fasiolo2021} and \pkg{gamlss} \citep{stasinopoulos2007}, more aggressive parallel and GPU implementations targeting parallelism and the constraint QR step, and the derivation of null distributions for likelihood-ratio tests under active inequality constraints and fixed penalty parameters. More broadly, the same transformed constrained-OLS framework may be useful beyond spline fitting whenever a problem has block-diagonal design structure and linear constraints. Software implementing all procedures described here is available in \pkg{lgspline} for
 \textsf{R} on CRAN.
@@ -1503,21 +1483,19 @@ This research received no external funding.
   Woodbury factorization for structured covariance (full derivation of
   Section~\ref{sec:extensions}).
 \item[Supplement~C:]
-  Woodbury factorization for GLMs.
-\item[Supplement~D:]
   Penalty construction and tuning.
-\item[Supplement~E:]
+\item[Supplement~D:]
   REML for correlation parameters.
-\item[Supplement~F:]
+\item[Supplement~E:]
   GLM consistency and asymptotic normality of the constrained estimator.
-\item[Supplement~G:]
+\item[Supplement~F:]
   Approximation properties of the model class.
-\item[Supplement~H:]
+\item[Supplement~G:]
   Fixed-penalty simulation results (RMSE and wall-clock tables
   corresponding to Tables~\ref{tab:rmse_tuned}
   and~\ref{tab:timing_tuned} under $\lambda = 10^{-5}$), including
   completion counts for capped cells.
-\item[Supplement~I:]
+\item[Supplement~H:]
   A single-predictor base \textsf{R} reference implementation of the
   constrained monomial spline procedure.
 \end{description}
@@ -1734,3 +1712,723 @@ $(\bI - \bU)\bbeta_0$ component of
 $\btbeta = \bU\bhbeta + (\bI - \bU)\bbeta_0$.
 
 \end{document}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\documentclass[12pt]{article}
+
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{bm}
+\usepackage{natbib}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{setspace}
+\doublespacing
+
+\addtolength{\oddsidemargin}{-.5in}
+\addtolength{\evensidemargin}{-.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1in}
+
+\newcommand{\bX}{\bm{X}}
+\newcommand{\bZ}{\bm{Z}}
+\newcommand{\bA}{\bm{A}}
+\newcommand{\bG}{\bm{G}}
+\newcommand{\bH}{\bm{H}}
+\newcommand{\bU}{\bm{U}}
+\newcommand{\bV}{\bm{V}}
+\newcommand{\bW}{\bm{W}}
+\newcommand{\bM}{\bm{M}}
+\newcommand{\bI}{\bm{I}}
+\newcommand{\bC}{\bm{C}}
+\newcommand{\bS}{\bm{S}}
+\newcommand{\bL}{\bm{L}}
+\newcommand{\bQ}{\bm{Q}}
+\newcommand{\bR}{\bm{R}}
+\newcommand{\bF}{\bm{F}}
+\newcommand{\bLam}{\bm{\Lambda}}
+\newcommand{\bDelta}{\bm{\Delta}}
+\newcommand{\bbeta}{\bm{\beta}}
+\newcommand{\btbeta}{\tilde{\bm{\beta}}}
+\newcommand{\bhbeta}{\hat{\bm{\beta}}}
+\newcommand{\by}{\bm{y}}
+\newcommand{\bz}{\bm{z}}
+\newcommand{\br}{\bm{r}}
+\newcommand{\bv}{\bm{v}}
+\newcommand{\bw}{\bm{w}}
+\newcommand{\bd}{\bm{d}}
+\newcommand{\blam}{\bm{\lambda}}
+\newcommand{\bmu}{\bm{\mu}}
+\newcommand{\btheta}{\bm{\theta}}
+\newcommand{\T}{\mathsf{T}}
+\newcommand{\tr}{\operatorname{tr}}
+\newcommand{\diag}{\operatorname{diag}}
+\newcommand{\blockdiag}{\operatorname{blockdiag}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Cov}{\operatorname{Cov}}
+\newcommand{\rank}{\operatorname{rank}}
+\newcommand{\pkg}[1]{\texttt{#1}}
+
+\lstdefinestyle{rstyle}{
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{blue!70!black},
+  commentstyle=\color{green!40!black}\itshape,
+  stringstyle=\color{red!70!black},
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+  numbers=none,
+  language=R
+}
+
+\title{\bf Supplementary Materials for\\``Efficient Penalized Multivariate Monomial Splines''}
+
+\author{Matthew~L.~Davis\\[0.3em]
+{\normalsize \texttt{matthewlouisdavis@gmail.com}}}
+
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\noindent This supplement provides additional derivations, examples,
+simulation results, and theoretical results referenced in the main text.
+Sections are labeled S.A--S.I to distinguish them from the main-paper
+appendix. All equation, section, and definition numbering from the main
+paper is referenced with the prefix ``main.''
+
+
+\section*{S.A Multivariate Basis Example and Constraint Counting}\label{sec:supp_counting}
+\addcontentsline{toc}{section}{S.A Multivariate Basis Example}
+
+The main paper (Section~2.1) illustrates the monomial basis in the
+single-predictor cubic case. Here we give a multivariate example omitted
+there for brevity.
+
+Consider $q=3$ predictors $t, u, v \in \mathbb{R}$. For each observation
+$i$, a $p$-dimensional vector of up-to-quartic polynomial basis expansions
+with linear, quadratic, cubic, and quartic main effects, linear
+interactions, linear-quadratic interactions, and a single three-way linear
+interaction, can be written as follows. The same construction extends
+directly to more than three predictors, although we restrict attention
+here to at most three-way interactions.
+
+Let
+\[
+\bm{x}_i = (1,\,
+t_i, t_i^2, t_i^3, t_i^4,\,
+u_i, u_i^2, u_i^3, u_i^4,\,
+v_i, v_i^2, v_i^3, v_i^4,\,
+t_i u_i,\,
+t_i v_i,\,
+u_i v_i,\,
+t_i u_i^2,\,
+u_i t_i^2,\,
+t_i v_i^2,\,
+v_i t_i^2,\,
+u_i v_i^2,\,
+v_i u_i^2,\,
+t_i u_i v_i)^{\T}.
+\]
+Because the expansion in each predictor, conditional on the others, is
+in monomial form, taking first derivatives with respect to any predictor
+is straightforward. For example,
+\[
+  \frac{\partial}{\partial t}\bm{x}_i =
+  (0,\,
+  1, 2t_i, 3t_i^2, 4t_i^3,\,
+  0, 0, 0, 0,\,
+  0, 0, 0, 0,\,
+  u_i,\,
+  v_i,\,
+  0,\,
+  u_i^2,\,
+  2u_i t_i,\,
+  v_i^2,\,
+  2v_i t_i,\,
+  0,\,
+  0,\,
+  u_i v_i)^{\T}.
+\]
+The three partial derivatives can be combined as
+\[
+\bm{x}'_i =
+\begin{pmatrix}
+\frac{\partial}{\partial t}\bm{x}_i \\
+\frac{\partial}{\partial u}\bm{x}_i \\
+\frac{\partial}{\partial v}\bm{x}_i
+\end{pmatrix},
+\]
+to construct a $3 \times p$ matrix.
+
+Similarly,
+\[
+\bm{x}''_i =
+\begin{pmatrix}
+\frac{\partial^2}{\partial t^2}\bm{x}_i + \frac{\partial^2}{\partial t \partial u}\bm{x}_i + \frac{\partial^2}{\partial t \partial v}\bm{x}_i \\
+\frac{\partial^2}{\partial u^2}\bm{x}_i + \frac{\partial^2}{\partial t \partial u}\bm{x}_i + \frac{\partial^2}{\partial u \partial v}\bm{x}_i \\
+\frac{\partial^2}{\partial v^2}\bm{x}_i + \frac{\partial^2}{\partial t \partial v}\bm{x}_i + \frac{\partial^2}{\partial u \partial v}\bm{x}_i
+\end{pmatrix}
+\]
+is a $3 \times p$ matrix of predictor-specific ``total'' second
+derivatives, matching the convention used by \pkg{lgspline}: for each
+predictor, the pure second derivative and the mixed second derivatives
+involving that predictor are combined into one row. The smoothing
+constraints imply that at each knot separating partitions $\mathcal{P}_k$
+and $\mathcal{P}_{k^{*}}$ with expansions evaluated at the shared
+boundary point:
+
+\[
+\bm{x}_{k,k^{*}}^{\T}(\bbeta_k - \bbeta_{k^{*}}) =
+\bm{x}_{k,k^{*}}^{'\T}(\bbeta_k - \bbeta_{k^{*}}) =
+\bm{x}_{k,k^{*}}^{''\T}(\bbeta_k - \bbeta_{k^{*}}) = 0.
+\]
+The constraints can be encoded in a matrix
+$\bA \in \mathbb{R}^{P \times R}$ such that the smoothing constraints are
+met when $\bA^{\T}\bbeta = \bm{0}$. Additional linear constraints can
+also be included, or specific smoothness constraints removed, by adding
+or deleting columns from the constraint matrix. For illustration, let
+$K=3$ knots define 4 partitions separated by three knot locations
+$\bm{x}_{1,2}, \bm{x}_{2,3}, \bm{x}_{3,4}$:
+
+\begingroup
+\small
+\[
+\bA^{\T}\bbeta = \begin{pmatrix}
+\bm{x}^{\T}_{1,2} & -\bm{x}^{\T}_{1,2} & \bm{0} & \bm{0} \\
+\bm{x}'^{\T}_{1,2} & -\bm{x}'^{\T}_{1,2} & \bm{0} & \bm{0} \\
+\bm{x}''^{\T}_{1,2} & - \bm{x}''^{\T}_{1,2} & \bm{0} & \bm{0} \\
+\bm{0} & \bm{x}^{\T}_{2,3} & -\bm{x}^{\T}_{2,3} & \bm{0} \\
+\bm{0} & \bm{x}'^{\T}_{2,3} & -\bm{x}'^{\T}_{2,3} & \bm{0} \\
+\bm{0} & \bm{x}''^{\T}_{2,3} & - \bm{x}''^{\T}_{2,3} & \bm{0} \\
+\bm{0} & \bm{0} & \bm{x}^{\T}_{3,4} & -\bm{x}^{\T}_{3,4} \\
+\bm{0} & \bm{0} & \bm{x}'^{\T}_{3,4} & -\bm{x}'^{\T}_{3,4} \\
+\bm{0} & \bm{0} & \bm{x}''^{\T}_{3,4} & - \bm{x}''^{\T}_{3,4}
+\end{pmatrix}\begin{pmatrix}\bbeta_1 \\ \bbeta_2 \\ \bbeta_3 \\ \bbeta_4 \end{pmatrix}.
+\]
+\endgroup
+
+
+\subsection*{S.A.2\quad Constraint counting: $R < P$}
+
+The main paper states that $\bA$ is typically underdetermined in the
+settings of primary interest. Here we give a simple bound that makes
+this precise in the cubic case with up to second-derivative continuity
+constraints.
+
+Let $\phi$ denote the average number of knots per partition. For $q$
+spline predictors and cubic bases with fitted-value, first-derivative,
+and second-derivative matching at each knot, the constraint count is
+\[
+  R = \phi K(2q + 1),
+\]
+using the predictor-specific first- and second-derivative matching
+convention from S.A above (one fitted-value constraint plus $2q$
+derivative constraints per knot). The coefficient dimension satisfies
+\[
+  P = (K+1)p, \qquad p \geq 3q + 1,
+\]
+giving $P \geq (K+1)(3q+1)$. The number of expansions $3q+1$ refers to
+linear, quadratic, and cubic terms per predictor plus an intercept. The
+system is underdetermined, $R < P$, whenever
+\[
+  \phi K(2q+1) < (K+1)(3q+1)
+  \qquad\Longleftrightarrow\qquad
+  \phi < \left(\frac{K+1}{K}\right)\left(\frac{3q+1}{2q+1}\right).
+\]
+A sufficient condition that removes the dependence on $K$ is
+\[
+  \phi \leq \frac{3q+1}{2q+1},
+\]
+since $(K+1)/K > 1$ for all $K \geq 1$. For $q = 1$ this gives
+$\phi \leq 4/3$, and a single-predictor spline with exactly $K$ knots has
+$\phi = 1$, so $R < P$ always holds in the single-predictor cubic
+setting. More generally, if smoothness is enforced up to the $d$th
+derivative instead of the second, the general condition is
+$\phi \leq p/(dq+1)$.
+
+In practice, higher-dimensional partitions can have many neighbors, so
+$\phi$ grows with $q$ and the bound can fail. This is one reason the
+method allows selected derivative constraints to be removed. Retaining
+only fitted-value continuity reduces the per-knot constraint count and
+makes $R < P$ easy to maintain in most settings of interest. When
+interaction terms are added to the basis, $p$ grows while $R$ is
+unchanged, since interactions do not introduce additional knots or
+derivative matching conditions, so $R < P$ is only further loosened.
+
+
+\section*{S.B\quad Woodbury Factorization for Structured Correlation}%
+\label{sec:supp_woodbury}
+\addcontentsline{toc}{section}{S.B Woodbury Factorization for Structured Correlation}
+
+This supplement derives the structured-correlation acceleration
+described in the main paper (Section~3.3). The goal is to preserve the
+transformed-OLS projection while avoiding a dense $P \times P$
+factorization, ans preserving as many opportunities for parallelism as possible.
+
+Write
+\[
+  \bG^{-1} = \bX^\T\bV^{-1}\bX + \bm{\Lambda}
+           = \bG^{-1}_{\mathrm{on}} + \bG^{-1}_{\mathrm{off}},
+\]
+where $\bG^{-1}_{\mathrm{on}}$ contains the $K+1$ block-diagonal
+$p \times p$ pieces and $\bG^{-1}_{\mathrm{off}}$ contains the
+remaining cross-partition terms. Without structured correlation,
+$\bG^{-1}_{\mathrm{off}} = \bm{0}$. The Woodbury route is useful when
+$\bG^{-1}_{\mathrm{off}}$ is sparse and low rank relative to the full
+coefficient dimension, which is common when many partitions are present
+but each correlated subject trajectory spans only a few of them.
+
+Let $\bm{E}\bm{J}\bm{E}^{\T}$ denote a reduced factorization of
+$\bG^{-1}_{\mathrm{off}}$ retaining only the $s$ nonzero singular
+directions. The Woodbury identity gives
+\begin{align}
+    \bG = \bG_{\mathrm{on}} - \bG_{\mathrm{on}}\bm{E}(\bm{J}^{-1}+\bm{E}^{\T}\bG_{\mathrm{on}}\bm{E})^{-1}\bm{E}^{\T}\bG_{\mathrm{on}}.
+      \\ = \bG_{\mathrm{on}}^{1/2}
+        \underbrace{\Bigl[\bI - \bG_{\mathrm{on}}^{1/2}\bm{E}
+        (\bm{J}^{-1}+\bm{E}^{\T}\bG_{\mathrm{on}}\bm{E})^{-1}
+        \bm{E}^{\T}\bG_{\mathrm{on}}^{1/2}\Bigr]}_{\displaystyle \bF}
+        \bG^{1/2}_{\mathrm{on}}.
+\end{align}
+Define $\bm{N} = \bG^{1/2}_{\mathrm{on}}\bm{E}$. Then
+\begin{align}
+    \bF = \bI - \bm{N}(\bm{J}^{-1}+\bm{N}^{\T}\bm{N})^{-1}\bm{N}^{\T}.
+\end{align}
+Applying Woodbury once more yields
+\begin{align}
+    \bF = (\bI + \bm{N}\bm{J}\bm{N}^{\T})^{-1}.
+\end{align}
+Substituting the QR decomposition $\bm{N} = \bQ\bR$, with
+$\bm{P} = \bQ\bQ^\T$, gives the inverse of $\bF$ as:
+\begin{equation}\label{eq:INJN_decomp}
+  \bF^{-1} = \bI + \bm{N}\bm{J}\bm{N}^\T
+  = (\bI - \bm{P}) + \bm{P} + \bQ\bR\bm{J}\bR^\T\bQ^\T
+  = (\bI - \bm{P}) + \bQ\underbrace{(\bI_s + \bR\bm{J}\bR^\T)}_{\displaystyle\bS}\bQ^\T.
+\end{equation}
+Because $\bI-\bm{P}$ and $\bQ\bS\bQ^\T$ act on orthogonal subspaces,
+the square roots follow immediately:
+\[
+  \bF^{-1/2} = (\bI-\bm{P})+\bQ\bS^{1/2}\bQ^{\T},
+  \qquad
+  \bF^{1/2} = (\bI-\bm{P})+\bQ\bS^{-1/2}\bQ^{\T}.
+\]
+Therefore
+\begin{align}
+  \bG^{1/2}    &= \bG_{\mathrm{on}}^{1/2}\,\bF^{1/2}
+                = \bG_{\mathrm{on}}^{1/2}
+                  \bigl[(\bI - \bm{P}) + \bQ\bS^{-1/2}\bQ^\T\bigr],
+                  \label{eq:G_half}\\[4pt]
+  \bG^{-1/2}   &= \bF^{-1/2}\,\bG_{\mathrm{on}}^{-1/2}
+                = \bigl[(\bI - \bm{P}) + \bQ\bS^{1/2}\bQ^\T\bigr]
+                  \bG_{\mathrm{on}}^{-1/2}.
+                  \label{eq:G_invhalf}
+\end{align}
+The non-block-diagonal part enters only through the projector $\bm{P}$
+and the $s \times s$ matrix $\bS$.
+
+The unconstrained GLS estimator is
+$\bhbeta = \bG\bX^\T\bV^{-1}\by$.
+The constrained estimator is obtained by replacing $\bG$ in the
+projection formula from the main paper (Section~2.2):
+\[
+  \btbeta
+  = \bigl[\bI - \bG\bA(\bA^\T\bG\bA)^{-1}\bA^\T\bigr]\bhbeta.
+\]
+As in the independent case, define the transformed quantities
+\[
+  \bw = \bX^\T\bV^{-1}\by,
+  \qquad
+  \by^* = \bG^{1/2}\bw,
+  \qquad
+  \bX^* = \bG^{1/2}\bA.
+\]
+Then
+\[
+  \br^*
+  = \bigl[\bI - \bX^*(\bX^{*\T}\bX^*)^{-1}\bX^{*\T}\bigr]\by^*,
+  \qquad
+  \btbeta = \bG^{1/2}\br^*.
+\]
+Using~\eqref{eq:G_half}, each transformed quantity is a
+block-diagonal multiplication through $\bG_{\mathrm{on}}^{1/2}$ plus a
+rank-$s$ correction via $\bF^{1/2}$:
+\begin{align*}
+  \by^*
+  &= \bG_{\mathrm{on}}^{1/2}
+     \bF^{1/2}\bw,\\
+  \bX^*
+  &= \bG_{\mathrm{on}}^{1/2}
+     \bF^{1/2}\bA,\\
+  \btbeta
+  &= \bG_{\mathrm{on}}^{1/2}
+     \bF^{1/2}\br^*.
+\end{align*}
+The only QR decomposition on the full coefficient space is still that
+of the $P \times R$ matrix $\bX^*$. If the constraints are
+nonzero, $\bA^\T\bbeta = \bm{c}$, the same particular-solution
+adjustment used in the main paper (Section~2.2) is added after
+projection.
+
+\section*{S.C\quad Penalty Tuning}\label{sec:supp_penalties}
+\addcontentsline{toc}{section}{S.D Penalty Construction and Tuning}
+
+
+Penalty parameters are estimated on the log scale
+($\lambda = \exp(\theta)$). In \pkg{lgspline}, the default criterion is RMSE computed on the
+exact leave-one-out cross-validation residuals under constraint
+\citep{tarpey2000}. The leave-one-out values $y^{(-)}$ may be expressed
+as:
+\begin{align}
+    y^{(-)}_i = y_i - \frac{y_i-\tilde{y}_i}{1-\bm{H}_{ii}},
+\end{align}
+where $\bm{H}_{ii}$ is the $i$th diagonal element of the hat matrix
+$\bm{H}$. In the present setting, the constrained hat matrix is
+\[
+\bH = \bX \bU \bG \bX^\T,
+\]
+so the usual leverage adjustment is applied using the diagonal entries
+of $\bH$.
+
+An optional generalized cross-validation (GCV) \citep{golub1979} approximation
+is also available:
+\begin{equation}\label{eq:gcv}
+  \mathrm{GCV}_u = \frac{\sum_{i=1}^N r_i^2}{N(1 - \bar{W})^2},
+\end{equation}
+where $r_i$ are residuals on the link scale, $\bar{W} = \tr(\bH)/N$,
+and $\bH$ is the constrained hat matrix above. This is the direct
+analogue of the usual GCV score, with the ordinary hat matrix replaced
+by $\bX\bU\bG\bX^\T$. Closed-form gradients with respect to the
+log-penalty parameters are available through Liebniz chain rule. The
+implementation in \pkg{lgspline} uses a grid search to initialize a quasi-Newton
+optimizer, and by default, the optimized penalties are divided by $((N+1)/(N-1))^2$
+as a small-sample adjustment. 
+
+To obtain residuals on the link scale for non-identity link function
+$g$, consider a small non-negative scalar $\delta > 0$ and compute
+$g(\frac{y+\delta}{1+2\delta})$ and
+$g(\frac{\tilde{y}+\delta}{1+2\delta})$ to obtain predictions, avoiding computational issues with link functions such as logit
+transforms of binary response or natural log transforms of counts of 0.
+The implementation in \pkg{lgspline} automatically tunes $\delta$ by
+default such that the marginal distribution of transformed $y$ follows
+a $t$ distribution with $N-1$ degrees of freedom, as measured using the
+MAE between observed and expected quantiles of the transformed response.
+This is a computationally convenient approximation as it allows most of
+the derivative machinery used for identity link to remain intact for
+gradient-based optimization of penalty parameter through non-Gaussian and non-identity link settings. 
+
+As mentioned in the main text, the derivative of $\lambda_w$ is computed first which allows for derivatives of all other penalties $\lambda_{l=1...L,k=1...K+1}, \lambda_r$ to computed efficiently. This relies on a heuristic presented below, which we hope to extend as standalone future work. 
+
+For simplicity, suppose $\boldsymbol{\Lambda}_k = \lambda_w(\bLam_s + \lambda_r\bI + \lambda_{z}\bLam_{z})$ for all partitions, and suppose we differentiated the tuning criterion (either leave-one-out cross-validated RMSE or GCV under consraint) for $\lambda_w$, which in general involves many matrix and vector operations, even with block-diagonal structure leveraged. To quickly obtain derivatives for other penalties without repeating these operations, consider the following heuristic, abusing calculus notation for Leibniz chain rule (as this maps to a matrix rather than a scalar) for criterion $\ell$:
+
+\begin{align}
+    \frac{\partial \ell }{\lambda_{z}}= \sum^{K+1}_{k=1}\frac{\partial \bLam_k}{\lambda_{z}}\frac{\partial{\lambda_w}}{\partial \bLam_k}\frac{\partial{\ell}}{\lambda_w}.
+\end{align}
+By inverse derivative rule:
+\begin{align}
+    = \sum^{K+1}_{k=1}\frac{\partial \bLam_k}{\lambda_{z}}(\frac{\partial \bLam_k}{\partial{\lambda_w}})^{-1}\frac{\partial{\ell}}{\lambda_w}.
+\end{align}
+Substituting exact derivatives:
+\begin{align}
+    = \sum^{K+1}_{k=1}\lambda_w\bLam_{z}(\frac{1}{\lambda_w}\bLam_k)^{-1}\frac{\partial{\ell}}{\lambda_w} = \sum^{K+1}_{k=1}\lambda^2_w\bLam_{z}\bLam_k^{-1}\frac{\partial{\ell}}{\lambda_w}.
+\end{align}
+Replace this with a trace-ratio approximation of the matrix operations to avoid explicit inversion, and map to a scalar:
+\begin{align}
+    \frac{\partial \ell}{\lambda_{z}} \approx \sum^{K+1}_{k=1}\lambda^2_w(\frac{\tr{\bLam_{z}}}{\tr{\bLam_{k}}})\frac{\partial{\ell}}{\lambda_w}.
+\end{align}
+This can be straightforwardly adjusted further for parameterization on log-penalties through additional chain-rule calculus, but is omitted for brevity. Without loss of generality, this extends to the flat ridge penalty $\lambda_r$ and all $\lambda_{l,k}$ in place of $\lambda_z$.  
+
+In preliminary simulations and analyses, the trace-ratio seemed to approximate a finite-difference derivative extremely well, and as shown in the performance simulations, yields appreciable performance in practice. However, since this is to the best of our knowledge original work and is not essential to the proposed monomial framework, we omit this here. 
+
+\section*{S.D\quad REML for Correlation Parameters}\label{sec:supp_reml}
+\addcontentsline{toc}{section}{S.E REML for Correlation Parameters}
+
+When a working correlation $\bV = \bV(\bm{\rho})$ is present, $\bm{\rho}$ is
+estimated by minimizing a negative restricted maximum likelihood (REML) criterion scaled by $1/N$:
+\begin{align*}
+  -\log \mathcal{L}_R(\bm{\rho},\sigma^2)
+  &= \frac{1}{N}\Bigl[
+    -\log|\bV^{-1/2}| + \frac{N}{2}\log\sigma^2 \\
+  &\qquad
+    + \frac{1}{2\sigma^2}(\by - \tilde{\bmu})^\T\bm{D}\tilde{\bW}^{-1}\bV^{-1}(\by - \tilde{\bmu}) \\
+  &\qquad
+    + \frac{1}{2}\log|(\sigma^2 \tilde{\bU}\tilde{\bG})^{-1}|^{+}
+  \Bigr],
+\end{align*}
+where $|\cdot|^{+}$ is the generalized determinant, the
+product of the nonzero eigenvalues, $\tilde{\boldsymbol{\mu}} = g^{-1}(\bX\btbeta)=\mathbb{E}[\by]$ for link function $g$, $\tilde{\bW} = \begin{pmatrix}
+    \ddots & & \\
+    & [V(\tilde{\mu}_i)\{g'(\tilde{\mu}_i)\}^2]^{-1} & \\
+    & & \ddots
+\end{pmatrix}$ is a diagonal matrix of GLM weights, and $\bm{D}$ is a diagonal matrix of user-supplied custom weights. This reduces to classical unbiased REML estimate for Gaussian responses with identity link and no penalization nor constraint. The estimate of dispersion obtained from optimizing this criterion is $\tilde{\sigma}^2 = \frac{\||\bV^{-1/2}\tilde{\bW}^{-1/2}\bm{D}^{1/2}(\by-\tilde{\bm{\mu}}) \|^2}{N-\tr(\bH)}$ which reduces to the usual REML estimate for Gaussian response and identity link, and reduces to a re-scaled method-of-moment estimator for non-Gaussian response. The approximation above is not a typical generalization of REML to non-Gaussian response, but it is convenient for implementation in \pkg{lgspline} since it only requires the moments of the distribution to be known without specifying the full log-likelihood (or quasi-likelihood etc.), and gradients with respect to $\bm{\rho}$ are mostly preserved. 
+
+
+\section*{S.E\quad GLM Extension: Consistency and Asymptotic Normality}\label{sec:supp_glm}
+\addcontentsline{toc}{section}{S.F GLM Extension: Consistency and Asymptotic Normality}
+
+This section records the informal large-sample motivation for the GLM
+extension. This is important, because we do not derive the actual constrained MLE directly, so it is not obvious if properties like consistency or asymptotic normality hold. The construction follows the usual
+constrained-projection logic from the Gaussian case and then replaces
+the Gaussian precision by the fitted GLM information matrix.
+
+Under standard regularity conditions for a correctly specified penalized
+GLM, let $\bhbeta$ denote the unconstrained estimator. Then
+\begin{align}
+    \bhbeta &\xrightarrow{p} \bbeta^{*}, \label{eq:glm_consist}\\
+    \sqrt{N}\,\bG^{-1/2}(\bhbeta - \bbeta^{*}) &\xrightarrow{d} \mathcal{N}(\bm{0},\, \bm{\Sigma}), \label{eq:glm_an}
+\end{align}
+for some target $\bbeta^{*}$ satisfying the imposed equality
+constraints $\bA^\T\bbeta^{*} = \bm{0}$, and a positive-definite
+covariance matrix $\bm{\Sigma}$. The constrained estimator after a single iteration $\btbeta^{(1)}$ is then
+defined by
+\begin{equation}
+    \btbeta^{(1)}
+    = \bU(\bhbeta)\,\bhbeta,
+\end{equation}
+where $\bU(\cdot)$ is the projection matrix built from the fitted
+information matrix. If $\bU(\bhbeta)$ converges in probability to some matrix $\bU^{*}$ (note, as an idempotent matrix, all elements are bounded continuous functions of $\bhbeta$), then Slutsky's theorem gives:
+\begin{equation}\label{eq:glm_cmt}
+    \bU(\bhbeta)\bhbeta \xrightarrow{p} \bU^{*}\bbeta^{*} = \bbeta^{*}.
+\end{equation}
+This shows consistency of the ``one-step" constrained estimator. By iterating and improving upon the penalized log-likelihood, consistency of the actual estimator $\btbeta = \bU(\btbeta)\bhbeta$ immediately holds; this is because the penalized log-likelihood after $m>1$ iterations is always greater than or equal to the penalized log-likelihood after a single iteration by construction, (note if $\log \mathcal{L}(\btbeta^{(1)}) \leq \log \mathcal{L}(\btbeta) \leq \log \mathcal{L} (\bbeta^{*})$ and $\frac{1}{N}|\log \mathcal{L}(\btbeta^{(1)})- \log\mathcal{L}(\bbeta^{*})| \xrightarrow{p} 0$ then $\frac{1}{N}|\log \mathcal{L}(\btbeta)- \log\mathcal{L}(\bbeta^{*})| \rightarrow 0$). Under the same
+assumptions, for any fixed linear combination $\bm{x}^\T\btbeta$,
+Slutsky's theorem then yields an asymptotically normal limit:
+\begin{equation}\label{eq:glm_slutsky}
+    \sqrt{N}\,\bigl\{\bm{x}^\T(\btbeta - \bbeta^{*})\bigr\}
+    \xrightarrow{d} \mathcal{N}(0,\, \tau^2),
+\end{equation}
+for some $\tau^2 > 0$. Because $\rank(\bU)=P-R$, the full coefficient
+vector remains confined to the $(P-R)$-dimensional null space of 
+$\bA^\T$ and is therefore singular as a $P$-variate distribution. Fitted values,
+derivatives, integrals, and other linear combinations of coefficients remain identifiable. Identifiably of the posterior can also be maintained by defining it as a projection of a non-degenerate $P$-dimensional distribution for $\bhbeta$ by $\bU$, as shown in the Bayesian description of the main text. \
+
+
+\section*{S.F\quad Approximation Properties}\label{sec:supp_approx}
+\addcontentsline{toc}{section}{S.G Approximation Properties}
+
+The framework has broad approximation flexibility, and is able to approximate any noisy continuous function with independent Gaussian-distributed error terms. A formal proof is not appropriate for this submission, but the intuition is straightforward and worth explaining. By the multivariate
+Weierstrass theorem, any continuous $f^*$ on a compact
+$\mathcal{T} \subset \mathbb{R}^q$ can be approximated uniformly by a
+polynomial. On a sufficiently fine partition, by Taylor's Theorem,
+local quadratic functions can in turn approximate that global
+polynomial well over arbitrarily small neighborhoods of the support with maximum radius $r$ as quantified by $L^2$ norm. For any neighborhood $k$, we can define an even smaller neighborhood of radius $<r$ and call this ``partition" $\mathcal{P}_k$, containing all quadratic expansions and several more polynomial terms (e.g. cubic or quartic terms). Thus the monomial basis spans the corresponding local quadratic space in any partition, and we have complete control over where partitions are located, how many, and how fine, and if smoothness constraints can be relaxed. By consistency of penalized MLE estimators under usual regularity conditions (which $\btbeta$ is a special case of), $\btbeta$ under certain assumptions converges to a ``true" $\bbeta^{*}$ such that the local polynomial it implies approximates the global polynomial at least as well as the quadratic Taylor Series expansion in terms of variance (it is the minimum variance unbiased estimate of the ``best" polynomial it spans), and thus equivalently minimizes $L^2$ norm \emph{better} than the local quadratic Taylor Series expansion. All continuous functions thus belong to the space of functions that the proposed framework can approximate, assuming independent Gaussian-distributed errors. The argument extends without loss of generality, to any other distribution for which the constrained estimates $\btbeta$ are consistent. The existence of a single ``true" unique $\bbeta^{*}$ is not strictly necessary but makes a formal proof more involved.
+
+This is not a a finite-sample
+performance guarantee, nor as particularly impressive as it may seem at first glance, since it does not determine how many partitions are needed, how much data are required, or which smoothness constraints can
+be retained without making the problem overconstrained. It is however, important to note for potential future work. 
+
+\section*{S.G\quad Fixed-Penalty Simulation Results}\label{sec:supp_fixed}
+\addcontentsline{toc}{section}{S.H Fixed-Penalty Simulation Results}
+
+This supplement reports RMSE and wall-clock timing for the simulation
+study of main-paper Section~5.1 under a fixed penalty of $\lambda =
+10^{-4}$ applied to each method's native penalty structure, rather than
+data-adaptive tuning. All other settings (sample sizes, noise levels,
+replication count $B = 24$, number of cores) are identical to the tuned
+case. No wall-clock cap was imposed; every replication ran to completion.
+
+The qualitative patterns match the tuned results. At $q = 4$ the
+truncated polynomial fails in every replication at every sample size
+when fit without data-adaptive ridge tuning, reported as NaN below,
+reflecting quartic design-matrix entries for $t_2 \in [40\pi, 560\pi]$
+reaching magnitudes on the order of $10^{13}$ against which a fixed
+ridge of $10^{-4}$ provides no stability. The fixed penalty is also too
+weak for \pkg{lgspline} at $q = 1$, which shows degraded RMSE relative
+to the tuned result; the \pkg{mgcv} methods are less affected because
+REML is a relatively cheap outer loop on top of a per-fit factorization
+that already dominates cost. The runtime advantage of \pkg{lgspline} at
+$q = 4$ widens substantially under the fixed penalty, from the
+$5\times$-$11\times$ reported in the main text under tuning to roughly
+$42\times$-$72\times$ here, confirming that the tuned-regime speedups
+are a lower bound on the per-fit advantage of the block-diagonal
+monomial formulation at $q = 4$.
+
+\begin{table}[ht]
+\centering
+\caption{RMSE against $f_{\mathrm{true}}$ (mean (SD)) under fixed
+penalty $\lambda = 10^{-4}$ over 24 replications. Lowest feasible RMSE
+in each column is \textbf{bold}. Cells marked $\dagger$ at $q = 4$
+indicate truncated-polynomial failure (every replication produced
+numerical failure, reported as NaN) and are excluded from
+bolding.}\label{tab:rmse_fixed}
+\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{} ll rrr rrr rrr @{}}
+\toprule
+ & & \multicolumn{3}{c}{$q = 1$}
+ & \multicolumn{3}{c}{$q = 2$}
+ & \multicolumn{3}{c}{$q = 4$} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(lr){9-11}
+$\sigma$ & Method & $N{=}500$ & $N{=}5\text{k}$ & $N{=}50\text{k}$
+       & $N{=}500$ & $N{=}5\text{k}$ & $N{=}50\text{k}$
+       & $N{=}500$ & $N{=}5\text{k}$ & $N{=}50\text{k}$ \\
+\midrule
+0.5 & \pkg{lgspline}
+  & 0.904 (0.032) & 0.792 (0.016) & 0.702 (0.035)
+  & \textbf{1.099} (0.116) & 1.160 (0.093) & 1.222 (0.068)
+  & 0.845 (0.092) & \textbf{0.562} (0.030) & \textbf{0.544} (0.029) \\
+ & Cubic RS
+  & 0.713 (0.068) & \textbf{0.703} (0.027) & \textbf{0.692} (0.013)
+  & 1.127 (0.048) & 1.137 (0.015) & 1.139 (0.004)
+  & \textbf{0.660} (0.064) & 0.773 (0.028) & 0.790 (0.009) \\
+ & TPRS
+  & \textbf{0.713} (0.044) & 0.724 (0.010) & 0.716 (0.003)
+  & 1.114 (0.046) & \textbf{1.128} (0.013) & \textbf{1.127} (0.004)
+  & 0.777 (0.079) & 0.895 (0.032) & 0.909 (0.009) \\
+ & Trunc.\ poly
+  & 1.198 (0.034) & 1.136 (0.012) & 1.048 (0.004)
+  & 1.294 (0.062) & 1.316 (0.015) & 1.317 (0.005)
+  & NaN$^\dagger$ & NaN$^\dagger$ & NaN$^\dagger$ \\
+\addlinespace
+2.0 & \pkg{lgspline}
+  & 0.949 (0.030) & 0.796 (0.016) & \textbf{0.687} (0.028)
+  & \textbf{1.158} (0.100) & 1.207 (0.087) & 1.242 (0.071)
+  & 1.186 (0.075) & \textbf{0.671} (0.035) & \textbf{0.560} (0.054) \\
+ & Cubic RS
+  & 0.794 (0.059) & \textbf{0.710} (0.038) & 0.698 (0.014)
+  & 1.190 (0.046) & 1.152 (0.011) & 1.138 (0.004)
+  & \textbf{1.163} (0.081) & 0.841 (0.030) & 0.793 (0.011) \\
+ & TPRS
+  & \textbf{0.788} (0.037) & 0.729 (0.012) & 0.717 (0.003)
+  & 1.175 (0.044) & \textbf{1.142} (0.011) & \textbf{1.126} (0.003)
+  & 1.177 (0.085) & 0.947 (0.035) & 0.910 (0.010) \\
+ & Trunc.\ poly
+  & 1.221 (0.035) & 1.139 (0.015) & 1.049 (0.004)
+  & 1.346 (0.056) & 1.328 (0.013) & 1.317 (0.005)
+  & NaN$^\dagger$ & NaN$^\dagger$ & NaN$^\dagger$ \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{Mean wall-clock time in seconds under fixed penalty $\lambda =
+10^{-4}$ over 24 replications (SD in parentheses). Fastest method in
+each column is \textbf{bold}. Cells marked $\dagger$ at $q = 4$ indicate
+truncated-polynomial failure (infeasible RMSE) and are excluded from
+the bolding comparison.}\label{tab:timing_fixed}
+\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{} ll rrr rrr rrr @{}}
+\toprule
+ & & \multicolumn{3}{c}{$q = 1$}
+ & \multicolumn{3}{c}{$q = 2$}
+ & \multicolumn{3}{c}{$q = 4$} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(lr){9-11}
+$\sigma$ & Method & $500$ & $5\text{k}$ & $50\text{k}$
+       & $500$ & $5\text{k}$ & $50\text{k}$
+       & $500$ & $5\text{k}$ & $50\text{k}$ \\
+\midrule
+0.5 & \pkg{lgspline}
+  & 0.08 (0.02) & 0.19 (0.03) & 1.15 (0.12)
+  & 0.18 (0.05) & 0.35 (0.04) & 2.90 (0.26)
+  & \textbf{0.89} (0.22) & \textbf{0.85} (0.13) & \textbf{2.95} (0.48) \\
+ & Cubic RS
+  & 0.14 (0.11) & 0.41 (0.15) & 3.85 (1.26)
+  & 0.26 (0.17) & 0.69 (0.21) & 10.40 (1.66)
+  & 3.59 (0.57) & 20.60 (7.68) & 137.00 (23.50) \\
+ & TPRS
+  & 0.15 (0.11) & 1.13 (0.16) & 6.58 (1.42)
+  & 0.33 (0.18) & 2.46 (0.42) & 14.60 (1.76)
+  & 3.28 (0.46) & 21.20 (5.68) & 124.00 (27.50) \\
+ & Trunc.\ poly
+  & \textbf{0.00} (0.01) & \textbf{0.01} (0.01) & \textbf{0.05} (0.02)
+  & \textbf{0.00} (0.00) & \textbf{0.01} (0.01) & \textbf{0.06} (0.02)
+  & 0.00$^\dagger$ (0.00) & 0.01$^\dagger$ (0.01) & 0.08$^\dagger$ (0.02) \\
+\addlinespace
+2.0 & \pkg{lgspline}
+  & 0.08 (0.02) & 0.20 (0.03) & 1.16 (0.13)
+  & 0.17 (0.04) & 0.36 (0.05) & 2.93 (0.26)
+  & \textbf{0.91} (0.19) & \textbf{0.83} (0.10) & \textbf{2.87} (0.51) \\
+ & Cubic RS
+  & 0.16 (0.09) & 0.41 (0.13) & 4.65 (1.29)
+  & 0.30 (0.21) & 0.83 (0.32) & 9.92 (1.58)
+  & 3.78 (0.56) & 27.70 (7.83) & 196.00 (36.10) \\
+ & TPRS
+  & 0.19 (0.12) & 1.19 (0.15) & 7.08 (1.46)
+  & 0.35 (0.19) & 2.43 (0.31) & 13.90 (1.66)
+  & 4.08 (0.43) & 33.00 (7.08) & 208.00 (39.50) \\
+ & Trunc.\ poly
+  & \textbf{0.00} (0.01) & \textbf{0.00} (0.01) & \textbf{0.05} (0.02)
+  & \textbf{0.00} (0.01) & \textbf{0.00} (0.01) & \textbf{0.07} (0.02)
+  & 0.00$^\dagger$ (0.00) & 0.01$^\dagger$ (0.01) & 0.08$^\dagger$ (0.02) \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\section*{S.H\quad Single-Predictor Base R Reference Implementation}
+\label{sec:supp_simple}
+\addcontentsline{toc}{section}{S.I Base R Reference Implementation}
+
+This supplement references a compact base \textsf{R} reference
+implementation of the constrained monomial spline procedure for a
+single predictor with a cubic basis over three partitions, intended as
+a readable reference rather than a production routine. The script uses
+only base \textsf{R} together with the helper functions
+\texttt{matsqrt} and \texttt{matinvsqrt} from \pkg{lgspline} for
+symmetric matrix square roots, and it follows the four-step
+transformed-OLS projection of main-paper Section~3.1. An extension to logistic regression is also included. Extensions to
+multiple predictors, interactions, other GLM responses, and structured
+correlation follow the same template but are more verbose; the full
+implementation is in the \pkg{lgspline} package. The corresponding
+script \texttt{simple\_implementation.R} is distributed with the
+supplementary materials.
+
+Figure~\ref{fig:supp_simple} shows the unconstrained and constrained
+fits produced by this script on a noisy test signal with $N = 150$
+points. The unconstrained fits are independent cubic polynomials on
+each of the three partitions with visible jumps and kinks at the knots
+$t = \pm 2$; the constrained fit is everywhere twice continuously
+differentiable while retaining the local cubic-polynomial
+representation within each partition.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.95\textwidth]{simple_illustration.png}
+\caption{Reference-implementation output on a single-predictor test
+problem. \emph{Left:} independent partition-wise fits, with
+discontinuities in fitted values and derivatives at the knots
+$t = \pm 2$. \emph{Right:} the same data fit under the four-step
+transformed-OLS projection enforcing second-derivative, first-derivative, and fitted value continuity at both knots;
+each coloured segment remains a cubic polynomial, and the three
+segments join smoothly.}\label{fig:supp_simple}
+\end{figure}
+
+
+\bibliographystyle{chicago}
+\begin{thebibliography}{9}
+
+\bibitem[\protect\citeauthoryear{Golub, Heath, and Wahba}{1979}]{golub1979}
+Golub, G.~H., Heath, M., and Wahba, G. (1979), ``Generalized Cross-Validation as a Method for Choosing a Good Ridge Parameter,'' \textit{Technometrics}, 21(2), 215--223.
+
+\bibitem[\protect\citeauthoryear{Tarpey}{2000}]{tarpey2000}
+Tarpey, T. (2000), ``A Note on the Prediction Sum of Squares Statistic for Restricted Least Squares,'' \textit{The American Statistician}, 54, 116--118.
+
+\end{thebibliography}
+
+\end{document}
+
+
+
+
+
+
+
+
+

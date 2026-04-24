@@ -2100,9 +2100,12 @@ compute_trace_UGXX_wrapper <- function(G,
 #'
 #' \subsection{Partition-specific penalties}{
 #' When \code{unique_penalty_per_partition = TRUE}, each partition \eqn{k}
-#' has an additional penalty matrix \eqn{\mathbf{L}_k} from
-#' \code{L_partition_list}, so the effective per-partition penalty becomes
-#' \eqn{\boldsymbol{\Lambda}_k = \boldsymbol{\Lambda} + \mathbf{L}_k}.
+#' has an additional penalty component from \code{L_partition_list}. In the
+#' notation of the paper, this is an added
+#' \eqn{\lambda_{l,k}\boldsymbol{\Lambda}_{l,k}}, so the effective
+#' per-partition penalty becomes
+#' \eqn{\boldsymbol{\Lambda}_k = \boldsymbol{\Lambda} +
+#' \lambda_{l,k}\boldsymbol{\Lambda}_{l,k}}.
 #' All block-wise traces and products use \eqn{\boldsymbol{\Lambda}_k}
 #' in place of the shared \eqn{\boldsymbol{\Lambda}}.
 #' }
@@ -3080,21 +3083,35 @@ expgrid <- function(vec_list, indices) {
 #' Construct Smoothing Spline Penalty Matrix
 #'
 #' @description
-#' Builds penalty matrix combining smoothing spline and ridge penalties with optional
-#' predictor/partition-specific components.
+#' Builds the per-partition penalty
+#' \eqn{\boldsymbol{\Lambda}_k =
+#' \lambda_w(\boldsymbol{\Lambda}_s + \lambda_r\boldsymbol{\Lambda}_r +
+#' \sum_{l=1}^{L}\lambda_{l,k}\boldsymbol{\Lambda}_{l,k})},
+#' together with the implementation objects used to store those pieces.
 #'
 #' @param custom_penalty_mat Matrix; optional custom ridge penalty structure
-#' @param L1 Matrix; integrated squared second derivative penalty (\eqn{\textbf{L}_1})
-#' @param wiggle_penalty,flat_ridge_penalty Numeric; smoothing and ridge penalty parameters
+#' @param L1 Matrix; implementation label for the integrated squared
+#'   second-derivative penalty \eqn{\boldsymbol{\Lambda}_s}.
+#' @param wiggle_penalty,flat_ridge_penalty Numeric; the tuning scalars
+#'   \eqn{\lambda_w} and \eqn{\lambda_r}.
 #' @param K Integer; number of interior knots (\eqn{K})
 #' @param p_expansions Integer; number of basis columns per partition
-#' @param unique_penalty_per_predictor,unique_penalty_per_partition Logical; enable predictor/partition-specific penalties
-#' @param penalty_vec Named numeric; custom penalty values for predictors/partitions
+#' @param unique_penalty_per_predictor,unique_penalty_per_partition Logical;
+#'   enable additional \eqn{\lambda_{l,k}\boldsymbol{\Lambda}_{l,k}}
+#'   components through predictor- or partition-specific tuning directions.
+#' @param penalty_vec Named numeric; custom values for the additional
+#'   \eqn{\lambda_{l,k}} parameters.
 #' @param colnm_expansions Character; column names for linking penalties to predictors
-#' @param just_Lambda Logical; return only combined penalty matrix (\eqn{\boldsymbol{\Lambda}})
+#' @param just_Lambda Logical; return only the baseline shared penalty block
+#'   rather than the full list of implementation pieces.
 #'
-#' @return List containing Lambda, L1, L2, L_predictor_list, L_partition_list;
-#'   or just Lambda if \code{just_Lambda=TRUE} and no partition penalties.
+#' @return List containing \code{Lambda}, \code{L1}, \code{L2},
+#'   \code{L_predictor_list}, and \code{L_partition_list}; or just
+#'   \code{Lambda} if \code{just_Lambda = TRUE} and there are no
+#'   partition-specific penalties. Here \code{L1}/\code{L2} are
+#'   implementation labels for \eqn{\boldsymbol{\Lambda}_s} and
+#'   \eqn{\boldsymbol{\Lambda}_r}, while the list outputs store the
+#'   additional \eqn{\boldsymbol{\Lambda}_{l,k}} components.
 #'
 #' @keywords internal
 #' @export

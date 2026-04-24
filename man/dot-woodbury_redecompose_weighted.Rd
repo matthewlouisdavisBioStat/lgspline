@@ -69,7 +69,7 @@ A list with the same structure as \code{.woodbury_decompose_V}:
   \item{G_corrected}{List of corrected \eqn{\mathbf{G}_{\mathrm{on},k}}.}
   \item{E}{Off-diagonal low-rank factor (\eqn{P \times r}), denoted by
     \eqn{\mathbf{E}} in the supplement.}
-  \item{J_signs}{Length-\eqn{r} sign vector, i.e.\ the diagonal of
+  \item{J}{Length-\eqn{r} sign vector, i.e.\ the diagonal of
     \eqn{\mathbf{J}}.}
   \item{r}{Integer effective rank.}
   \item{inner_inv}{Precomputed \eqn{r \times r} Woodbury inner inverse; in
@@ -78,8 +78,6 @@ A list with the same structure as \code{.woodbury_decompose_V}:
     \mathbf{E})^{-1}}.}
   \item{GL}{List of per-partition matrices corresponding to
     \eqn{\mathbf{G}_{\mathrm{on},k}\mathbf{E}[rows_k,]} in supplement notation.}
-  \item{L,S_signs,M}{Legacy internal aliases for
-    \code{E}, \code{J_signs}, and \code{inner_inv}.}
 }
 }
 \description{
