@@ -1,1 +1,0 @@
-.libPaths(c('.r-lib', .libPaths())); source('scripts/tuning_parallel_investigation.R'); out <- run_tuning_parallel_investigation(K_component_grid = c(24L), K_loop = 24L, n_workers = 2L); print(head(out)); print(out)

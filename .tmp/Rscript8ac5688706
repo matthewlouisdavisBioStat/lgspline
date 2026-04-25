@@ -1,1 +1,0 @@
-options(error=function() { traceback(2); q(status=1) }); .libPaths(c('.r-lib', .libPaths())); source('scripts/tuning_parallel_investigation.R'); out <- tryCatch(run_tuning_parallel_investigation(K_component_grid = c(24L), K_loop = 24L, n_workers = 2L), error=function(e) { message(conditionMessage(e)); stop(e) }); print(head(out)); print(out)

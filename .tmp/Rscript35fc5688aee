@@ -1,1 +1,0 @@
-tryCatch(parallel:::.workRSOCK,error=function(e)parallel:::.slaveRSOCK)()
