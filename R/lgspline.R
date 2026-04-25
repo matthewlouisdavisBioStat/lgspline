@@ -234,6 +234,9 @@
 #'   derivatives at knot points.
 #' @param include_constrain_interactions Default: TRUE. Logical switch to constrain
 #'   interaction terms at knot points.
+#' @param qr_pivot_smoothing_constraints Default: TRUE. Logical switch to reduce
+#'   the smoothness/equality constraint matrix to a linearly independent set
+#'   before fitting. Disabling this keeps the original equality columns.
 #' @param constraint_values Default: \code{cbind()}. Optional matrix encoding
 #'   nonzero equality targets paired with \code{constraint_vectors}. When left
 #'   empty, added equality constraints are treated as homogeneous.
@@ -253,9 +256,21 @@
 #'   Score function for quadratic programming, blockfit, and GEE formulations.
 #'   Accepts arguments \code{"X, y, mu, order_list, dispersion, VhalfInv,
 #'   observation_weights, ..."}.
-#' @param qp_observations Default: NULL. Numeric vector of observation indices
-#'   at which built-in QP constraints are evaluated. Useful for reducing the
-#'   size of the constrained system.
+#' @param qp_observations Default: NULL. Either a numeric vector of
+#'   observation indices at which every active built-in QP constraint is
+#'   evaluated, or a named list keyed by \code{"var:qp_<type>"} (or bare
+#'   \code{"qp_<type>"}) giving different built-in constraints different
+#'   observation subsets. The known types are \code{qp_range_lower},
+#'   \code{qp_range_upper}, \code{qp_positive_derivative},
+#'   \code{qp_negative_derivative}, \code{qp_positive_2ndderivative},
+#'   \code{qp_negative_2ndderivative}, \code{qp_monotonic_increase}, and
+#'   \code{qp_monotonic_decrease}. For range and monotonicity the canonical
+#'   keys are the bare forms such as \code{"qp_range_lower"} and
+#'   \code{"qp_monotonic_increase"}, because those constraints are not tied
+#'   to a specific variable; prefixed entries are still accepted and unioned.
+#'   Derivative entries dispatch per variable, so different variables and
+#'   constraint types may use different subsets. Unknown keys are ignored
+#'   with a warning when \code{include_warnings = TRUE}.
 #' @param qp_Amat Default: NULL. Optional pre-built QP constraint matrix.
 #'   In the current pipeline its presence marks QP handling as active, but the
 #'   built-in constructor does not merge it into the assembled constraint set;
@@ -287,6 +302,11 @@
 #'   fitted values.
 #' @param qp_range_lower Default: NULL. Optional lower bound on constrained
 #'   fitted values.
+#' @param qr_pivot_inequality_constraints Default: FALSE. Logical switch to
+#'   reduce partition-local inequality constraint columns to QR pivot columns
+#'   before solving. Built-in range and monotonicity constraints are left
+#'   unchanged, and more generally any inequality columns spanning multiple
+#'   partitions are also left unchanged.
 #' @param qp_Amat_fxn Default: NULL. Custom function generating Amat.
 #' @param qp_bvec_fxn Default: NULL. Custom function generating bvec.
 #' @param qp_meq_fxn Default: NULL. Custom function generating meq.
@@ -304,6 +324,25 @@
 #'   \eqn{\mathbf{A}} matrix operations.
 #' @param parallel_matmult Default: FALSE. Logical flag for parallel block-diagonal matrix
 #'   multiplication.
+#' @param parallel_qr Default: FALSE. Logical flag for the tall-skinny
+#'   least-squares and rank-reduction steps that arise in transformed
+#'   constraint solves. When active and a cluster is supplied, these steps use
+#'   row-chunked cross-products with small dense fallback solves instead of
+#'   relying entirely on base QR; unstable cases fall back automatically to
+#'   \code{.lm.fit()} or \code{qr()}.
+#' @param parallel_bfgs Default: TRUE. Logical flag for parallel evaluation of
+#'   damped BFGS step candidates during penalty tuning. When active and a
+#'   cluster is supplied, multiple damping factors are evaluated across
+#'   workers and the best improving candidate is retained.
+#' @param parallel_grideval Default: TRUE. Logical flag for parallel evaluation
+#'   of the initial tuning grid. When active and a cluster is supplied, grid
+#'   points are distributed across workers, and if more than six workers are
+#'   available, additional random penalty candidates are added before the
+#'   starting point is chosen.
+#' @param parallel_qr_qp Default: FALSE. Logical flag for parallel QR pivot
+#'   reduction of partition-local inequality constraint columns. When active
+#'   and a cluster is supplied, each partition's reducible QP block is handled
+#'   independently across workers before the final QP matrix is assembled.
 #' @param parallel_unconstrained Default: TRUE. Logical flag for parallel unconstrained
 #'   MLE for non-identity-link-Gaussian models.
 #' @param parallel_find_neighbors Default: FALSE. Logical flag for parallel neighbor
@@ -388,13 +427,19 @@
 #'   \eqn{\mathbf{V}^{1/2}}. Computed as inverse of \code{VhalfInv} if not supplied.
 #' @param VhalfInv_fxn Default: NULL. Parametric function for \eqn{\mathbf{V}^{-1/2}};
 #'   takes single numeric vector \code{"par"}, returns \eqn{N \times N} matrix.
-#'   Optimized via BFGS when \code{VhalfInv_par_init} is provided.
+#'   If \code{VhalfInv} is not supplied, correlation parameters are
+#'   optimized from this function; when \code{VhalfInv_par_init} is
+#'   omitted, the optimizer starts at \code{1e-2}. Helper functions that
+#'   also use \code{correlation_id}, \code{spacetime}, or matching extra
+#'   arguments are supported.
 #' @param Vhalf_fxn Default: NULL. Optional function for efficient computation of
 #'   \eqn{\mathbf{V}^{1/2}} from the same parameter vector used by
 #'   \code{VhalfInv_fxn}. When omitted, \code{Vhalf} is obtained by explicit
 #'   matrix inversion of \code{VhalfInv}.
 #' @param VhalfInv_par_init Default: \code{c()}. Initial parameter values for
-#'   \code{VhalfInv_fxn} optimization, on unbounded transformed scale.
+#'   \code{VhalfInv_fxn} optimization, on unbounded transformed scale. If
+#'   left empty while \code{VhalfInv_fxn} is supplied and \code{VhalfInv}
+#'   is \code{NULL}, it is set internally to \code{1e-2}.
 #' @param REML_grad Default: NULL. Function for the gradient of the negative REML (or
 #'   custom loss) with respect to the parameters of \code{VhalfInv_fxn}. Takes
 #'   \code{"par"}, \code{"model_fit"}, and \code{"..."}.
@@ -421,7 +466,8 @@
 #'     \code{tuning_criterion},
 #'     \code{gcv_gamma},
 #'     \code{initial_wiggle}, \code{initial_flat},
-#'     \code{iterate_tune}, \code{iterate_final_fit}.}
+#'     \code{iterate_tune}, \code{iterate_final_fit},
+#'     \code{blockfit}.}
 #'   \item{\code{expansion_args}}{Groups: \code{include_quadratic_terms},
 #'     \code{include_cubic_terms}, \code{include_quartic_terms},
 #'     \code{include_2way_interactions}, \code{include_3way_interactions},
@@ -435,11 +481,31 @@
 #'     \code{include_constrain_first_deriv},
 #'     \code{include_constrain_second_deriv},
 #'     \code{include_constrain_interactions},
+#'     \code{qr_pivot_smoothing_constraints},
 #'     \code{constraint_values}, \code{constraint_vectors},
-#'     \code{no_intercept}.}
-#'   \item{\code{qp_args}}{Groups all \code{qp_*} arguments.}
+#'     \code{null_constraint}, \code{no_intercept}.}
+#'   \item{\code{qp_args}}{Groups: \code{qp_score_function},
+#'     \code{qp_observations}, \code{qp_Amat}, \code{qp_bvec},
+#'     \code{qp_meq}, \code{qp_positive_derivative},
+#'     \code{qp_negative_derivative},
+#'     \code{qp_positive_2ndderivative},
+#'     \code{qp_negative_2ndderivative},
+#'     \code{qp_monotonic_increase},
+#'     \code{qp_monotonic_decrease},
+#'     \code{qp_range_upper}, \code{qp_range_lower},
+#'     \code{qr_pivot_inequality_constraints},
+#'     \code{qp_Amat_fxn}, \code{qp_bvec_fxn},
+#'     \code{qp_meq_fxn}.}
 #'   \item{\code{parallel_args}}{Groups: \code{cl},
-#'     \code{chunk_size}, and all \code{parallel_*} flags.}
+#'     \code{chunk_size}, \code{parallel_eigen},
+#'     \code{parallel_trace}, \code{parallel_aga},
+#'     \code{parallel_matmult}, \code{parallel_qr},
+#'     \code{parallel_bfgs}, \code{parallel_grideval},
+#'     \code{parallel_qr_qp},
+#'     \code{parallel_unconstrained},
+#'     \code{parallel_find_neighbors},
+#'     \code{parallel_penalty},
+#'     \code{parallel_make_constraint}.}
 #'   \item{\code{covariance_args}}{Groups: \code{correlation_id},
 #'     \code{spacetime}, \code{correlation_structure},
 #'     \code{VhalfInv}, \code{Vhalf}, \code{VhalfInv_fxn},
@@ -498,7 +564,7 @@
 #'   \item{y}{Original response vector.}
 #'   \item{ytilde}{Fitted/predicted values on the scale of the response.}
 #'   \item{X}{List of design matrices \eqn{\mathbf{X}_{k}} for each partition k, containing basis expansions including intercept, linear, quadratic, cubic, and interaction terms as specified. Returned on the unstandardized scale.}
-#'   \item{A}{Constraint matrix \eqn{\mathbf{A}} encoding smoothness constraints at knot points and any user-specified linear constraints. Only a linearly independent subset of columns is retained (via pivoted QR decomposition).}
+#'   \item{A}{Constraint matrix \eqn{\mathbf{A}} encoding smoothness constraints at knot points and any user-specified linear constraints. When \code{qr_pivot_smoothing_constraints = TRUE}, only a linearly independent subset of columns is retained via pivoted QR decomposition; otherwise the original equality columns are kept.}
 #'   \item{B}{List of fitted coefficients \eqn{\boldsymbol{\beta}_{k}} for each partition k on the original, unstandardized scale of the predictors and response.}
 #'   \item{B_raw}{List of fitted coefficients for each partition on the predictor-and-response standardized scale.}
 #'   \item{K}{Number of interior knots with one predictor (number of partitions minus 1 with > 1 predictor).}
@@ -585,7 +651,20 @@
 #'   \item{generate_posterior}{Function for drawing from the posterior distribution of coefficients. When \code{VhalfInv} is non-\code{NULL}, draws are from the correct joint posterior \eqn{\mathbf{U}\mathbf{G}_{\mathrm{correct}}^{1/2}\mathbf{z}} using the full penalized GLS information, reflecting cross-partition posterior covariance induced by off-diagonal blocks of \eqn{\mathbf{V}^{-1/2}}.}
 #'   \item{find_extremum}{Function for optimizing the fitted function. Accepts both numeric column indices and character column names for \code{vars}. When \code{select_vars_fl = TRUE}, L-BFGS-B bounds are correctly subsetted to the optimized variables.}
 #'   \item{plot}{Function for visualizing fitted curves.}
-#'   \item{quadprog_list}{List containing quadratic programming components if applicable.}
+#'   \item{qp_info}{Metadata for inequality-constrained solves, or
+#'     \code{NULL}. Includes active constraints, multipliers, and a
+#'     \code{method} string describing the solver path:
+#'     \code{"active_set"} = partition-wise active-set on the standard
+#'     block-diagonal path; \code{"active_set_full"} = active-set with
+#'     full-system equality re-solves; \code{"active_set_woodbury"} =
+#'     active-set with Woodbury equality re-solves on the correlated
+#'     low-rank path; \code{"dense_qp_gee_gaussian"} = dense QP fallback
+#'     for correlated Gaussian fits; \code{"dense_qp_gee_glm"} = dense
+#'     SQP / dense QP-subproblem fallback for correlated non-Gaussian
+#'     fits.}
+#'   \item{quadprog_list}{List containing the assembled QP objects
+#'     \code{qp_Amat}, \code{qp_bvec}, \code{qp_meq}, and when
+#'     applicable a copy of \code{qp_info}.}
 #'   \item{.fit_call_args}{List containing the arguments passed to
 #'     \code{\link{lgspline}}.}
 #' }
@@ -741,6 +820,7 @@
 #'                       data = data.frame(t = t, y = y),
 #'                       qp_range_lower = -150,
 #'                       qp_range_upper = 150,
+#'                       qp_observations = sample(1:length(t), 50),
 #'                       opt = FALSE)
 #'
 #' ## Plotting the constraints and knots
@@ -1369,6 +1449,7 @@
 #'                        parallel_find_neighbors = FALSE,
 #'                        parallel_trace = FALSE,
 #'                        parallel_matmult = TRUE,
+#'                        parallel_qr = FALSE,
 #'                        parallel_make_constraint = FALSE,
 #'                        parallel_penalty = FALSE)
 #'   })
@@ -1485,12 +1566,17 @@ lgspline <- function(
     include_constrain_first_deriv = TRUE,
     include_constrain_second_deriv = TRUE,
     include_constrain_interactions = TRUE,
+    qr_pivot_smoothing_constraints = TRUE,
     cl = NULL,
     chunk_size = NULL,
     parallel_eigen = TRUE,
     parallel_trace = FALSE,
     parallel_aga = FALSE,
     parallel_matmult = FALSE,
+    parallel_qr = FALSE,
+    parallel_bfgs = TRUE,
+    parallel_grideval = TRUE,
+    parallel_qr_qp = FALSE,
     parallel_unconstrained = TRUE,
     parallel_find_neighbors = FALSE,
     parallel_penalty = FALSE,
@@ -1526,6 +1612,7 @@ lgspline <- function(
     qp_monotonic_decrease = FALSE,
     qp_range_upper = NULL,
     qp_range_lower = NULL,
+    qr_pivot_inequality_constraints = FALSE,
     qp_Amat_fxn = NULL,
     qp_bvec_fxn = NULL,
     qp_meq_fxn = NULL,
@@ -1567,7 +1654,7 @@ lgspline <- function(
     custom_VhalfInv_loss = NULL,
     VhalfInv_logdet = NULL,
     include_warnings = TRUE,
-    ## [Change 2026-03-01] Include list arguments for organization
+    ## Include list arguments for organization
     penalty_args = NULL,
     tuning_args = NULL,
     expansion_args = NULL,
@@ -1584,7 +1671,7 @@ lgspline <- function(
     cat('Pre-Processing\n')
   }
 
-  # [Change 2026-03-01] Unpack grouped argument lists.
+  #  Unpack grouped argument lists.
   #  Each list argument, when non-NULL, overwrites the corresponding
   #  raw argument. This allows users to specify:
   #    lgspline(t, y, penalty_args = list(wiggle_penalty = 1e-4))
@@ -1617,7 +1704,89 @@ lgspline <- function(
   .unpack_group(return_args, local_env)
   .unpack_group(glm_args, local_env)
 
-  ## [Change 2026-03-02] Delegate input processing to process_input()
+  ## Wrap correlation helpers so they can use correlation_id, spacetime,
+  #  and any matching extra arguments while still exposing the simple
+  #  one-argument interface used internally and by posterior methods.
+  corr_extra_args <- list(...)
+  .call_correlation_helper <- function(fxn,
+                                       par,
+                                       model_fit = NULL,
+                                       extra_args = list()) {
+    if (is.null(fxn)) return(NULL)
+
+    fxn_formals <- try(names(formals(fxn)), silent = TRUE)
+    if (inherits(fxn_formals, "try-error") || is.null(fxn_formals)) {
+      fxn_formals <- character(0)
+    }
+    accepts_dots <- "..." %in% fxn_formals
+
+    call_args <- list(par)
+    if (!is.null(model_fit) &&
+        (accepts_dots || "model_fit" %in% fxn_formals)) {
+      call_args$model_fit <- model_fit
+    }
+    if (!is.null(correlation_id) &&
+        (accepts_dots || "correlation_id" %in% fxn_formals)) {
+      call_args$correlation_id <- correlation_id
+    }
+    if (!is.null(spacetime) &&
+        (accepts_dots || "spacetime" %in% fxn_formals)) {
+      call_args$spacetime <- spacetime
+    }
+
+    merged_extra_args <- corr_extra_args
+    if (length(extra_args) > 0) {
+      merged_extra_args[names(extra_args)] <- extra_args
+    }
+    merged_extra_args <- merged_extra_args[nzchar(names(merged_extra_args))]
+
+    if (!accepts_dots) {
+      merged_extra_args <- merged_extra_args[
+        intersect(names(merged_extra_args), fxn_formals)
+      ]
+    }
+
+    do.call(fxn, c(call_args, merged_extra_args))
+  }
+
+  if (!is.null(VhalfInv_fxn)) {
+    VhalfInv_fxn_raw <- VhalfInv_fxn
+    VhalfInv_fxn <- function(par) {
+      .call_correlation_helper(VhalfInv_fxn_raw, par = par)
+    }
+  }
+  if (!is.null(Vhalf_fxn)) {
+    Vhalf_fxn_raw <- Vhalf_fxn
+    Vhalf_fxn <- function(par) {
+      .call_correlation_helper(Vhalf_fxn_raw, par = par)
+    }
+  }
+  if (!is.null(VhalfInv_logdet)) {
+    VhalfInv_logdet_raw <- VhalfInv_logdet
+    VhalfInv_logdet <- function(par) {
+      .call_correlation_helper(VhalfInv_logdet_raw, par = par)
+    }
+  }
+  if (!is.null(REML_grad)) {
+    REML_grad_raw <- REML_grad
+    REML_grad <- function(par, model_fit, ...) {
+      .call_correlation_helper(REML_grad_raw,
+                               par = par,
+                               model_fit = model_fit,
+                               extra_args = list(...))
+    }
+  }
+  if (!is.null(custom_VhalfInv_loss)) {
+    custom_VhalfInv_loss_raw <- custom_VhalfInv_loss
+    custom_VhalfInv_loss <- function(par, model_fit, ...) {
+      .call_correlation_helper(custom_VhalfInv_loss_raw,
+                               par = par,
+                               model_fit = model_fit,
+                               extra_args = list(...))
+    }
+  }
+
+  ## Delegate input processing to process_input()
   processed <- process_input(
     predictors = predictors,
     y = y,
@@ -1691,6 +1860,14 @@ lgspline <- function(
     }
   }
 
+  ## Default correlation start value when a parametric V^{-1/2} map is
+  #  supplied without an explicit working-scale initialization.
+  if(!is.null(VhalfInv_fxn) &&
+     length(VhalfInv_par_init) == 0 &&
+     is.null(VhalfInv)){
+    VhalfInv_par_init <- 1e-2
+  }
+
   ## Model fit procedure called
   model_fit <- try({lgspline.fit(predictors,
                                  y,
@@ -1739,12 +1916,17 @@ lgspline <- function(
                                  include_constrain_first_deriv,
                                  include_constrain_second_deriv,
                                  include_constrain_interactions,
+                                 qr_pivot_smoothing_constraints,
                                  cl,
                                  chunk_size,
                                  parallel_eigen,
                                  parallel_trace,
                                  parallel_aga,
                                  parallel_matmult,
+                                 parallel_qr,
+                                 parallel_bfgs,
+                                 parallel_grideval,
+                                 parallel_qr_qp,
                                  parallel_unconstrained,
                                  parallel_find_neighbors,
                                  parallel_penalty,
@@ -1767,6 +1949,7 @@ lgspline <- function(
                                  qp_monotonic_decrease,
                                  qp_range_upper,
                                  qp_range_lower,
+                                 qr_pivot_inequality_constraints,
                                  qp_Amat_fxn,
                                  qp_bvec_fxn,
                                  qp_meq_fxn,
@@ -1821,7 +2004,7 @@ lgspline <- function(
     stop(fit_err_msg)
   }
 
-  ## [Change 2026-02-12] Return dummy_fit output (replaces expansions_only)
+  ## Return dummy_fit output (replaces expansions_only)
   if(dummy_fit & is.null(VhalfInv_fxn)){
     if(replace_colnames){
       og_colnames_match <- cbind(og_cols, paste0('_', 1:ncol(predictors), '_'))
@@ -1845,7 +2028,7 @@ lgspline <- function(
   }
 
   ## Default correlation structures
-  # [Change 2026-02-14] Simplified the code and verified correctness, added
+  # Simplified the code and verified correctness, added
   # some documentation for reviewer ease.
   # See correlation helper functions
   # .compute_dist_block, .rank_dists, reml_grad_from_dV
@@ -2011,7 +2194,7 @@ lgspline <- function(
                                                      rep(1, model_fit$N),
                                                      ...))) *
              sqrt(unlist(model_fit$weights)[model_fit$og_order])
-           ## [Change 2026-02-16] Row-wise weighting: scale row i of VhalfInvX by
+           ## Row-wise weighting: scale row i of VhalfInvX by
            #  glm_weights[i]. The previous t(t(M)*v) scales columns, which
            #  silently recycles the N-length vector across P columns (N != P).
            XVinvX_inv <- invert(crossprod(t(t(VhalfInvX) * c(glm_weights))) +
@@ -2841,12 +3024,17 @@ lgspline <- function(
                                          include_constrain_first_deriv,
                                          include_constrain_second_deriv,
                                          include_constrain_interactions,
+                                         qr_pivot_smoothing_constraints,
                                          cl,
                                          chunk_size,
                                          parallel_eigen,
                                          parallel_trace,
                                          parallel_aga,
                                          parallel_matmult,
+                                         parallel_qr,
+                                         parallel_bfgs,
+                                         parallel_grideval,
+                                         parallel_qr_qp,
                                          parallel_unconstrained,
                                          parallel_find_neighbors,
                                          parallel_penalty,
@@ -2869,6 +3057,7 @@ lgspline <- function(
                                          qp_monotonic_decrease,
                                          qp_range_upper,
                                          qp_range_lower,
+                                         qr_pivot_inequality_constraints,
                                          qp_Amat_fxn,
                                          qp_bvec_fxn,
                                          qp_meq_fxn,
@@ -2941,7 +3130,7 @@ lgspline <- function(
                                               model_fit$family,
                                               1+0*model_fit$weights,
                                               ...)
-              ## [Change 2026-02-18] Weight residuals by 1/sqrt(W)
+              ## Weight residuals by 1/sqrt(W)
               logloss <-  sum((
                 VhalfInv %**% cbind(sign(raw)*sqrt(abs(
                   raw
@@ -2949,13 +3138,13 @@ lgspline <- function(
               )^2)
             }
             else if(is.null(model_fit$family$dev.resids)){
-              ## [Change 2026-02-18] weight by 1/sqrt(W)
+              ## weight by 1/sqrt(W)
               logloss <-
                 sum(c(VhalfInv %**% cbind(
                   sqrt(1/c(W)) * (model_fit$y - model_fit$ytilde)
                 ))^2)
             } else {
-              ## [Change 2026-02-18] pre-whiten W^{1/2}-weighted with sqrt W
+              ## pre-whiten W^{1/2}-weighted with sqrt W
               logloss <- sum(model_fit$family$dev.resids(
                 c(VhalfInv %**% cbind(1/sqrt(c(W)) * model_fit$y)),
                 c(VhalfInv %**% cbind(1/sqrt(c(W)) * model_fit$ytilde)),
@@ -3063,12 +3252,17 @@ lgspline <- function(
                               include_constrain_first_deriv,
                               include_constrain_second_deriv,
                               include_constrain_interactions,
+                              qr_pivot_smoothing_constraints,
                               cl,
                               chunk_size,
                               parallel_eigen,
                               parallel_trace,
                               parallel_aga,
                               parallel_matmult,
+                              parallel_qr,
+                              parallel_bfgs,
+                              parallel_grideval,
+                              parallel_qr_qp,
                               parallel_unconstrained,
                               parallel_find_neighbors,
                               parallel_penalty,
@@ -3091,6 +3285,7 @@ lgspline <- function(
                               qp_monotonic_decrease,
                               qp_range_upper,
                               qp_range_lower,
+                              qr_pivot_inequality_constraints,
                               qp_Amat_fxn,
                               qp_bvec_fxn,
                               qp_meq_fxn,
@@ -3587,7 +3782,7 @@ lgspline <- function(
     best_per_partition <- lapply(partitions[partitions_keep], function(k){
 
       if(any(!is.null(initial))){
-        ## [Change 2026-02-17] Coerce initial to a named numeric 1-row matrix
+        ## Coerce initial to a named numeric 1-row matrix
         #  regardless of input type (data.frame, named vector, plain vector).
         #  When initial has names (e.g., from a data.frame), reorder columns
         #  to match the predictor matrix column order so that Time and Dose
@@ -3614,7 +3809,7 @@ lgspline <- function(
                                       , drop=FALSE]
       }
 
-      ## [Change 2026-02-17] Ensure predictors_vals is always a 1-row numeric
+      ## Ensure predictors_vals is always a 1-row numeric
       #  matrix with colnames matching the predictor matrix.
       if(!is.matrix(predictors_vals)){
         predictors_vals <- rbind(as.numeric(predictors_vals))
@@ -3627,7 +3822,7 @@ lgspline <- function(
         }
       }
 
-      ## [Change 2026-02-17] Precompute positional column indices for vars
+      ## Precompute positional column indices for vars
       #  within predictors_vals. After the earlier resolution block in
       #  find_extremum, `vars` may be a named integer (e.g., c(Time=1) from
       #  character input) or a plain integer vector (from numeric input).
@@ -3649,7 +3844,7 @@ lgspline <- function(
         vars_idx <- seq_len(ncol(predictors_vals))
       }
 
-      ## [Change 2026-02-17] Compute bounds, subset to vars when optimizing
+      ## Compute bounds, subset to vars when optimizing
       #  a subset. Use positional indices for subsetting.
       pred_lower <- apply(predictors, 2, min)
       pred_upper <- apply(predictors, 2, max)
@@ -3661,10 +3856,10 @@ lgspline <- function(
         optim_upper <- pred_upper
       }
 
-      ## [Change 2026-02-17] Extract starting values using positional indices.
+      ## Extract starting values using positional indices.
       start_vals <- as.numeric(predictors_vals[, vars_idx, drop = TRUE])
 
-      ## [Change 2026-02-17] Helper to extract first derivatives as a numeric
+      ## Helper to extract first derivatives as a numeric
       #  vector from predict() output. For multi-predictor models, first_deriv
       #  is a named list of per-variable derivative vectors; for single-predictor
       #  models, it is already a numeric vector/scalar.
@@ -3681,7 +3876,7 @@ lgspline <- function(
       opt <- stats::optim(
         start_vals,
         fn = function(par){
-          ## [Change 2026-02-17] Reconstruct full predictor vector using
+          ## Reconstruct full predictor vector using
           #  positional vars_idx, always as plain numeric
           if(select_vars_fl){
             dummy <- as.numeric(predictors_vals)
@@ -3750,7 +3945,7 @@ lgspline <- function(
                                                              gr,
                                                              ...)
             gr_raw <- as.numeric(unlist(gr_raw))
-            ## [Change 2026-02-22] Assign gradients only to numeric predictor indices
+            ## Assign gradients only to numeric predictor indices
             #  that correspond to variables being optimized
             numeric_vars_idx <- intersect(model_fit$numerics, vars_idx)
             gr_par[numeric_vars_idx] <- gr_raw[match(numeric_vars_idx, vars_idx)]
@@ -3772,7 +3967,7 @@ lgspline <- function(
             gr <- .extract_first_deriv(deriv_result)
             gr_par <- rep(0, length(par))
             gr_raw <- min_or_max * gr
-            ## [Change 2026-02-22] Assign gradients only to numeric predictor indices
+            ## Assign gradients only to numeric predictor indices
             #  that correspond to variables being optimized
             numeric_vars_idx <- intersect(model_fit$numerics, vars_idx)
             gr_par[numeric_vars_idx] <- gr_raw[match(numeric_vars_idx, vars_idx)]
@@ -3788,7 +3983,7 @@ lgspline <- function(
         upper = optim_upper
       )
 
-      ## [Change 2026-02-17] Reconstruct full predictor row from optim result
+      ## Reconstruct full predictor row from optim result
       if(select_vars_fl){
         dummy <- as.numeric(predictors_vals)
         dummy[vars_idx] <- as.numeric(opt$par)
@@ -3823,7 +4018,7 @@ lgspline <- function(
   }
 
   ## One-dimensional plotting function
-  # [Change 2026-02-14] Introduced legend_order option
+  # Introduced legend_order option
   plot_lgspline_1d <- function(modfit,
                                show_formulas,
                                formula_B = NULL,
@@ -3839,7 +4034,7 @@ lgspline <- function(
                                plot_fxn_1d,
                                legend_args,
                                color_function,
-                               legend_order = NULL, # [Change 2026-02-14]
+                               legend_order = NULL,
                                ...) {
 
     ## For preventing stack issues
@@ -3935,7 +4130,7 @@ lgspline <- function(
       formulas <- gsub('intercept', '', formulas)
       formulas <- gsub('  ', ' ', formulas)
 
-      ## [Change 2026-02-12] Apply custom legend ordering if specified
+      ## Apply custom legend ordering if specified
       if(!is.null(legend_order)){
         if(length(legend_order) == length(formulas)){
           formulas <- formulas[legend_order]
@@ -4143,7 +4338,7 @@ lgspline <- function(
                              color_function = NULL,
                              add = FALSE,
                              vars = c(),
-                             legend_order = NULL, # [Change 2026-02-14] Include
+                             legend_order = NULL, # Include
                              ...){
 
     ## add = TRUE has the effect of overlaying the plot over an existing one
@@ -4266,7 +4461,7 @@ lgspline <- function(
                        plot_fxn_1d,
                        legend_args,
                        color_function,
-                       legend_order = legend_order, # [Change 2026-02-14] Incl.
+                       legend_order = legend_order, # Incl.
                        ...)
       ## 2-D plotting
     } else if(model_fit_in$q == 2 | length(vars) == 2){
@@ -4328,7 +4523,7 @@ lgspline <- function(
     }
   }
 
-  ## [Change 2026-02-21] Store arguments
+  ## Store arguments
   model_fit$.fit_call_args <- list(
     standardize_response               = standardize_response,
     standardize_predictors_for_knots   = standardize_predictors_for_knots,
@@ -4376,6 +4571,10 @@ lgspline <- function(
     parallel_trace                     = parallel_trace,
     parallel_aga                       = parallel_aga,
     parallel_matmult                   = parallel_matmult,
+    parallel_qr                        = parallel_qr,
+    parallel_bfgs                      = parallel_bfgs,
+    parallel_grideval                  = parallel_grideval,
+    parallel_qr_qp                     = parallel_qr_qp,
     parallel_unconstrained             = parallel_unconstrained,
     parallel_find_neighbors            = parallel_find_neighbors,
     parallel_penalty                   = parallel_penalty,
@@ -4627,7 +4826,8 @@ lgspline <- function(
 #'              include_constrain_second_deriv = TRUE,
 #'              include_constrain_interactions = TRUE, cl = NULL, chunk_size = NULL,
 #'              parallel_eigen = TRUE, parallel_trace = FALSE, parallel_aga = FALSE,
-#'              parallel_matmult = FALSE, parallel_unconstrained = FALSE,
+#'              parallel_matmult = FALSE, parallel_qr = FALSE,
+#'              parallel_unconstrained = FALSE,
 #'              parallel_find_neighbors = FALSE, parallel_penalty = FALSE,
 #'              parallel_make_constraint = FALSE,
 #'              unconstrained_fit_fxn = unconstrained_fit_default,
@@ -4785,12 +4985,17 @@ lgspline.fit <- function(predictors,
                          include_constrain_first_deriv = TRUE,
                          include_constrain_second_deriv = TRUE,
                          include_constrain_interactions = TRUE,
+                         qr_pivot_smoothing_constraints = TRUE,
                          cl = NULL,
                          chunk_size = NULL,
                          parallel_eigen = TRUE,
                          parallel_trace = FALSE,
                          parallel_aga = FALSE,
                          parallel_matmult = FALSE,
+                         parallel_qr = FALSE,
+                         parallel_bfgs = TRUE,
+                         parallel_grideval = TRUE,
+                         parallel_qr_qp = FALSE,
                          parallel_unconstrained = FALSE,
                          parallel_find_neighbors = FALSE,
                          parallel_penalty = FALSE,
@@ -4826,6 +5031,7 @@ lgspline.fit <- function(predictors,
                          qp_monotonic_decrease = FALSE,
                          qp_range_upper = NULL,
                          qp_range_lower = NULL,
+                         qr_pivot_inequality_constraints = FALSE,
                          qp_Amat_fxn = NULL,
                          qp_bvec_fxn = NULL,
                          qp_meq_fxn = NULL,
@@ -4872,7 +5078,7 @@ lgspline.fit <- function(predictors,
                                         just_linear_without_interactions))
   }
 
-  ## [Change 2026-02-17] Resolve any remaining character entries in
+  ## Resolve any remaining character entries in
   #  do_not_cluster_on_these to numeric column indices. Handles the
   #  non-formula path where users pass a predictor matrix with colnames
   #  and character do_not_cluster_on_these.
@@ -4905,7 +5111,7 @@ lgspline.fit <- function(predictors,
   q_predictors <- ncol(predictors)
   N_obs <- nrow(predictors)
 
-  ## [Change 2026-03-05] Resolve character just_linear_* and
+  ## Resolve character just_linear_* and
   #  exclude_interactions_for arguments to integer column indices.
   #  process_input handles this on the formula path; this block covers
   #  the direct-call path where the user passes a predictor matrix or
@@ -5591,7 +5797,7 @@ lgspline.fit <- function(predictors,
         cat("Applying Whitening Transform\n")
       }
 
-      ## [Change 2026-02-16] Compute Vhalf unconditionally when
+      ## Compute Vhalf unconditionally when
       #  VhalfInv is present. Previously only computed for non-Gaussian
       #  or non-identity link. Needed by get_B and blockfit_solve for
       #  GEE estimation regardless of family.
@@ -5607,7 +5813,7 @@ lgspline.fit <- function(predictors,
         family$linkfun <- function(mu)mu
       }
 
-      ## [Change 2026-02-16] Do NOT whiten X into per-partition form.
+      ## Do NOT whiten X into per-partition form.
       #  The previous code applied V^{-1/2} to the block-diagonal
       #  design matrix, then extracted only the diagonal blocks back
       #  into the per-partition list. This silently discarded cross-
@@ -5626,7 +5832,7 @@ lgspline.fit <- function(predictors,
   }
 
   ## Return derivatives per-partition of an expanded matrix
-  #  [Change 2026-02-16] Swap-out and swap-back removed. X and y are
+  #  Swap-out and swap-back removed. X and y are
   #  now always unwhitened, so X_expand_og is identical to X.
   all_derivatives <- function(X,
                               just_first_derivatives = FALSE,
@@ -5906,10 +6112,12 @@ lgspline.fit <- function(predictors,
   }
   ## Select only a linearly-independent subset of columns
   if(!(any(is.null(A)))){
-    qr_A <- qr(A)
-    A_rank <- qr_A$rank
-    if(A_rank < ncol(A)){
-      A <- qr.Q(qr_A)[, 1:A_rank, drop = FALSE]
+    if (qr_pivot_smoothing_constraints) {
+      A <- .reduce_constraint_basis(
+        A = A,
+        parallel_qr = parallel & parallel_qr,
+        cl = cl
+      )
     }
     R_constraints <- ncol(A)
   }
@@ -5991,7 +6199,7 @@ lgspline.fit <- function(predictors,
 
   ## Export components for parallel processing
   shared_env <- NULL
-  if(parallel && !is.null(cl)) {
+  if(!is.null(cl) && inherits(cl, "cluster")) {
 
     shared_vars <- list(
       A = A,
@@ -6010,7 +6218,8 @@ lgspline.fit <- function(predictors,
       schur_correction_function = schur_correction_function,
       unconstrained_fit_fxn = unconstrained_fit_fxn,
       observation_weights = observation_weights,
-      efficient_matrix_mult = efficient_matrix_mult
+      efficient_matrix_mult = efficient_matrix_mult,
+      pkg_lib_paths = .libPaths()
     )
 
     export_env <- list2env(shared_vars, parent = emptyenv())
@@ -6018,6 +6227,8 @@ lgspline.fit <- function(predictors,
     tryCatch({
       parallel::clusterExport(cl, names(shared_vars), envir = export_env)
       parallel::clusterEvalQ(cl, {
+        .libPaths(pkg_lib_paths)
+        suppressPackageStartupMessages(library(lgspline))
         `%**%` <- efficient_matrix_mult
         NULL
       })
@@ -6054,7 +6265,7 @@ lgspline.fit <- function(predictors,
     cat("SQP Setup\n")
   }
 
-  ## [Change 2026-03-06] Delegate QP setup to process_qp()
+  ## Delegate QP setup to process_qp()
   qp_result <- process_qp(
     X = X,
     K = K,
@@ -6090,8 +6301,11 @@ lgspline.fit <- function(predictors,
     qp_Amat = qp_Amat,
     qp_bvec = qp_bvec,
     qp_meq = qp_meq,
+    qr_pivot_inequality_constraints = qr_pivot_inequality_constraints,
+    parallel_qr_qp = parallel & parallel_qr_qp,
     all_derivatives_fxn = all_derivatives,
     og_cols = og_cols,
+    cl = cl,
     include_warnings = include_warnings,
     ...
   )
@@ -6177,6 +6391,10 @@ lgspline.fit <- function(predictors,
         parallel_trace = parallel_trace,
         parallel_aga = parallel_aga,
         parallel_matmult = parallel_matmult,
+        parallel_qr = parallel_qr,
+        parallel_bfgs = parallel_bfgs,
+        parallel_grideval = parallel_grideval,
+        qr_pivot_smoothing_constraints = qr_pivot_smoothing_constraints,
         parallel_unconstrained = parallel_unconstrained,
         cl = cl,
         chunk_size = chunk_size,
@@ -6210,7 +6428,7 @@ lgspline.fit <- function(predictors,
   flat_ridge_penalty <- tL$flat_ridge_penalty
   wiggle_penalty <- tL$wiggle_penalty
 
-  ##  [Change 2026-02-16] dummy_fit early return
+  ## dummy_fit early return
   if(dummy_fit){
     if(verbose) cat('Dummy Fit Early Return\n')
 
@@ -6338,7 +6556,7 @@ lgspline.fit <- function(predictors,
                                               triplet_cols))]
   }
 
-  ## [Change 2026-02-16] Use backfitting for blockfit,
+  ## Use backfitting for blockfit,
   #  Divide the design matrix into "blocks" for smooth + interaction terms and
   #  linear terms
   #  otherwise call get_B directly.
@@ -6385,6 +6603,8 @@ lgspline.fit <- function(predictors,
         iterate = iterate_final_fit,
         tol = tol,
         parallel_eigen = parallel & parallel_eigen,
+        parallel_qr = parallel & parallel_qr,
+        qr_pivot_smoothing_constraints = qr_pivot_smoothing_constraints,
         cl = cl,
         chunk_size = chunk_size,
         num_chunks = num_chunks,
@@ -6437,6 +6657,7 @@ lgspline.fit <- function(predictors,
         parallel & parallel_eigen,
         parallel & parallel_aga,
         parallel & parallel_matmult,
+        parallel & parallel_qr,
         parallel & parallel_unconstrained,
         cl,
         chunk_size,
@@ -6483,7 +6704,7 @@ lgspline.fit <- function(predictors,
   B <- B_list$B
   G_list <- B_list$G_list
 
-  ## [Change 2026-02-16] The post-fit code for computing and formatting terms
+  ## The post-fit code for computing and formatting terms
   #  (scale backtransform, weights, backtransform X/y after VhalfInv transforms,
   #  assign_partition, B_raw, predict_function, plotting, U, trace, dispersion,
   #  varcov, Lagrange multipliers, return_list)
@@ -6566,7 +6787,7 @@ lgspline.fit <- function(predictors,
                                se.fit = FALSE,
                                cv = 1.96){
 
-    ## [Change 2026-03-04] se.fit: if TRUE, return standard errors and
+    ## se.fit: if TRUE, return standard errors and
     #  confidence intervals for predictions.
     #
     #  Derivation (identity link, Gaussian case):
@@ -6801,7 +7022,7 @@ lgspline.fit <- function(predictors,
     }
     final_preds <- family$linkinv(preds)
 
-    ## [Change 2026-03-04] Compute standard errors and confidence intervals.
+    ## Compute standard errors and confidence intervals.
     #
     #  For each new observation i in partition k:
     #    x_i^{full} = (0,...,0, x_i^{(k)}, 0,...,0)  (P-dimensional)
@@ -6854,11 +7075,15 @@ lgspline.fit <- function(predictors,
 
     ## If returning derivatives
     if(take_first_derivatives | take_second_derivatives){
+      ## Derivative prediction works on the raw expansion matrix C_new and
+      #  the fully backtransformed coefficients B_predict, so the derivative
+      #  operator should stay on the same raw expansion scale.
       derivs <- make_derivative_matrix(
         p_expansions, C_new, power1_cols, power2_cols, nonspline_cols,
         interaction_single_cols, interaction_quad_cols, triplet_cols,
         K, include_2way_interactions, include_3way_interactions,
-        include_quadratic_interactions, colnm_expansions, expansion_scales,
+        include_quadratic_interactions, colnm_expansions,
+        1 + 0 * expansion_scales,
         !take_second_derivatives)
 
       if(only_1){
@@ -6995,7 +7220,7 @@ lgspline.fit <- function(predictors,
         final_preds_dprime <- NULL
       }
 
-      ## [Change 2026-03-05] Remove the last NA dummy observation
+      ## Remove the last NA dummy observation
       if(only_1 & n_deriv_vars > 1){
         if(take_first_derivatives){
           final_preds_prime <- lapply(final_preds_prime, function(x){
@@ -7139,7 +7364,7 @@ lgspline.fit <- function(predictors,
   }
 
   ## We need U to compute sigma^2*UG
-  #  Change 2026-02-26: dispersion does not need to be separately estimated
+  #  Dispersion does not need to be separately estimated
   #  for several GLMs, including Poisson and logistic regression
   if(return_varcovmat){
     return_U <- TRUE
@@ -7261,7 +7486,7 @@ lgspline.fit <- function(predictors,
     }
   }
 
-  ## [Change 2026-02-16] Optionally return Lagrangian multipliers
+  ## Optionally return Lagrangian multipliers
   if(return_lagrange_multipliers && !is.null(A) && K > 0){
     if(verbose) cat("Lagrange Multipliers\n")
 
@@ -7331,7 +7556,7 @@ lgspline.fit <- function(predictors,
           chunk_size, num_chunks, rem_chunks),
         diag)))
     } else if(is.null(VhalfInv)){
-      ## [Change 2026-02-15] use more computationally stable version
+      ## Use more computationally stable version
       trace_XUGX <- compute_trace_H(
         G_list$G,
         tL$Lambda,
@@ -7442,7 +7667,7 @@ lgspline.fit <- function(predictors,
       cat("VarCov Mat \n")
     }
 
-    ## [Change 2026-02-17] When VhalfInv is present, the block-diagonal G
+    ## When VhalfInv is present, the block-diagonal G
     #  from compute_G_eigen ignores cross-partition contributions from
     #  off-diagonal blocks of V^{-1/2}, so G_correct =
     #  (X^T V^{-1} X + Lambda)^{-1} must be computed as a full P x P matrix.
@@ -7491,7 +7716,7 @@ lgspline.fit <- function(predictors,
     } else {
 
       ## Standard block-diagonal path (exact when no VhalfInv)
-      #  [Change 2026-02-14] (UG^{1/2})(UG^{1/2})^{\top} parameterization
+      #  (UG^{1/2})(UG^{1/2})^{\top} parameterization
       UGhalf <- matmult_U(return_list$U, G_list$Ghalf, p_expansions, K)
       return_list$varcovmat <-
         tcrossprod(UGhalf) *
@@ -7511,7 +7736,7 @@ lgspline.fit <- function(predictors,
       }
     }
 
-    ## [Change 2026-03-02] Exact frequentist variance-covariance matrix.
+    ## Exact frequentist variance-covariance matrix.
     #
     #  The asymptotic (Bayesian posterior) version:
     #    Varcov_asymptotic = sigma~^2 * U G U^T
@@ -7529,7 +7754,7 @@ lgspline.fit <- function(predictors,
     #  For Gaussian identity (with or without correlation), exact.
     #  For other families, asymptotically correct with estimated dispersion.
     #
-    #  [Change 2026-03-02] This REPLACES varcovmat in-place (varcovmat_exact
+    #  This replaces varcovmat in-place (varcovmat_exact
     #  was the prior naming; now the single returned varcovmat is the exact
     #  version when exact_varcovmat = TRUE).
     if(exact_varcovmat){

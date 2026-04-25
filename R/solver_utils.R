@@ -143,7 +143,9 @@
                                                 qp_bvec,
                                                 qp_meq,
                                                 active_ineq = integer(0),
-                                                rank_tol = 1e-10) {
+                                                rank_tol = 1e-10,
+                                                parallel_qr = FALSE,
+                                                cl = NULL) {
   n_eq_orig <- if (is.null(A)) 0L else ncol(A)
   n_qp <- if (is.null(qp_Amat)) 0L else ncol(qp_Amat)
 
@@ -187,7 +189,10 @@
       cand_A <- A_aug_full[, cand_cols, drop = FALSE]
       cand_scales <- .constraint_col_scales(cand_A)
       cand_A_scaled <- t(t(cand_A) * cand_scales)
-      if (qr(cand_A_scaled, tol = rank_tol)$rank > length(keep_cols)) {
+      if (.constraint_rank(cand_A_scaled,
+                           tol = rank_tol,
+                           parallel_qr = parallel_qr,
+                           cl = cl) > length(keep_cols)) {
         keep_cols <- cand_cols
       }
     }
@@ -313,7 +318,9 @@
                                                n_eq_orig,
                                                K,
                                                tol = sqrt(.Machine$double.eps),
-                                               ineq_sign = -1) {
+                                               ineq_sign = -1,
+                                               parallel_qr = FALSE,
+                                               cl = NULL) {
   if (is.null(X_star) || !is.matrix(X_star) || ncol(X_star) <= n_eq_orig) {
     return(list(
       multipliers = numeric(0),
@@ -325,10 +332,12 @@
   col_scales <- .constraint_col_scales(X_star)
   X_star_scaled <- t(t(X_star) * col_scales)
   comp_stab_sc <- 1 / sqrt(K + 1)
-  ols_fit <- do.call(".lm.fit", list(
-    x = X_star_scaled * comp_stab_sc,
-    y = y_star * comp_stab_sc
-  ))
+  ols_fit <- .parallel_qr_lm_fit(
+    X = X_star_scaled * comp_stab_sc,
+    y = y_star * comp_stab_sc,
+    parallel_qr = parallel_qr,
+    cl = cl
+  )
 
   all_coef <- ols_fit$coefficients * col_scales
   ineq_coef <- all_coef[(n_eq_orig + 1L):length(all_coef)]
@@ -414,7 +423,9 @@
                                        active_ineq,
                                        solve_subproblem,
                                        kkt_subproblem,
-                                       method) {
+                                       method,
+                                       parallel_qr = FALSE,
+                                       cl = NULL) {
   if (length(active_ineq) == 0L) return(NULL)
 
   aug_state <- .solver_build_augmented_constraints(
@@ -423,7 +434,9 @@
     qp_Amat = qp_Amat,
     qp_bvec = qp_bvec,
     qp_meq = qp_meq,
-    active_ineq = active_ineq
+    active_ineq = active_ineq,
+    parallel_qr = parallel_qr,
+    cl = cl
   )
 
   if (length(aug_state$active_ineq_kept) == 0L) return(NULL)
@@ -532,7 +545,9 @@
                                solve_subproblem,
                                kkt_subproblem,
                                method,
-                               debug_label = "active-set") {
+                               debug_label = "active-set",
+                               parallel_qr = FALSE,
+                               cl = NULL) {
   if (is.null(qp_Amat) || !is.matrix(qp_Amat) || ncol(qp_Amat) == 0L) {
     return(list(result = result, qp_info = NULL, converged = TRUE))
   }
@@ -552,7 +567,9 @@
       qp_Amat = qp_Amat,
       qp_bvec = qp_bvec,
       qp_meq = qp_meq,
-      active_ineq = active_ineq
+      active_ineq = active_ineq,
+      parallel_qr = parallel_qr,
+      cl = cl
     )
 
     active_ineq <- aug_state$active_ineq_kept
@@ -640,7 +657,9 @@
             qp_Amat = qp_Amat,
             qp_bvec = qp_bvec,
             qp_meq = qp_meq,
-            active_ineq = c(cand_idx, active_ineq)
+            active_ineq = c(cand_idx, active_ineq),
+            parallel_qr = parallel_qr,
+            cl = cl
           )
           cand_key <- paste(sort(cand_state$active_ineq_kept), collapse = ",")
           if (!(cand_key %in% visited_states)) {
@@ -657,7 +676,10 @@
       cand_A <- cbind(aug_state$A_base, qp_Amat[, cand_active, drop = FALSE])
       cand_scales <- .constraint_col_scales(cand_A)
       cand_A_scaled <- t(t(cand_A) * cand_scales)
-      cand_rank <- qr(cand_A_scaled, tol = 1e-10)$rank
+      cand_rank <- .constraint_rank(cand_A_scaled,
+                                    tol = 1e-10,
+                                    parallel_qr = parallel_qr,
+                                    cl = cl)
 
       if (!(worst_idx %in% active_ineq) &&
           cand_rank <= (aug_state$n_eq_base + length(active_ineq)) &&

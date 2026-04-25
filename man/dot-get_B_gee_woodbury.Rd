@@ -33,6 +33,7 @@
   rem_chunks,
   qp_global,
   tol,
+  parallel_qr = FALSE,
   ...
 )
 }

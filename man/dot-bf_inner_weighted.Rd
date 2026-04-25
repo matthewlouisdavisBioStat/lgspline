@@ -23,6 +23,7 @@
   tol,
   max_backfit_iter,
   parallel_eigen,
+  parallel_qr = FALSE,
   cl,
   chunk_size,
   num_chunks,

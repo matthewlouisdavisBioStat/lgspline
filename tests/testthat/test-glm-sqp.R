@@ -1,3 +1,8 @@
+expect_flag <- function(flag, message) {
+  if (!isTRUE(flag)) testthat::fail(message)
+}
+
+
 test_that("lgspline handles basic GLM and quadratic programming constraints", {
   set.seed(1234)
 
@@ -59,16 +64,21 @@ test_that("lgspline handles basic GLM and quadratic programming constraints", {
   ## Basic checks
   expect_s3_class(fit, "lgspline")
   expect_length(fit$B, fit$K + 1)
-  expect_true(all(!is.na(fit$ytilde)))
+  expect_flag(all(!is.na(fit$ytilde)),
+              "Basic GLM/QP fit returned NA fitted values.")
 
   ## Check monotonicity constraint
   newt <- matrix(sort(t))
   preds <- fit$predict(newt)
   diffs <- diff(preds)
-  expect_true(all(diffs >= -1e-2))  # Allow for numerical imprecision
+  expect_flag(all(diffs >= -1e-2),
+              sprintf("Monotone increase violated: min diff = %.6f",
+                      min(diffs)))  # Allow for numerical imprecision
 
   ## Check range constraint
-  expect_true(all(preds > 1-1e-2)) # Allow for numeric imprecision
+  expect_flag(all(preds > 1 - 1e-2),
+              sprintf("Range lower bound violated: min pred = %.6f",
+                      min(preds))) # Allow for numeric imprecision
 
   ## Test GLM-specific components
   expect_equal(fit$family$family, quasipoisson()$family)
@@ -117,7 +127,8 @@ test_that("Basic lgspline handles logistic regression without constraints", {
   preds <- predict(fit_bin, new_predictors = cbind(sample(t)+rnorm(length(t),
                                                                    0,
                                                                    0.00001)))
-  expect_true(all(abs(preds) <= 1))
+  expect_flag(all(abs(preds) <= 1),
+              "Logistic predictions left the admissible response range.")
 })
 
 test_that("lgspline handles various quadratic programming constraints", {
@@ -130,7 +141,9 @@ test_that("lgspline handles various quadratic programming constraints", {
                       opt = FALSE,
                       qp_monotonic_increase = TRUE)
   preds_inc <- predict(fit_inc, matrix(sort(t)))
-  expect_true(all(diff(preds_inc) >= -1e-10))
+  expect_flag(all(diff(preds_inc) >= -1e-10),
+              sprintf("Monotone increase violated: min diff = %.6f",
+                      min(diff(preds_inc))))
 
   ## Test monotone decreasing
   y_dec <- -y
@@ -139,7 +152,9 @@ test_that("lgspline handles various quadratic programming constraints", {
                       opt = FALSE,
                       qp_monotonic_decrease = TRUE)
   preds_dec <- predict(fit_dec, matrix(sort(t)))
-  expect_true(all(diff(preds_dec) <= 1e-10))
+  expect_flag(all(diff(preds_dec) <= 1e-10),
+              sprintf("Monotone decrease violated: max diff = %.6f",
+                      max(diff(preds_dec))))
 
   ## Test bounded range
   y_bound <- y - mean(y)
@@ -149,8 +164,12 @@ test_that("lgspline handles various quadratic programming constraints", {
                         qp_range_upper = 1,
                         opt = FALSE)
   preds_bound <- predict(fit_bound, matrix(t))
-  expect_true(all(preds_bound >= -1.01)) # Allow small numerical error
-  expect_true(all(preds_bound <= 1.01))
+  expect_flag(all(preds_bound >= -1.01),
+              sprintf("Lower range bound violated: min pred = %.6f",
+                      min(preds_bound))) # Allow small numerical error
+  expect_flag(all(preds_bound <= 1.01),
+              sprintf("Upper range bound violated: max pred = %.6f",
+                      max(preds_bound)))
 })
 
 test_that("Gaussian QP constraints are invariant to response standardization", {
@@ -180,7 +199,9 @@ test_that("Gaussian QP constraints are invariant to response standardization", {
   pred_raw <- predict(fit_raw, cbind(t))
 
   expect_equal(pred_std, pred_raw, tolerance = 1e-6)
-  expect_true(all(pred_std >= -1e-8))
+  expect_flag(all(pred_std >= -1e-8),
+              sprintf("Range lower bound violated after standardization: min pred = %.6f",
+                      min(pred_std)))
 
   deriv_std <- predict(fit_std, cbind(t), take_first_derivatives = TRUE)
   deriv_raw <- predict(fit_raw, cbind(t), take_first_derivatives = TRUE)

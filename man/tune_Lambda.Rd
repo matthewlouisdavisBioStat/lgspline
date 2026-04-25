@@ -45,6 +45,10 @@ tune_Lambda(
   parallel_trace,
   parallel_aga,
   parallel_matmult,
+  parallel_qr,
+  parallel_bfgs,
+  parallel_grideval,
+  qr_pivot_smoothing_constraints,
   parallel_unconstrained,
   cl,
   chunk_size,
@@ -154,8 +158,11 @@ freedom in the GCV denominator.}
 \item{parallel_eigen, parallel_trace, parallel_aga}{Logical; specific parallel
 flags.}
 
-\item{parallel_matmult, parallel_unconstrained}{Logical; specific parallel
-flags.}
+\item{parallel_matmult, parallel_qr, parallel_bfgs, parallel_grideval, }{qr_pivot_smoothing_constraints,parallel_unconstrained Logical; specific
+parallel flags. When \code{parallel_grideval = TRUE} or
+\code{parallel_bfgs = TRUE}, the submitted cluster is used across whole
+tuning-objective evaluations, so each worker evaluates its assigned
+candidate with the inner per-criterion parallel kernels turned off.}
 
 \item{cl}{Parallel cluster object.}
 
@@ -241,7 +248,11 @@ The tuning procedure consists of the following steps:
     \code{colnm_expansions}.
   \item \strong{Grid search}: Evaluate the selected tuning criterion over a grid of
     (wiggle, ridge) penalty candidates to find a good starting point
-    (see \code{.tune_grid_search}).
+    (see \code{.tune_grid_search}). When \code{parallel_grideval = TRUE}
+    and a cluster is supplied, these candidate fits are spread across the
+    workers, and if more than six workers are available the grid is
+    enlarged with additional random raw-scale candidates drawn from
+    \eqn{[\min/10,\max\times 10]} in each penalty direction.
   \item \strong{BFGS optimization}: Minimize the selected tuning criterion via either the custom
     damped BFGS with closed-form gradients (see \code{.damped_bfgs},
     \code{.compute_gcvu_gradient}, \code{.compute_loocv_gradient}) or base R's \code{stats::optim} with
@@ -249,7 +260,9 @@ The tuning procedure consists of the following steps:
     in the shared wiggle and flat directions; for LOO, the same direct
     differentiation is used, but the leverage derivative may be numerically
     delicate in some problems and can motivate the finite-difference
-    fallback.
+    fallback. When \code{parallel_bfgs = TRUE} and a cluster is supplied,
+    each damped step evaluates a batch of halved step sizes in parallel and
+    takes the best improving candidate from that batch.
   \item \strong{Criterion choice}: \code{"loo"} uses exact per-observation
     leverages on the transformed tuning problem, while \code{"gcv"} uses the
     usual trace-based denominator with optional \code{gcv_gamma}

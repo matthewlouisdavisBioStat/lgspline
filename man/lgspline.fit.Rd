@@ -33,7 +33,8 @@ lgspline.fit(predictors, y = NULL, standardize_response = TRUE,
              include_constrain_second_deriv = TRUE,
              include_constrain_interactions = TRUE, cl = NULL, chunk_size = NULL,
              parallel_eigen = TRUE, parallel_trace = FALSE, parallel_aga = FALSE,
-             parallel_matmult = FALSE, parallel_unconstrained = FALSE,
+             parallel_matmult = FALSE, parallel_qr = FALSE,
+             parallel_unconstrained = FALSE,
              parallel_find_neighbors = FALSE, parallel_penalty = FALSE,
              parallel_make_constraint = FALSE,
              unconstrained_fit_fxn = unconstrained_fit_default,
@@ -240,6 +241,10 @@ derivatives at knot points.}
 \item{include_constrain_interactions}{Default: TRUE. Logical switch to constrain
 interaction terms at knot points.}
 
+\item{qr_pivot_smoothing_constraints}{Default: TRUE. Logical switch to reduce
+the smoothness/equality constraint matrix to a linearly independent set
+before fitting. Disabling this keeps the original equality columns.}
+
 \item{cl}{Default: NULL. Parallel processing cluster object
 (use \code{parallel::makeCluster()}).}
 
@@ -255,6 +260,29 @@ processing.}
 
 \item{parallel_matmult}{Default: FALSE. Logical flag for parallel block-diagonal matrix
 multiplication.}
+
+\item{parallel_qr}{Default: FALSE. Logical flag for the tall-skinny
+least-squares and rank-reduction steps that arise in transformed
+constraint solves. When active and a cluster is supplied, these steps use
+row-chunked cross-products with small dense fallback solves instead of
+relying entirely on base QR; unstable cases fall back automatically to
+\code{.lm.fit()} or \code{qr()}.}
+
+\item{parallel_bfgs}{Default: TRUE. Logical flag for parallel evaluation of
+damped BFGS step candidates during penalty tuning. When active and a
+cluster is supplied, multiple damping factors are evaluated across
+workers and the best improving candidate is retained.}
+
+\item{parallel_grideval}{Default: TRUE. Logical flag for parallel evaluation
+of the initial tuning grid. When active and a cluster is supplied, grid
+points are distributed across workers, and if more than six workers are
+available, additional random penalty candidates are added before the
+starting point is chosen.}
+
+\item{parallel_qr_qp}{Default: FALSE. Logical flag for parallel QR pivot
+reduction of partition-local inequality constraint columns. When active
+and a cluster is supplied, each partition's reducible QP block is handled
+independently across workers before the final QP matrix is assembled.}
 
 \item{parallel_unconstrained}{Default: FALSE. Logical flag for parallel
 unconstrained MLE for non-identity-link-Gaussian models.}
@@ -290,9 +318,21 @@ Score function for quadratic programming, blockfit, and GEE formulations.
 Accepts arguments \code{"X, y, mu, order_list, dispersion, VhalfInv,
 observation_weights, ..."}.}
 
-\item{qp_observations}{Default: NULL. Numeric vector of observation indices
-at which built-in QP constraints are evaluated. Useful for reducing the
-size of the constrained system.}
+\item{qp_observations}{Default: NULL. Either a numeric vector of
+observation indices at which every active built-in QP constraint is
+evaluated, or a named list keyed by \code{"var:qp_<type>"} (or bare
+\code{"qp_<type>"}) giving different built-in constraints different
+observation subsets. The known types are \code{qp_range_lower},
+\code{qp_range_upper}, \code{qp_positive_derivative},
+\code{qp_negative_derivative}, \code{qp_positive_2ndderivative},
+\code{qp_negative_2ndderivative}, \code{qp_monotonic_increase}, and
+\code{qp_monotonic_decrease}. For range and monotonicity the canonical
+keys are the bare forms such as \code{"qp_range_lower"} and
+\code{"qp_monotonic_increase"}, because those constraints are not tied
+to a specific variable; prefixed entries are still accepted and unioned.
+Derivative entries dispatch per variable, so different variables and
+constraint types may use different subsets. Unknown keys are ignored
+with a warning when \code{include_warnings = TRUE}.}
 
 \item{qp_Amat}{Default: NULL. Optional pre-built QP constraint matrix.
 In the current pipeline its presence marks QP handling as active, but the
@@ -335,6 +375,12 @@ fitted values.}
 
 \item{qp_range_lower}{Default: NULL. Optional lower bound on constrained
 fitted values.}
+
+\item{qr_pivot_inequality_constraints}{Default: FALSE. Logical switch to
+reduce partition-local inequality constraint columns to QR pivot columns
+before solving. Built-in range and monotonicity constraints are left
+unchanged, and more generally any inequality columns spanning multiple
+partitions are also left unchanged.}
 
 \item{qp_Amat_fxn}{Default: NULL. Custom function generating Amat.}
 

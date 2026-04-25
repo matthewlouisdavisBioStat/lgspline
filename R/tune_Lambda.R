@@ -9,6 +9,136 @@
 #    small helpers for predictions, residuals, and meta-penalties
 
 
+## Small helpers for outer tuning parallelism
+
+.tuning_worker_count <- function(cl) {
+  if (is.null(cl) || !inherits(cl, "cluster")) {
+    return(1L)
+  }
+  as.integer(length(cl))
+}
+
+
+.tuning_eval_env <- function(env) {
+  env_eval <- env
+  env_eval$parallel <- FALSE
+  env_eval$parallel_eigen <- FALSE
+  env_eval$parallel_trace <- FALSE
+  env_eval$parallel_aga <- FALSE
+  env_eval$parallel_matmult <- FALSE
+  env_eval$parallel_qr <- FALSE
+  env_eval$parallel_unconstrained <- FALSE
+  env_eval$cl <- NULL
+  env_eval$chunk_size <- 1L
+  env_eval$num_chunks <- 0L
+  env_eval$rem_chunks <- 0L
+  env_eval
+}
+
+
+.preserve_rng_state <- function(expr) {
+  had_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  if (had_seed) {
+    old_seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  }
+  on.exit({
+    if (had_seed) {
+      assign(".Random.seed", old_seed, envir = .GlobalEnv)
+    } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+      rm(".Random.seed", envir = .GlobalEnv)
+    }
+  }, add = TRUE)
+  force(expr)
+}
+
+
+.tuning_seed <- function(...) {
+  vals <- abs(c(...))
+  vals <- vals[is.finite(vals)]
+  if (length(vals) == 0) {
+    return(1L)
+  }
+  seed <- sum(vals * seq_along(vals) * 1e6)
+  as.integer(seed %% (.Machine$integer.max - 1L)) + 1L
+}
+
+
+.expand_tuning_grid <- function(initial_grid,
+                                log_initial_wiggle,
+                                log_initial_flat,
+                                n_workers,
+                                parallel_grideval) {
+  if (!parallel_grideval || n_workers <= 6L) {
+    return(initial_grid)
+  }
+
+  n_extra <- min(n_workers - 6L, 8L)
+  if (n_extra <= 0L) {
+    return(initial_grid)
+  }
+
+  wiggle_bounds <- range(exp(log_initial_wiggle)) * c(1e-1, 10)
+  flat_bounds <- range(exp(log_initial_flat)) * c(1e-1, 10)
+  seed <- .tuning_seed(log_initial_wiggle, log_initial_flat, n_workers, n_extra)
+
+  extra_grid <- .preserve_rng_state({
+    set.seed(seed)
+    data.frame(
+      wiggle = log(runif(n_extra, wiggle_bounds[1], wiggle_bounds[2])),
+      flat = log(runif(n_extra, flat_bounds[1], flat_bounds[2]))
+    )
+  })
+
+  rbind(initial_grid, extra_grid)
+}
+
+
+.safe_tuning_outlist <- function(par,
+                                 criterion_fxn,
+                                 log_penalty_vec,
+                                 env,
+                                 include_warnings = FALSE,
+                                 ...) {
+  tryCatch({
+    out <- criterion_fxn(c(unlist(par), log_penalty_vec),
+                         log_penalty_vec,
+                         env,
+                         ...)
+    crit <- out$criterion_value
+    if (length(crit) != 1L || is.na(crit) || is.nan(crit) || !is.finite(crit)) {
+      out$criterion_value <- Inf
+    }
+    out
+  }, error = function(e) {
+    if (include_warnings) {
+      warning(conditionMessage(e))
+    }
+    list(criterion_value = Inf)
+  })
+}
+
+
+.safe_tuning_value <- function(par,
+                               criterion_fxn,
+                               log_penalty_vec,
+                               env,
+                               include_warnings = FALSE,
+                               ...) {
+  .safe_tuning_outlist(par,
+                       criterion_fxn,
+                       log_penalty_vec,
+                       env,
+                       include_warnings,
+                       ...)$criterion_value
+}
+
+
+.bfgs_damp_set <- function(damp, n_workers) {
+  n_damps <- max(1L, min(n_workers, 8L))
+  damp * 2^(-(seq_len(n_damps) - 1L))
+}
+
+
 ## Residuals used in tuning criteria
 
 #' Compute Residuals During Penalty Tuning
@@ -281,6 +411,9 @@
         iterate                        = env$iterate,
         tol                            = env$tol,
         parallel_eigen                 = env$parallel & env$parallel_eigen,
+        parallel_qr                    = env$parallel & env$parallel_qr,
+        qr_pivot_smoothing_constraints =
+          env$qr_pivot_smoothing_constraints,
         cl                             = env$cl,
         chunk_size                     = env$chunk_size,
         num_chunks                     = env$num_chunks,
@@ -361,6 +494,7 @@
     env$parallel & env$parallel_eigen,
     env$parallel & env$parallel_aga,
     env$parallel & env$parallel_matmult,
+    env$parallel & env$parallel_qr,
     env$parallel & env$parallel_unconstrained,
     env$cl,
     env$chunk_size,
@@ -916,7 +1050,8 @@
     env$cl,
     env$chunk_size,
     env$num_chunks,
-    env$rem_chunks)
+    env$rem_chunks,
+    env$parallel & env$parallel_qr)
 
   ## dW/dlambda (trace derivative)
   #  trace(H) is the sum of the hat diagonals, so differentiate that
@@ -974,7 +1109,8 @@
     env$cl,
     env$chunk_size,
     env$num_chunks,
-    env$rem_chunks)
+    env$rem_chunks,
+    env$parallel & env$parallel_qr)
   dW_dlambda2 <- sum(unlist(
     .compute_dhat_diag(
       env$X,
@@ -1123,6 +1259,7 @@
                          gr_fxn,
                          env,
                          tol,
+                         parallel_bfgs = TRUE,
                          max_iter = 100,
                          ...) {
 
@@ -1149,6 +1286,7 @@
   best_criterion_value <- criterion_value
   prev_lambda   <- old_lambda
   restart       <- TRUE
+  n_workers     <- .tuning_worker_count(env$cl)
 
   ## Evaluate and retain the grid-search start point before taking any
   # optimizer step. Otherwise a bad first gradient step can displace the
@@ -1173,14 +1311,7 @@
 
     ## First two iterations: steepest descent
     if (iter <= 2) {
-      new_lambda <- lambda - damp * gradient
-
-      ## Reset to best if numerical issues
-      if (any(!is.finite(exp(new_lambda))) ||
-          any(is.nan(exp(new_lambda))) ||
-          any(is.na(exp(new_lambda)))) {
-        new_lambda <- best_lambda
-      }
+      step_direction <- gradient
 
     } else {
       ## Add small ridge for stability if needed
@@ -1222,38 +1353,142 @@
       }
 
       ## Compute BFGS step direction
-      new_lambda <- lambda - damp * Inv %**% cbind(gradient)
-
-      ## Reset to best if numerical issues
-      if (any(!is.finite(exp(new_lambda))) ||
-          any(is.nan(exp(new_lambda))) ||
-          any(is.na(exp(new_lambda)))) {
-        new_lambda <- best_lambda
-      }
+      step_direction <- Inv %**% cbind(gradient)
     }
 
     ## Evaluate GCV at new point
-    if (any(is.na(new_lambda))) {
-      ## Backtrack if invalid step
-      lambda       <- old_lambda
-      gradient     <- old_gradient
-      dont_skip_gr <- FALSE
-      damp         <- damp / 2
-      if (damp < 2^-12 && iter > 9) {
-        return(list(par        = c(best_lambda),
-                    criterion_value = best_criterion_value,
-                    gcv_u      = best_criterion_value,
-                    iterations = iter))
+    if (parallel_bfgs && !is.null(env$cl) && n_workers > 1L) {
+      damp_set <- .bfgs_damp_set(damp, n_workers)
+      candidate_list <- lapply(damp_set, function(damp_j) {
+        list(damp = damp_j,
+             lambda = lambda - damp_j * step_direction)
+      })
+
+      valid <- vapply(candidate_list, function(cand) {
+        all(is.finite(exp(cand$lambda))) &&
+          !any(is.nan(exp(cand$lambda))) &&
+          !any(is.na(exp(cand$lambda)))
+      }, logical(1))
+
+      if (!any(valid)) {
+        lambda       <- old_lambda
+        gradient     <- old_gradient
+        dont_skip_gr <- FALSE
+        damp         <- min(damp_set) / 2
+        if (damp < 2^-12 && iter > 9) {
+          return(list(par        = c(best_lambda),
+                      criterion_value = best_criterion_value,
+                      gcv_u      = best_criterion_value,
+                      iterations = iter))
+        }
+        next
       }
-      next
-    } else {
+
+      env_eval <- .tuning_eval_env(env)
       prev_outlist <- outlist
-      outlist      <- criterion_fxn(c(new_lambda[1], new_lambda[2],
-                                      log_penalty_vec),
-                                    log_penalty_vec, env, ...)
-      new_criterion_value <- outlist$criterion_value
-      if (any(is.na(new_criterion_value))) {
-        new_criterion_value <- criterion_value
+      eval_results <- parallel::parLapply(
+        env$cl,
+        candidate_list[valid],
+      function(cand,
+               criterion_fxn,
+               log_penalty_vec,
+               env_eval,
+               include_warnings,
+               ...) {
+          out <- tryCatch({
+            res <- criterion_fxn(c(cand$lambda[1], cand$lambda[2],
+                                   log_penalty_vec),
+                                 log_penalty_vec,
+                                 env_eval,
+                                 ...)
+            crit <- res$criterion_value
+            if (length(crit) != 1L || is.na(crit) ||
+                is.nan(crit) || !is.finite(crit)) {
+              res$criterion_value <- Inf
+            }
+            res
+          }, error = function(e) {
+            if (include_warnings) {
+              warning(conditionMessage(e))
+            }
+            list(criterion_value = Inf)
+          })
+          list(damp = cand$damp,
+               lambda = cand$lambda,
+               criterion_value = out$criterion_value,
+               outlist = out)
+        },
+        criterion_fxn = criterion_fxn,
+        log_penalty_vec = log_penalty_vec,
+        env_eval = env_eval,
+        include_warnings = env$include_warnings,
+        ...
+      )
+
+      eval_values <- vapply(eval_results, function(res) {
+        crit <- res$criterion_value
+        if (length(crit) != 1L || is.na(crit) || !is.finite(crit)) {
+          Inf
+        } else {
+          crit
+        }
+      }, numeric(1))
+
+      if (iter <= 2) {
+        improving <- which(is.finite(eval_values))
+      } else {
+        improving <- which(is.finite(eval_values) &
+                             eval_values <= criterion_value)
+      }
+
+      if (length(improving) > 0L) {
+        best_idx <- improving[which.min(eval_values[improving])[1]]
+        best_eval <- eval_results[[best_idx]]
+        new_lambda <- best_eval$lambda
+        new_criterion_value <- best_eval$criterion_value
+        outlist <- best_eval$outlist
+      } else {
+        dont_skip_gr <- FALSE
+        outlist      <- prev_outlist
+        damp         <- min(damp_set) / 2
+        if (damp < 2^(-10) && iter > 0) {
+          return(list(par        = c(best_lambda),
+                      criterion_value = best_criterion_value,
+                      gcv_u      = best_criterion_value,
+                      iterations = iter))
+        }
+        next
+      }
+
+    } else {
+      new_lambda <- lambda - damp * step_direction
+
+      if (any(is.na(new_lambda))) {
+        lambda       <- old_lambda
+        gradient     <- old_gradient
+        dont_skip_gr <- FALSE
+        damp         <- damp / 2
+        if (damp < 2^-12 && iter > 9) {
+          return(list(par        = c(best_lambda),
+                      criterion_value = best_criterion_value,
+                      gcv_u      = best_criterion_value,
+                      iterations = iter))
+        }
+        next
+      } else {
+        if (any(!is.finite(exp(new_lambda))) ||
+            any(is.nan(exp(new_lambda))) ||
+            any(is.na(exp(new_lambda)))) {
+          new_lambda <- best_lambda
+        }
+        prev_outlist <- outlist
+        outlist      <- criterion_fxn(c(new_lambda[1], new_lambda[2],
+                                        log_penalty_vec),
+                                      log_penalty_vec, env, ...)
+        new_criterion_value <- outlist$criterion_value
+        if (any(is.na(new_criterion_value))) {
+          new_criterion_value <- criterion_value
+        }
       }
     }
 
@@ -1338,31 +1573,72 @@
                               criterion_fxn,
                               env,
                               include_warnings,
+                              parallel_grideval = TRUE,
+                              cl = NULL,
                               ...) {
 
   ## Create all combinations of the grid values
   initial_grid <- expand.grid(wiggle = log_initial_wiggle,
                               flat   = log_initial_flat)
+  n_workers <- .tuning_worker_count(cl)
+  initial_grid <- .expand_tuning_grid(initial_grid,
+                                      log_initial_wiggle,
+                                      log_initial_flat,
+                                      n_workers,
+                                      parallel_grideval)
 
   ## Function to safely evaluate the selected criterion
   safe_gcvu <- function(par) {
-    tryCatch({
-      result <- criterion_fxn(c(unlist(par), log_penalty_vec),
-                              log_penalty_vec, env, ...)$criterion_value
-      if (is.na(result) || is.nan(result)) {
-        return(Inf)
-      }
-      return(result)
-    }, error = function(e) {
-      if (include_warnings) {
-        return(Inf)
-      }
-      return(Inf)
-    })
+    .safe_tuning_value(par,
+                       criterion_fxn,
+                       log_penalty_vec,
+                       env,
+                       include_warnings,
+                       ...)
   }
 
   ## Evaluate the criterion for each grid point
-  gcv_values <- apply(initial_grid, 1, safe_gcvu)
+  if (parallel_grideval && !is.null(cl) && n_workers > 1L) {
+    env_eval <- .tuning_eval_env(env)
+    gcv_values <- unlist(parallel::parLapply(
+      cl,
+      seq_len(nrow(initial_grid)),
+      function(i,
+               initial_grid,
+               criterion_fxn,
+               log_penalty_vec,
+               env_eval,
+               include_warnings,
+               ...) {
+        tryCatch({
+          out <- criterion_fxn(c(unlist(initial_grid[i, ]),
+                                 log_penalty_vec),
+                               log_penalty_vec,
+                               env_eval,
+                               ...)
+          crit <- out$criterion_value
+          if (length(crit) != 1L || is.na(crit) ||
+              is.nan(crit) || !is.finite(crit)) {
+            return(Inf)
+          }
+          crit
+        }, error = function(e) {
+          if (include_warnings) {
+            warning(conditionMessage(e))
+          }
+          Inf
+        })
+      },
+      initial_grid = initial_grid,
+      criterion_fxn = criterion_fxn,
+      log_penalty_vec = log_penalty_vec,
+      env_eval = env_eval,
+      include_warnings = include_warnings,
+      ...
+    ))
+  } else {
+    gcv_values <- apply(initial_grid, 1, safe_gcvu)
+  }
   bads <- which(is.na(gcv_values) |
                   is.nan(gcv_values) |
                   !is.finite(gcv_values))
@@ -1500,6 +1776,8 @@
                               parallel, parallel_eigen,
                               parallel_trace, parallel_aga,
                               parallel_matmult,
+                              parallel_qr = FALSE,
+                              qr_pivot_smoothing_constraints = TRUE,
                               parallel_unconstrained,
                               cl, chunk_size,
                               num_chunks, rem_chunks,
@@ -1546,6 +1824,8 @@
     parallel_trace                = parallel_trace,
     parallel_aga                  = parallel_aga,
     parallel_matmult              = parallel_matmult,
+    parallel_qr                   = parallel_qr,
+    qr_pivot_smoothing_constraints = qr_pivot_smoothing_constraints,
     parallel_unconstrained        = parallel_unconstrained,
     cl                            = cl,
     chunk_size                    = chunk_size,
@@ -1650,8 +1930,12 @@
 #' @param parallel Logical; enable parallel computation.
 #' @param parallel_eigen,parallel_trace,parallel_aga Logical; specific parallel
 #'   flags.
-#' @param parallel_matmult,parallel_unconstrained Logical; specific parallel
-#'   flags.
+#' @param parallel_matmult,parallel_qr,parallel_bfgs,parallel_grideval,
+#'   qr_pivot_smoothing_constraints,parallel_unconstrained Logical; specific
+#'   parallel flags. When \code{parallel_grideval = TRUE} or
+#'   \code{parallel_bfgs = TRUE}, the submitted cluster is used across whole
+#'   tuning-objective evaluations, so each worker evaluates its assigned
+#'   candidate with the inner per-criterion parallel kernels turned off.
 #' @param cl Parallel cluster object.
 #' @param chunk_size,num_chunks,rem_chunks Integer; parallel computation
 #'   parameters.
@@ -1714,7 +1998,11 @@
 #'     \code{colnm_expansions}.
 #'   \item \strong{Grid search}: Evaluate the selected tuning criterion over a grid of
 #'     (wiggle, ridge) penalty candidates to find a good starting point
-#'     (see \code{.tune_grid_search}).
+#'     (see \code{.tune_grid_search}). When \code{parallel_grideval = TRUE}
+#'     and a cluster is supplied, these candidate fits are spread across the
+#'     workers, and if more than six workers are available the grid is
+#'     enlarged with additional random raw-scale candidates drawn from
+#'     \eqn{[\min/10,\max\times 10]} in each penalty direction.
 #'   \item \strong{BFGS optimization}: Minimize the selected tuning criterion via either the custom
 #'     damped BFGS with closed-form gradients (see \code{.damped_bfgs},
 #'     \code{.compute_gcvu_gradient}, \code{.compute_loocv_gradient}) or base R's \code{stats::optim} with
@@ -1722,7 +2010,9 @@
 #'     in the shared wiggle and flat directions; for LOO, the same direct
 #'     differentiation is used, but the leverage derivative may be numerically
 #'     delicate in some problems and can motivate the finite-difference
-#'     fallback.
+#'     fallback. When \code{parallel_bfgs = TRUE} and a cluster is supplied,
+#'     each damped step evaluates a batch of halved step sizes in parallel and
+#'     takes the best improving candidate from that batch.
 #'   \item \strong{Criterion choice}: \code{"loo"} uses exact per-observation
 #'     leverages on the transformed tuning problem, while \code{"gcv"} uses the
 #'     usual trace-based denominator with optional \code{gcv_gamma}
@@ -1915,6 +2205,10 @@ tune_Lambda <- function(
     parallel_trace,
     parallel_aga,
     parallel_matmult,
+    parallel_qr,
+    parallel_bfgs,
+    parallel_grideval,
+    qr_pivot_smoothing_constraints,
     parallel_unconstrained,
     cl,
     chunk_size,
@@ -2020,6 +2314,8 @@ tune_Lambda <- function(
     parallel = parallel, parallel_eigen = parallel_eigen,
     parallel_trace = parallel_trace, parallel_aga = parallel_aga,
     parallel_matmult = parallel_matmult,
+    parallel_qr = parallel_qr,
+    qr_pivot_smoothing_constraints = qr_pivot_smoothing_constraints,
     parallel_unconstrained = parallel_unconstrained,
     cl = cl, chunk_size = chunk_size,
     num_chunks = num_chunks, rem_chunks = rem_chunks,
@@ -2065,6 +2361,8 @@ tune_Lambda <- function(
                                     criterion_fxn,
                                     env,
                                     include_warnings,
+                                    parallel_grideval = parallel_grideval,
+                                    cl = cl,
                                     ...)
 
     if (verbose) {
@@ -2082,6 +2380,7 @@ tune_Lambda <- function(
                          gr_fxn,
                          env,
                          tol,
+                         parallel_bfgs = parallel_bfgs,
                          max_iter = 100,
                          ...),
             silent = TRUE),
@@ -2108,10 +2407,20 @@ tune_Lambda <- function(
       ## Base R BFGS with finite-difference gradients
       res <- withCallingHandlers(
         try({
+          safe_optim_fn <- function(par) {
+            crit <- .safe_tuning_value(par,
+                                       criterion_fxn,
+                                       log_penalty_vec,
+                                       env,
+                                       include_warnings = FALSE,
+                                       ...)
+            if (!is.finite(crit) || is.na(crit) || is.nan(crit)) {
+              return(.Machine$double.xmax^0.25)
+            }
+            crit
+          }
           optim(c(best_start, log_penalty_vec),
-                fn = function(par) {
-                  criterion_fxn(par, log_penalty_vec, env, ...)$criterion_value
-                },
+                fn = safe_optim_fn,
                 method = "BFGS")
         }, silent = TRUE),
         warning = function(w) {

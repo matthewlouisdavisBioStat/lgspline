@@ -14,7 +14,9 @@
   active_ineq,
   solve_subproblem,
   kkt_subproblem,
-  method
+  method,
+  parallel_qr = FALSE,
+  cl = NULL
 )
 }
 \arguments{

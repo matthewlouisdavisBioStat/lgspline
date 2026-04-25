@@ -11,7 +11,9 @@
   K,
   p_expansions,
   constraint_value_vectors,
-  family
+  family,
+  parallel_qr = FALSE,
+  cl = NULL
 )
 }
 \description{

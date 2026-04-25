@@ -11,6 +11,8 @@
   criterion_fxn,
   env,
   include_warnings,
+  parallel_grideval = TRUE,
+  cl = NULL,
   ...
 )
 }

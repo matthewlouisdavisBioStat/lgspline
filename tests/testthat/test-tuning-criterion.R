@@ -416,7 +416,7 @@ test_that("post-optimization sample-size adjustment shrinks tuned penalties for 
 })
 
 test_that(".damped_bfgs never returns a GCV solution worse than the grid start", {
-  set.seed(123)
+  set.seed(1234)
   t <- seq(-2, 2, length.out = 30)
   y <- sin(2 * t) + 0.15 * t^2
 
@@ -486,6 +486,131 @@ test_that(".damped_bfgs preserves the start point when the first step is worse",
 
   expect_equal(res$par, start, tolerance = 1e-12)
   expect_equal(res$criterion_value, 0, tolerance = 1e-12)
+})
+
+test_that(".expand_tuning_grid adds extra candidates only once workers exceed six", {
+  initial_grid <- expand.grid(wiggle = log(c(1e-4, 1e-2)),
+                              flat = log(c(0.5, 5)))
+
+  expanded <- lgspline:::.expand_tuning_grid(
+    initial_grid,
+    log_initial_wiggle = log(c(1e-4, 1e-2)),
+    log_initial_flat = log(c(0.5, 5)),
+    n_workers = 7L,
+    parallel_grideval = TRUE
+  )
+
+  unchanged <- lgspline:::.expand_tuning_grid(
+    initial_grid,
+    log_initial_wiggle = log(c(1e-4, 1e-2)),
+    log_initial_flat = log(c(0.5, 5)),
+    n_workers = 6L,
+    parallel_grideval = TRUE
+  )
+
+  expect_equal(unchanged, initial_grid)
+  expect_equal(expanded[seq_len(nrow(initial_grid)), ], initial_grid)
+  expect_equal(nrow(expanded), nrow(initial_grid) + 1L)
+  expect_true(all(exp(expanded$wiggle[-seq_len(nrow(initial_grid))]) >= 1e-5))
+  expect_true(all(exp(expanded$wiggle[-seq_len(nrow(initial_grid))]) <= 1e-1))
+  expect_true(all(exp(expanded$flat[-seq_len(nrow(initial_grid))]) >= 0.05))
+  expect_true(all(exp(expanded$flat[-seq_len(nrow(initial_grid))]) <= 50))
+})
+
+test_that("parallel grid evaluation matches sequential grid evaluation when no expansion is used", {
+  case <- make_gaussian_linear_fit(wiggle_penalty = 5e-3, flat_ridge_penalty = 0.3)
+  env <- build_tuning_env_from_fit(case$fit, tuning_criterion = "gcv", gcv_gamma = 1.4)
+  cl <- parallel::makeCluster(2)
+  on.exit(parallel::stopCluster(cl), add = TRUE)
+  lib_dir <- normalizePath(.libPaths()[1], winslash = "/", mustWork = TRUE)
+  parallel::clusterExport(cl, "lib_dir", envir = environment())
+  invisible(parallel::clusterEvalQ(cl, {
+    .libPaths(c(lib_dir, .libPaths()))
+    suppressPackageStartupMessages(library(lgspline))
+    NULL
+  }))
+
+  seq_best <- lgspline:::.tune_grid_search(
+    log(c(1e-4, 5e-4, 5e-3)),
+    log(c(0.2, 0.5, 1)),
+    c(),
+    lgspline:::.compute_gcvu,
+    env,
+    include_warnings = FALSE,
+    parallel_grideval = FALSE,
+    cl = NULL
+  )
+
+  par_best <- lgspline:::.tune_grid_search(
+    log(c(1e-4, 5e-4, 5e-3)),
+    log(c(0.2, 0.5, 1)),
+    c(),
+    lgspline:::.compute_gcvu,
+    env,
+    include_warnings = FALSE,
+    parallel_grideval = TRUE,
+    cl = cl
+  )
+
+  expect_equal(par_best, seq_best, tolerance = 1e-10)
+})
+
+test_that("parallel damped BFGS returns a finite tuning solution", {
+  set.seed(1234)
+  t <- seq(-2, 2, length.out = 30)
+  y <- sin(2 * t) + 0.15 * t^2
+
+  fit <- lgspline(
+    cbind(t), y,
+    K = 1,
+    opt = FALSE,
+    wiggle_penalty = 5e-3,
+    flat_ridge_penalty = 0.3,
+    unique_penalty_per_predictor = FALSE,
+    unique_penalty_per_partition = FALSE,
+    just_linear_without_interactions = 1,
+    standardize_response = FALSE,
+    include_warnings = FALSE
+  )
+
+  env <- build_tuning_env_from_fit(fit, tuning_criterion = "gcv", gcv_gamma = 1.4)
+  cl <- parallel::makeCluster(2)
+  on.exit(parallel::stopCluster(cl), add = TRUE)
+  lib_dir <- normalizePath(.libPaths()[1], winslash = "/", mustWork = TRUE)
+  parallel::clusterExport(cl, "lib_dir", envir = environment())
+  invisible(parallel::clusterEvalQ(cl, {
+    .libPaths(c(lib_dir, .libPaths()))
+    suppressPackageStartupMessages(library(lgspline))
+    NULL
+  }))
+  env$cl <- cl
+
+  log_penalty_vec <- c()
+  best_start <- lgspline:::.tune_grid_search(
+    log(c(1e-4, 5e-4, 5e-3)),
+    log(c(0.2, 0.5, 1)),
+    log_penalty_vec,
+    lgspline:::.compute_gcvu,
+    env,
+    include_warnings = FALSE,
+    parallel_grideval = TRUE,
+    cl = cl
+  )
+
+  start_value <- lgspline:::.compute_gcvu(best_start, log_penalty_vec, env)$criterion_value
+  res <- lgspline:::.damped_bfgs(
+    c(best_start, log_penalty_vec),
+    log_penalty_vec,
+    lgspline:::.compute_gcvu,
+    lgspline:::.compute_gcvu_gradient,
+    env,
+    tol = 1e-6,
+    parallel_bfgs = TRUE
+  )
+
+  expect_true(all(is.finite(res$par)))
+  expect_true(is.finite(res$criterion_value))
+  expect_lte(res$criterion_value, start_value + 1e-10)
 })
 
 test_that("custom GCV tuning does not inflate partition penalties relative to finite differences", {

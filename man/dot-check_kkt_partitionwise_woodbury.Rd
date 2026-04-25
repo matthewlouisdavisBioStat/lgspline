@@ -22,7 +22,8 @@
   chunk_size,
   num_chunks,
   rem_chunks,
-  tol
+  tol,
+  parallel_qr = FALSE
 )
 }
 \arguments{

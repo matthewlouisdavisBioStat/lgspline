@@ -858,6 +858,176 @@ compute_gram_block_diagonal <- function(list_in,
   return(result)
 }
 
+
+## Parallel QR helpers
+
+.use_parallel_qr <- function(X, parallel_qr, cl) {
+  isTRUE(parallel_qr) &&
+    !is.null(cl) &&
+    is.matrix(X) &&
+    nrow(X) >= 256 &&
+    ncol(X) >= 2 &&
+    nrow(X) >= 2 * ncol(X)
+}
+
+
+.parallel_qr_row_groups <- function(nr, cl) {
+  ngroups <- max(1L, min(length(cl), nr))
+  split(seq_len(nr),
+        cut(seq_len(nr), breaks = ngroups, labels = FALSE))
+}
+
+
+.parallel_qr_crossprod <- function(X,
+                                   y = NULL,
+                                   parallel_qr = FALSE,
+                                   cl = NULL) {
+  y_mat <- if (is.null(y)) NULL else if (is.matrix(y)) y else cbind(y)
+
+  if (!.use_parallel_qr(X, parallel_qr, cl)) {
+    return(list(
+      xtx = crossprod(X),
+      xty = if (is.null(y_mat)) NULL else crossprod(X, y_mat)
+    ))
+  }
+
+  row_groups <- .parallel_qr_row_groups(nrow(X), cl)
+  chunk_data <- lapply(row_groups, function(idx) {
+    list(
+      X = X[idx, , drop = FALSE],
+      y = if (is.null(y_mat)) NULL else y_mat[idx, , drop = FALSE]
+    )
+  })
+
+  chunk_results <- parallel::parLapply(cl, chunk_data, function(chunk) {
+    list(
+      xtx = crossprod(chunk$X),
+      xty = if (is.null(chunk$y)) NULL else crossprod(chunk$X, chunk$y)
+    )
+  })
+
+  list(
+    xtx = Reduce("+", lapply(chunk_results, `[[`, "xtx")),
+    xty = if (is.null(y_mat)) NULL else
+      Reduce("+", lapply(chunk_results, `[[`, "xty"))
+  )
+}
+
+
+.parallel_qr_lm_fit <- function(X,
+                                y,
+                                parallel_qr = FALSE,
+                                cl = NULL) {
+  if (ncol(X) == 0L) {
+    return(list(
+      coefficients = numeric(0),
+      residuals = if (is.matrix(y)) y else c(y)
+    ))
+  }
+
+  fallback_fit <- function() do.call(".lm.fit", list(x = X, y = y))
+  if (!.use_parallel_qr(X, parallel_qr, cl)) {
+    return(fallback_fit())
+  }
+
+  y_mat <- if (is.matrix(y)) y else cbind(y)
+
+  fit_try <- try({
+    Xt <- .parallel_qr_crossprod(X, y_mat, parallel_qr, cl)
+    beta_hat <- invert(Xt$xtx) %**% Xt$xty
+    fitted <- X %**% beta_hat
+    residuals <- y_mat - fitted
+
+    list(
+      coefficients = if (ncol(y_mat) == 1L) c(beta_hat) else beta_hat,
+      residuals = if (is.matrix(y)) residuals else c(residuals)
+    )
+  }, silent = TRUE)
+
+  if (inherits(fit_try, "try-error")) {
+    return(fallback_fit())
+  }
+
+  if (any(!is.finite(c(fit_try$coefficients, fit_try$residuals)))) {
+    return(fallback_fit())
+  }
+
+  fit_try
+}
+
+
+.constraint_rank <- function(A,
+                             tol = sqrt(.Machine$double.eps),
+                             parallel_qr = FALSE,
+                             cl = NULL) {
+  if (is.null(A) || !is.matrix(A) || ncol(A) == 0L) return(0L)
+
+  if (!.use_parallel_qr(A, parallel_qr, cl)) {
+    return(qr(A, tol = tol)$rank)
+  }
+
+  rank_try <- try({
+    gram <- .parallel_qr_crossprod(A, parallel_qr = parallel_qr, cl = cl)$xtx
+    eig <- eigen(0.5 * (gram + t(gram)), symmetric = TRUE, only.values = TRUE)
+    vals <- pmax(eig$values, 0)
+    sum(vals > max(vals, 1) * tol^2)
+  }, silent = TRUE)
+
+  if (inherits(rank_try, "try-error")) {
+    return(qr(A, tol = tol)$rank)
+  }
+
+  as.integer(rank_try)
+}
+
+
+.reduce_constraint_basis <- function(A,
+                                     tol = sqrt(.Machine$double.eps),
+                                     parallel_qr = FALSE,
+                                     cl = NULL) {
+  if (is.null(A) || !is.matrix(A) || ncol(A) == 0L) return(A)
+
+  fallback_reduce <- function() {
+    qr_A <- qr(A, tol = tol)
+    if (qr_A$rank < ncol(A)) {
+      qr.Q(qr_A)[, 1:qr_A$rank, drop = FALSE]
+    } else {
+      A
+    }
+  }
+
+  if (!.use_parallel_qr(A, parallel_qr, cl)) {
+    return(fallback_reduce())
+  }
+
+  basis_try <- try({
+    gram <- .parallel_qr_crossprod(A, parallel_qr = parallel_qr, cl = cl)$xtx
+    eig <- eigen(0.5 * (gram + t(gram)), symmetric = TRUE)
+    vals <- pmax(eig$values, 0)
+    keep <- which(vals > max(vals, 1) * tol^2)
+
+    if (length(keep) == 0L) {
+      return(A[, 0, drop = FALSE])
+    }
+    if (length(keep) == ncol(A)) {
+      return(A)
+    }
+
+    A %**% (eig$vectors[, keep, drop = FALSE] /
+              rep(sqrt(vals[keep]), each = ncol(A)))
+  }, silent = TRUE)
+
+  if (inherits(basis_try, "try-error")) {
+    return(fallback_reduce())
+  }
+
+  if (!is.matrix(basis_try) || any(!is.finite(c(basis_try)))) {
+    return(fallback_reduce())
+  }
+
+  basis_try
+}
+
 #' Compute First and Second Derivative Matrices
 #'
 #' @param p_expansions Number of columns in the basis expansion per partition
@@ -1303,7 +1473,7 @@ compute_dG_dlambda <- function(G,
     })
   }
 
-  ## [2026-02-12] replaced %**% with crossprod/tcrossprod
+  ## Replaced %**% with crossprod/tcrossprod
   if(parallel & !is.null(cl)) {
     ## Handle remainder chunks first
     if(rem_chunks > 0) {
@@ -1713,7 +1883,8 @@ compute_dG_dlambda <- function(G,
     env$cl,
     env$chunk_size,
     env$num_chunks,
-    env$rem_chunks)
+    env$rem_chunks,
+    env$parallel & env$parallel_qr)
 
   dPenalty_dlambda2 <- (lambda_1 / lambda_2) * outlist$L2
   dPenalty_partition_dlambda2 <- if (env$unique_penalty_per_partition) {
@@ -1756,7 +1927,8 @@ compute_dG_dlambda <- function(G,
     env$cl,
     env$chunk_size,
     env$num_chunks,
-    env$rem_chunks)
+    env$rem_chunks,
+    env$parallel & env$parallel_qr)
 
   if (verbose) cat("        compute_dhat_diag \n")
   dhat_result <- .compute_dhat_diag(env$X,
@@ -2360,7 +2532,8 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
                                     cl,
                                     chunk_size,
                                     num_chunks,
-                                    rem_chunks) {
+                                    rem_chunks,
+                                    parallel_qr = FALSE) {
 
   if((K >= 10) & (nc > 4)){
 
@@ -2567,14 +2740,20 @@ compute_dG_u_dlambda_xy <- function(AGAInv_AGXy,
 
     ## resids1: residuals from regressing G^{1/2}X'y onto
     #           G^{1/2}A -- the constrained least-squares component
-    resids1 <- do.call('.lm.fit', list(x = GhalfA / comp_stab_sc,
-                                       y = GhalfXy_temp / comp_stab_sc)
+    resids1 <- .parallel_qr_lm_fit(
+      X = GhalfA / comp_stab_sc,
+      y = GhalfXy_temp / comp_stab_sc,
+      parallel_qr = parallel_qr,
+      cl = cl
     )$residuals * comp_stab_sc
 
     ## resids2: residuals from regressing (dG^{1/2}/dl)X'y onto
     #           (dG^{1/2}/dl)A -- derivative-side correction term
-    resids2 <- do.call('.lm.fit', list(x = dGhalfA / comp_stab_sc,
-                                       y = dGhalfXy / comp_stab_sc)
+    resids2 <- .parallel_qr_lm_fit(
+      X = dGhalfA / comp_stab_sc,
+      y = dGhalfXy / comp_stab_sc,
+      parallel_qr = parallel_qr,
+      cl = cl
     )$residuals * comp_stab_sc
 
     ## Combine: d(beta_tilde)/dl = (dG^{1/2}/dl)*resids2 + G^{1/2}*resids1

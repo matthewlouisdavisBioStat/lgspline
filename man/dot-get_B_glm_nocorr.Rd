@@ -33,6 +33,7 @@
   parallel_eigen,
   parallel_aga,
   parallel_matmult,
+  parallel_qr,
   parallel_unconstrained,
   cl,
   chunk_size,
@@ -88,7 +89,7 @@ estimation.}
 
 \item{L_partition_list}{Partition-specific penalty matrices.}
 
-\item{parallel_eigen, parallel_aga, parallel_matmult, }{parallel_unconstrained Logical flags.}
+\item{parallel_eigen, parallel_aga, parallel_matmult, parallel_qr, }{parallel_unconstrained Logical flags.}
 
 \item{cl, chunk_size, num_chunks, rem_chunks}{Parallel parameters.}
 

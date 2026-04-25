@@ -1,3 +1,8 @@
+expect_flag <- function(flag, message) {
+  if (!isTRUE(flag)) testthat::fail(message)
+}
+
+
 test_that("basic correlation structure runs without error", {
   set.seed(1234)
   t <- seq(-9, 9, length.out = 1000)
@@ -24,13 +29,16 @@ test_that("built-in Gaussian correlation structures provide Vhalf_fxn", {
 
   fit_core <- if(!is.null(fit$model_fit)) fit$model_fit else fit
 
-  expect_true(is.function(fit_core$Vhalf_fxn))
-  expect_false(is.null(fit_core$VhalfInv_params_estimates))
+  expect_flag(is.function(fit_core$Vhalf_fxn),
+              "Built-in correlation fit did not retain Vhalf_fxn.")
+  expect_flag(!is.null(fit_core$VhalfInv_params_estimates),
+              "Built-in correlation fit did not estimate correlation parameters.")
 
   Vhalf <- fit_core$Vhalf_fxn(fit_core$VhalfInv_params_estimates)
-  expect_true(is.matrix(Vhalf))
+  expect_flag(is.matrix(Vhalf), "Vhalf_fxn did not return a matrix.")
   expect_equal(dim(Vhalf), c(length(y), length(y)))
-  expect_true(all(is.finite(Vhalf)))
+  expect_flag(all(is.finite(Vhalf)),
+              "Vhalf_fxn returned non-finite values.")
 })
 
 test_that("exchangeable correlation supports unconstrained K = 0 GLM fits", {
@@ -53,8 +61,10 @@ test_that("exchangeable correlation supports unconstrained K = 0 GLM fits", {
 
   fit_core <- if(!is.null(fit$model_fit)) fit$model_fit else fit
 
-  expect_true(is.finite(fit_core$sigmasq_tilde))
-  expect_true(all(is.finite(fit_core$varcovmat)))
+  expect_flag(is.finite(fit_core$sigmasq_tilde),
+              "Correlated K = 0 GLM fit returned non-finite dispersion.")
+  expect_flag(all(is.finite(fit_core$varcovmat)),
+              "Correlated K = 0 GLM fit returned non-finite varcov entries.")
 })
 
 test_that("weighted correlated Gaussian varcov and logLik use the whitened-system weights once", {
@@ -139,12 +149,16 @@ test_that("Woodbury Gaussian GEE uses active-set for partition-local inequality 
 
   fit_core <- if(!is.null(fit$model_fit)) fit$model_fit else fit
 
-  expect_true(isTRUE(fit_core$qp_info$converged))
+  expect_flag(isTRUE(fit_core$qp_info$converged),
+              "Gaussian Woodbury active-set did not report convergence.")
   expect_equal(fit_core$qp_info$method, "active_set_woodbury")
-  expect_false(is.null(fit_core$qp_info$active_ineq))
+  expect_flag(!is.null(fit_core$qp_info$active_ineq),
+              "Gaussian Woodbury active-set did not record an active set.")
 
   deriv <- predict(fit, cbind(t1, t2), take_first_derivatives = TRUE)
-  expect_true(all(unlist(deriv$first_deriv[[1]]) >= -1e-6))
+  expect_flag(all(unlist(deriv$first_deriv[[1]]) >= -1e-6),
+              sprintf("Gaussian Woodbury derivative constraint violated: min deriv = %.6f",
+                      min(unlist(deriv$first_deriv[[1]]))))
 })
 
 
@@ -175,10 +189,14 @@ test_that("Woodbury GLM GEE uses active-set for partition-local inequality const
 
   fit_core <- if(!is.null(fit$model_fit)) fit$model_fit else fit
 
-  expect_true(isTRUE(fit_core$qp_info$converged))
+  expect_flag(isTRUE(fit_core$qp_info$converged),
+              "GLM Woodbury active-set did not report convergence.")
   expect_equal(fit_core$qp_info$method, "active_set_woodbury")
-  expect_false(is.null(fit_core$qp_info$active_ineq))
+  expect_flag(!is.null(fit_core$qp_info$active_ineq),
+              "GLM Woodbury active-set did not record an active set.")
 
   deriv <- predict(fit, cbind(t1, t2), take_first_derivatives = TRUE)
-  expect_true(all(unlist(deriv$first_deriv[[1]]) >= -1e-6))
+  expect_flag(all(unlist(deriv$first_deriv[[1]]) >= -1e-6),
+              sprintf("GLM Woodbury derivative constraint violated: min deriv = %.6f",
+                      min(unlist(deriv$first_deriv[[1]]))))
 })

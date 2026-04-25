@@ -21,7 +21,8 @@ compute_dG_u_dlambda_xy(
   cl,
   chunk_size,
   num_chunks,
-  rem_chunks
+  rem_chunks,
+  parallel_qr = FALSE
 )
 }
 \arguments{

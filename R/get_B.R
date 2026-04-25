@@ -105,8 +105,8 @@
 #'   added.
 #' @param family GLM family object (used for \code{linkinv(0)} fallback
 #'   when \code{NA} values arise in \eqn{\mathbf{y}^*}).
-#' @param parallel_aga,parallel_matmult Logical flags for parallel
-#'   computation.
+#' @param parallel_aga,parallel_matmult,parallel_qr Logical flags for
+#'   parallel computation.
 #' @param cl Parallel cluster object.
 #' @param chunk_size,num_chunks,rem_chunks Parallel distribution parameters.
 #'
@@ -117,7 +117,8 @@
 .lagrangian_project <- function(GhalfXy, Ghalf, A, K, p_expansions,
                                 R_constraints, constraint_value_vectors,
                                 family, parallel_aga, parallel_matmult,
-                                cl, chunk_size, num_chunks, rem_chunks) {
+                                cl, chunk_size, num_chunks, rem_chunks,
+                                parallel_qr = FALSE) {
 
   ## Compute X* = G^{1/2} A by stacking partition blocks vertically.
   #  GAmult_wrapper handles the block-diagonal multiplication in parallel
@@ -144,10 +145,12 @@
   col_scales <- .constraint_col_scales(GhalfA)
   GhalfA_scaled <- t(t(GhalfA) * col_scales)
   comp_stab_sc <- 1 / sqrt(K + 1)
-  resids_star <- do.call('.lm.fit', list(
-    x = GhalfA_scaled * comp_stab_sc,
-    y = GhalfXy * comp_stab_sc
-  ))$residuals / comp_stab_sc
+  resids_star <- .parallel_qr_lm_fit(
+    X = GhalfA_scaled * comp_stab_sc,
+    y = GhalfXy * comp_stab_sc,
+    parallel_qr = parallel_qr,
+    cl = cl
+  )$residuals / comp_stab_sc
 
   ## If constraint values are nonzero (A^T beta = j with j != 0),
   #  add the particular solution (I - U) b_0 where A^T b_0 = j.
@@ -252,7 +255,8 @@
                                          wb_sqrt,
                                          parallel_aga, parallel_matmult,
                                          cl, chunk_size, num_chunks,
-                                         rem_chunks) {
+                                         rem_chunks,
+                                         parallel_qr = FALSE) {
 
   Q <- wb_sqrt$Q
   C <- wb_sqrt$C
@@ -289,10 +293,12 @@
   col_scales <- .constraint_col_scales(X_star)
   X_star_scaled <- t(t(X_star) * col_scales)
   comp_stab_sc <- 1 / sqrt(K + 1)
-  resids_star <- do.call('.lm.fit', list(
-    x = X_star_scaled * comp_stab_sc,
-    y = y_star * comp_stab_sc
-  ))$residuals / comp_stab_sc
+  resids_star <- .parallel_qr_lm_fit(
+    X = X_star_scaled * comp_stab_sc,
+    y = y_star * comp_stab_sc,
+    parallel_qr = parallel_qr,
+    cl = cl
+  )$residuals / comp_stab_sc
 
   ## Nonzero constraint values
   #  Same adjustment as .lagrangian_project() when A^T beta = j with j != 0.
@@ -339,7 +345,9 @@
 #' @keywords internal
 .lagrangian_project_full <- function(GhalfXy, Ghalf_full, A, K,
                                      p_expansions, constraint_value_vectors,
-                                     family) {
+                                     family,
+                                     parallel_qr = FALSE,
+                                     cl = NULL) {
 
   y_star <- ifelse(is.na(GhalfXy), family$linkinv(0), GhalfXy)
   X_star <- Ghalf_full %**% A
@@ -347,10 +355,12 @@
   col_scales <- .constraint_col_scales(X_star)
   X_star_scaled <- t(t(X_star) * col_scales)
   comp_stab_sc <- 1 / sqrt(K + 1)
-  resids_star <- do.call(".lm.fit", list(
-    x = X_star_scaled * comp_stab_sc,
-    y = y_star * comp_stab_sc
-  ))$residuals / comp_stab_sc
+  resids_star <- .parallel_qr_lm_fit(
+    X = X_star_scaled * comp_stab_sc,
+    y = y_star * comp_stab_sc,
+    parallel_qr = parallel_qr,
+    cl = cl
+  )$residuals / comp_stab_sc
 
   if (length(constraint_value_vectors) > 0) {
     if (any(unlist(constraint_value_vectors) != 0)) {
@@ -378,7 +388,7 @@
 #' @keywords internal
 .check_kkt_full <- function(result, GhalfXy, Ghalf_full, A_aug,
                             n_eq_orig, qp_Amat, qp_bvec, active_ineq,
-                            K, tol) {
+                            K, tol, parallel_qr = FALSE, cl = NULL) {
 
   beta_full <- cbind(unlist(result))
   primal <- .solver_check_primal_feasibility(
@@ -399,7 +409,9 @@
       n_eq_orig = n_eq_orig,
       K = K,
       tol = tol,
-      ineq_sign = -1
+      ineq_sign = -1,
+      parallel_qr = parallel_qr,
+      cl = cl
     )
     drop <- mult_out$drop
     multipliers <- mult_out$multipliers
@@ -428,7 +440,8 @@
                                     family,
                                     qp_Amat, qp_bvec, qp_meq,
                                     rhs_full, Ghalf_full,
-                                    tol, max_as_iter = NULL,
+                                    tol, parallel_qr = FALSE, cl = NULL,
+                                    max_as_iter = NULL,
                                     method = "active_set_full") {
 
   n_ineq <- if (is.null(qp_Amat)) 0L else ncol(qp_Amat)
@@ -455,7 +468,9 @@
         K = K,
         p_expansions = p_expansions,
         constraint_value_vectors = aug_state$cv_for_proj,
-        family = family
+        family = family,
+        parallel_qr = parallel_qr,
+        cl = cl
       )
     },
     kkt_subproblem = function(result_new, aug_state) {
@@ -470,11 +485,15 @@
         active_ineq = match(aug_state$active_ineq_kept,
                             aug_state$ineq_cols),
         K = K,
-        tol = tol
+        tol = tol,
+        parallel_qr = parallel_qr,
+        cl = cl
       )
     },
     method = method,
-    debug_label = "full-as"
+    debug_label = "full-as",
+    parallel_qr = parallel_qr,
+    cl = cl
   )
 }
 
@@ -601,7 +620,8 @@
                                               parallel_aga,
                                               cl, chunk_size,
                                               num_chunks, rem_chunks,
-                                              tol) {
+                                              tol,
+                                              parallel_qr = FALSE) {
 
   beta_full <- cbind(unlist(result))
   primal <- .solver_check_primal_feasibility(
@@ -638,7 +658,9 @@
       n_eq_orig = n_eq_orig,
       K = K,
       tol = tol,
-      ineq_sign = -1
+      ineq_sign = -1,
+      parallel_qr = parallel_qr,
+      cl = cl
     )
     drop <- mult_out$drop
     multipliers <- mult_out$multipliers
@@ -693,6 +715,7 @@
                                         parallel_aga, parallel_matmult,
                                         cl, chunk_size, num_chunks,
                                         rem_chunks, tol,
+                                        parallel_qr = FALSE,
                                         max_as_iter = NULL) {
   n_ineq <- if (is.null(qp_Amat)) 0L else ncol(qp_Amat)
   rhs_full <- cbind(unlist(rhs_list))
@@ -739,7 +762,8 @@
         cl = cl,
         chunk_size = chunk_size,
         num_chunks = num_chunks,
-        rem_chunks = rem_chunks
+        rem_chunks = rem_chunks,
+        parallel_qr = parallel_qr
       )
     },
     kkt_subproblem = function(result_new, aug_state) {
@@ -761,11 +785,14 @@
         chunk_size = chunk_size,
         num_chunks = num_chunks,
         rem_chunks = rem_chunks,
-        tol = tol
+        tol = tol,
+        parallel_qr = parallel_qr
       )
     },
     method = "active_set_woodbury",
-    debug_label = "woodbury-as"
+    debug_label = "woodbury-as",
+    parallel_qr = parallel_qr,
+    cl = cl
   )
 }
 
@@ -812,6 +839,7 @@
                                      parallel_aga, parallel_matmult,
                                      cl, chunk_size, num_chunks,
                                      rem_chunks, tol,
+                                     parallel_qr = FALSE,
                                      include_warnings = TRUE,
                                      warn_context = ".try_woodbury_active_set") {
 
@@ -836,7 +864,8 @@
     chunk_size = chunk_size,
     num_chunks = num_chunks,
     rem_chunks = rem_chunks,
-    tol = as_tol
+    tol = as_tol,
+    parallel_qr = parallel_qr
   ), silent = TRUE)
 
   if (inherits(as_out, "try-error")) {
@@ -1007,7 +1036,8 @@
                                      K, p_expansions, family,
                                      parallel_matmult, parallel_aga,
                                      cl, chunk_size, num_chunks,
-                                     rem_chunks, tol) {
+                                     rem_chunks, tol,
+                                     parallel_qr = FALSE) {
 
   beta_full <- cbind(unlist(result))
   primal <- .solver_check_primal_feasibility(
@@ -1055,7 +1085,9 @@
       n_eq_orig = n_eq_orig,
       K = K,
       tol = tol,
-      ineq_sign = -1
+      ineq_sign = -1,
+      parallel_qr = parallel_qr,
+      cl = cl
     )
     drop <- mult_out$drop
     multipliers <- mult_out$multipliers
@@ -1137,6 +1169,7 @@
                                parallel_aga, parallel_matmult,
                                cl, chunk_size, num_chunks,
                                rem_chunks, tol,
+                               parallel_qr = FALSE,
                                max_as_iter = NULL) {
   n_ineq <- if (is.null(qp_Amat)) 0L else ncol(qp_Amat)
 
@@ -1182,7 +1215,8 @@
         cl = cl,
         chunk_size = chunk_size,
         num_chunks = num_chunks,
-        rem_chunks = rem_chunks
+        rem_chunks = rem_chunks,
+        parallel_qr = parallel_qr
       )
     },
     kkt_subproblem = function(result_new, aug_state) {
@@ -1206,11 +1240,14 @@
         chunk_size = chunk_size,
         num_chunks = num_chunks,
         rem_chunks = rem_chunks,
-        tol = tol
+        tol = tol,
+        parallel_qr = parallel_qr
       )
     },
     method = "active_set",
-    debug_label = "dense-as"
+    debug_label = "dense-as",
+    parallel_qr = parallel_qr,
+    cl = cl
   )
 }
 
@@ -2112,7 +2149,9 @@
                                 return_G_getB,
                                 quadprog, qp_Amat, qp_bvec, qp_meq,
                                 qp_score_function,
-                                order_list, observation_weights, ...) {
+                                order_list, observation_weights,
+                                parallel_qr = FALSE,
+                                cl = NULL, ...) {
 
   ## Observation weights enter the Gaussian GEE solve in the whitened system,
   #  exactly as they do in the iterative GLM GEE paths.
@@ -2159,9 +2198,11 @@
   X_star <- G_full_half %**% A_proj
 
   comp_stab_sc <- 1 / sqrt(K + 1)
-  resids_star <- .lm.fit(
-    X_star * comp_stab_sc,
-    y_star * comp_stab_sc
+  resids_star <- .parallel_qr_lm_fit(
+    X = X_star * comp_stab_sc,
+    y = y_star * comp_stab_sc,
+    parallel_qr = parallel_qr,
+    cl = cl
   )$residuals / comp_stab_sc
 
   ## Nonzero constraint values: add particular solution b_0.
@@ -2345,7 +2386,8 @@
                                 Lambda_block,
                                 parallel_aga, parallel_matmult,
                                 cl, chunk_size, num_chunks, rem_chunks,
-                                qp_global, tol, ...) {
+                                qp_global, tol,
+                                parallel_qr = FALSE, ...) {
 
   dots <- list(...)
   include_warnings <- TRUE
@@ -2392,7 +2434,8 @@
     constraint_value_vectors, family,
     wb_sqrt,
     parallel_aga, parallel_matmult,
-    cl, chunk_size, num_chunks, rem_chunks)
+    cl, chunk_size, num_chunks, rem_chunks,
+    parallel_qr = parallel_qr)
 
   qp_info <- NULL
 
@@ -2420,7 +2463,8 @@
       chunk_size = chunk_size,
       num_chunks = num_chunks,
       rem_chunks = rem_chunks,
-      tol = max(tol, 100 * sqrt(.Machine$double.eps))
+      tol = max(tol, 100 * sqrt(.Machine$double.eps)),
+      parallel_qr = parallel_qr
     ), silent = TRUE)
 
     if (!inherits(as_out, "try-error") && isTRUE(as_out$converged)) {
@@ -2451,6 +2495,8 @@
         rhs_full = Xy_tilde,
         Ghalf_full = G_full_half,
         tol = max(tol, 100 * sqrt(.Machine$double.eps)),
+        parallel_qr = parallel_qr,
+        cl = cl,
         method = "active_set_woodbury"
       ), silent = TRUE)
 
@@ -2596,7 +2642,9 @@
                            order_list, observation_weights,
                            glm_weight_function, schur_correction_function,
                            need_dispersion_for_estimation,
-                           dispersion_function, VhalfInv, ...) {
+                           dispersion_function, VhalfInv,
+                           parallel_qr = FALSE,
+                           cl = NULL, ...) {
 
   beta_block <- cbind(rep(0, ncol(X_block)))
 
@@ -2934,7 +2982,8 @@
                                     parallel_eigen, parallel_aga,
                                     parallel_matmult,
                                     cl, chunk_size, num_chunks,
-                                    rem_chunks, ...) {
+                                    rem_chunks,
+                                    parallel_qr = FALSE, ...) {
 
   dots <- list(...)
   include_warnings <- TRUE
@@ -3061,7 +3110,8 @@
       constraint_value_vectors, family,
       wb_sqrt,
       parallel_aga, parallel_matmult,
-      cl, chunk_size, num_chunks, rem_chunks)
+      cl, chunk_size, num_chunks, rem_chunks,
+      parallel_qr = parallel_qr)
 
     beta_new <- cbind(unlist(result_new))
 
@@ -3137,7 +3187,9 @@
       order_list, observation_weights,
       glm_weight_function, schur_correction_function,
       need_dispersion_for_estimation,
-      dispersion_function, VhalfInv, ...))
+      dispersion_function, VhalfInv,
+      parallel_qr = parallel_qr,
+      cl = cl, ...))
   }
 
   ## QP refinement after the Woodbury Newton-Raphson loop.
@@ -3256,7 +3308,8 @@
           chunk_size = chunk_size,
           num_chunks = num_chunks,
           rem_chunks = rem_chunks,
-          tol = max(tol, 100 * sqrt(.Machine$double.eps))
+          tol = max(tol, 100 * sqrt(.Machine$double.eps)),
+          parallel_qr = parallel_qr
         ), silent = TRUE)
       }
     }
@@ -3293,6 +3346,8 @@
       rhs_full = dvec_full,
       Ghalf_full = G_full_half,
       tol = max(tol, 100 * sqrt(.Machine$double.eps)),
+      parallel_qr = parallel_qr,
+      cl = cl,
       method = "active_set_woodbury"
       ), silent = TRUE)
 
@@ -3313,7 +3368,9 @@
           order_list, observation_weights,
           glm_weight_function, schur_correction_function,
           need_dispersion_for_estimation,
-          dispersion_function, VhalfInv, ...)
+          dispersion_function, VhalfInv,
+          parallel_qr = parallel_qr,
+          cl = cl, ...)
         return(dense_out)
       }
     }
@@ -3389,6 +3446,7 @@
                                    quadprog, qp_Amat, qp_bvec, qp_meq,
                                    qp_score_function,
                                    parallel_aga, parallel_matmult,
+                                   parallel_qr,
                                    cl, chunk_size, num_chunks, rem_chunks,
                                    X, y, Lambda,
                                    order_list, observation_weights,
@@ -3434,7 +3492,8 @@
   result <- .lagrangian_project(GhalfXy, Ghalf, A, K, p_expansions,
                                 R_constraints, constraint_value_vectors,
                                 family, parallel_aga, parallel_matmult,
-                                cl, chunk_size, num_chunks, rem_chunks)
+                                cl, chunk_size, num_chunks, rem_chunks,
+                                parallel_qr = parallel_qr)
 
   qp_info <- NULL
 
@@ -3449,7 +3508,8 @@
       qp_Amat, qp_bvec, qp_meq,
       Xy_or_uncon = Xy, is_path3 = FALSE,
       parallel_aga, parallel_matmult,
-      cl, chunk_size, num_chunks, rem_chunks, tol), silent = TRUE)
+      cl, chunk_size, num_chunks, rem_chunks, tol,
+      parallel_qr = parallel_qr), silent = TRUE)
     if (!inherits(as_out, "try-error") && as_out$converged) {
       result <- as_out$result
       qp_info <- as_out$qp_info
@@ -3519,7 +3579,7 @@
 #'   estimation.
 #' @param keep_weighted_Lambda,unique_penalty_per_partition Logical flags.
 #' @param L_partition_list Partition-specific penalty matrices.
-#' @param parallel_eigen,parallel_aga,parallel_matmult,
+#' @param parallel_eigen,parallel_aga,parallel_matmult,parallel_qr,
 #'   parallel_unconstrained Logical flags.
 #' @param cl,chunk_size,num_chunks,rem_chunks Parallel parameters.
 #' @param order_list,observation_weights Standard partition arguments.
@@ -3543,7 +3603,8 @@
                               unique_penalty_per_partition,
                               L_partition_list,
                               parallel_eigen, parallel_aga,
-                              parallel_matmult, parallel_unconstrained,
+                              parallel_matmult, parallel_qr,
+                              parallel_unconstrained,
                               cl, chunk_size, num_chunks, rem_chunks,
                               order_list, observation_weights,
                               glm_weight_function,
@@ -3638,7 +3699,8 @@
   result <- .lagrangian_project(GhalfXy, Ghalf, A, K, p_expansions,
                                 R_constraints, constraint_value_vectors,
                                 family, parallel_aga, parallel_matmult,
-                                cl, chunk_size, num_chunks, rem_chunks)
+                                cl, chunk_size, num_chunks, rem_chunks,
+                                parallel_qr = parallel_qr)
 
   ## Iterative projection for non-canonical links
   if (iterate) {
@@ -3723,7 +3785,8 @@
       result <- .lagrangian_project(GhalfXy, Ghalf, A, K, p_expansions,
                                     R_constraints, constraint_value_vectors,
                                     family, parallel_aga, parallel_matmult,
-                                    cl, chunk_size, num_chunks, rem_chunks)
+                                    cl, chunk_size, num_chunks, rem_chunks,
+                                    parallel_qr = parallel_qr)
     }
   }
 
@@ -3740,7 +3803,8 @@
       qp_Amat, qp_bvec, qp_meq,
       Xy_or_uncon = unconstrained_estimate, is_path3 = TRUE,
       parallel_aga, parallel_matmult,
-      cl, chunk_size, num_chunks, rem_chunks, tol), silent = TRUE)
+      cl, chunk_size, num_chunks, rem_chunks, tol,
+      parallel_qr = parallel_qr), silent = TRUE)
     if (!inherits(as_out, "try-error") && as_out$converged) {
       result <- as_out$result
       qp_info <- as_out$qp_info
@@ -3858,8 +3922,8 @@
 #' @param R_constraints Integer; columns of \eqn{\mathbf{A}}.
 #' @param Ghalf List of \eqn{\mathbf{G}^{1/2}_k} matrices.
 #' @param GhalfInv List of \eqn{\mathbf{G}^{-1/2}_k} matrices.
-#' @param parallel_eigen,parallel_aga,parallel_matmult,parallel_unconstrained
-#'   Logical flags.
+#' @param parallel_eigen,parallel_aga,parallel_matmult,parallel_qr,
+#'   parallel_unconstrained Logical flags.
 #' @param cl Cluster object.
 #' @param chunk_size,num_chunks,rem_chunks Parallel distribution parameters.
 #' @param family GLM family object.
@@ -3926,6 +3990,7 @@ get_B <- function(X,
                   parallel_eigen,
                   parallel_aga,
                   parallel_matmult,
+                  parallel_qr,
                   parallel_unconstrained,
                   cl,
                   chunk_size,
@@ -4048,7 +4113,9 @@ get_B <- function(X,
             return_G_getB,
             quadprog, qp_Amat, qp_bvec, qp_meq,
             qp_score_function,
-            order_list, observation_weights, ...)
+            order_list, observation_weights,
+            parallel_qr = parallel_qr,
+            cl = cl, ...)
           out <- .attach_qp_fallback_info(
             out, "woodbury_square_root_not_positive_definite", wb_decomp)
         }
@@ -4061,7 +4128,9 @@ get_B <- function(X,
           return_G_getB,
           quadprog, qp_Amat, qp_bvec, qp_meq,
           qp_score_function,
-          order_list, observation_weights, ...)
+          order_list, observation_weights,
+          parallel_qr = parallel_qr,
+          cl = cl, ...)
         fallback_reason <- if (!can_use_gauss_woodbury) {
           "nonunit_observation_weights"
         } else {
@@ -4094,7 +4163,8 @@ get_B <- function(X,
             need_dispersion_for_estimation, dispersion_function,
             VhalfInv,
             parallel_eigen, parallel_aga, parallel_matmult,
-            cl, chunk_size, num_chunks, rem_chunks, ...)
+            cl, chunk_size, num_chunks, rem_chunks,
+            parallel_qr = parallel_qr, ...)
         } else {
           ## F failed the half-square-root step, so use the dense path.
           out <- .get_B_gee_glm(
@@ -4107,7 +4177,9 @@ get_B <- function(X,
             order_list, observation_weights,
             glm_weight_function, schur_correction_function,
             need_dispersion_for_estimation, dispersion_function,
-            VhalfInv, ...)
+            VhalfInv,
+            parallel_qr = parallel_qr,
+            cl = cl, ...)
           out <- .attach_qp_fallback_info(
             out, "woodbury_square_root_not_positive_definite", wb_decomp)
         }
@@ -4123,7 +4195,9 @@ get_B <- function(X,
           order_list, observation_weights,
           glm_weight_function, schur_correction_function,
           need_dispersion_for_estimation, dispersion_function,
-          VhalfInv, ...)
+          VhalfInv,
+          parallel_qr = parallel_qr,
+          cl = cl, ...)
         out <- .attach_qp_fallback_info(out, wb_decomp$reason, wb_decomp)
       }
     }
@@ -4152,6 +4226,7 @@ get_B <- function(X,
       quadprog, qp_Amat, qp_bvec, qp_meq,
       qp_score_function,
       parallel_aga, parallel_matmult,
+      parallel_qr,
       cl, chunk_size, num_chunks, rem_chunks,
       X, y, Lambda,
       order_list, observation_weights,
@@ -4174,6 +4249,7 @@ get_B <- function(X,
       keep_weighted_Lambda,
       unique_penalty_per_partition, L_partition_list,
       parallel_eigen, parallel_aga, parallel_matmult,
+      parallel_qr,
       parallel_unconstrained,
       cl, chunk_size, num_chunks, rem_chunks,
       order_list, observation_weights,

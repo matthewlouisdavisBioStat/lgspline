@@ -1,0 +1,2 @@
+"partitions","K","workers","opt","serial_median","parallel_qr_median","speedup","percent_change"
+400,399,4,TRUE,1482.17,1540.41,0.962191883978941,3.92937382351554

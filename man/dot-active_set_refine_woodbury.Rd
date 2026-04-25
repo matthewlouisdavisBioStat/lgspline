@@ -25,6 +25,7 @@
   num_chunks,
   rem_chunks,
   tol,
+  parallel_qr = FALSE,
   max_as_iter = NULL
 )
 }

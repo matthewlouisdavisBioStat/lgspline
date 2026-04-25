@@ -12,6 +12,229 @@
 ## - LaTeX notation in Roxygen uses \eqn{}
 
 
+## Parse qp_observations into a uniform lookup map.
+#   NULL           -> no filtering
+#   atomic vector  -> one shared subset for every built-in constraint
+#   named list     -> per-key subsets, keyed by "var:qp_<type>" or
+#                     "qp_<type>"
+.parse_qp_observations <- function(qp_observations) {
+
+  if (is.null(qp_observations)) {
+    return(list(mode = "none", global = NULL, per_key = list()))
+  }
+
+  if (is.atomic(qp_observations) && !is.list(qp_observations)) {
+    obs <- try(as.integer(c(qp_observations)), silent = TRUE)
+    if (inherits(obs, "try-error") || any(is.na(obs))) {
+      stop("\n \t qp_observations must be coercible to an integer vector, ",
+           "or a named list of observation subsets. \n")
+    }
+    return(list(mode = "global", global = obs, per_key = list()))
+  }
+
+  if (is.list(qp_observations)) {
+    keys <- names(qp_observations)
+    if (is.null(keys) || any(!nzchar(keys))) {
+      stop("\n \t qp_observations list entries must be named using ",
+           "'var:qp_<type>' or 'qp_<type>'. \n")
+    }
+    per_key <- lapply(qp_observations, function(v) {
+      obs <- try(as.integer(c(v)), silent = TRUE)
+      if (inherits(obs, "try-error") || any(is.na(obs))) {
+        stop("\n \t qp_observations list values must be coercible to ",
+             "integer vectors of observation indices. \n")
+      }
+      obs
+    })
+    names(per_key) <- keys
+    return(list(mode = "keyed", global = NULL, per_key = per_key))
+  }
+
+  stop("\n \t qp_observations must be NULL, an atomic vector, or a ",
+       "named list. \n")
+}
+
+
+## Look up observation subsets for one constraint key.
+#   Preference: var-specific key, then bare key, then global subset.
+.lookup_qp_obs <- function(obs_map, constraint_type, var_label = NULL) {
+  if (obs_map$mode == "none") return(NULL)
+  if (obs_map$mode == "global") return(obs_map$global)
+
+  if (!is.null(var_label)) {
+    key_var <- paste0(var_label, ":", constraint_type)
+    if (key_var %in% names(obs_map$per_key)) {
+      return(obs_map$per_key[[key_var]])
+    }
+  }
+
+  if (constraint_type %in% names(obs_map$per_key)) {
+    return(obs_map$per_key[[constraint_type]])
+  }
+
+  NULL
+}
+
+
+## Look up non-variable subsets and union matching keyed entries.
+#   Used for range and monotonicity constraints, where the variable prefix
+#   is only a label and does not change the constraint itself.
+.lookup_qp_obs_nonvar <- function(obs_map, constraint_type) {
+  if (obs_map$mode == "none") return(NULL)
+  if (obs_map$mode == "global") return(obs_map$global)
+
+  nm <- names(obs_map$per_key)
+  suffix <- paste0(":", constraint_type)
+  hits <- obs_map$per_key[nm == constraint_type | endsWith(nm, suffix)]
+
+  if (length(hits) == 0) return(NULL)
+  sort(unique(unlist(hits)))
+}
+
+
+## Subset the block-diagonal design by original observation index.
+.subset_X_block <- function(X_block_full, obs_order, obs) {
+  if (is.null(obs)) return(X_block_full)
+  X_block_full[obs_order %in% obs, , drop = FALSE]
+}
+
+
+## Keep only pivot inequality columns within each partition block.
+#   Equality columns (the first meq) are left untouched. Inequality columns
+#   spanning multiple partitions, such as monotonicity constraints, are also
+#   left untouched because their feasibility set is not partition-separable.
+#   For the remaining partition-local inequalities, only exact same-direction
+#   duplicates / positive scalar multiples are removed. A general QR basis is
+#   not cone-preserving for inequalities and can change the feasible set.
+.reduce_qp_constraint_block <- function(qp_Amat,
+                                        qp_bvec,
+                                        qp_meq,
+                                        p_expansions,
+                                        K,
+                                        parallel_qr_qp = FALSE,
+                                        cl = NULL,
+                                        tol = 1e-10) {
+  if (is.null(qp_Amat) || !is.matrix(qp_Amat) || ncol(qp_Amat) == 0L) {
+    return(list(Amat = qp_Amat, bvec = qp_bvec, meq = qp_meq))
+  }
+
+  n_con <- ncol(qp_Amat)
+  qp_meq <- max(0L, min(as.integer(qp_meq), n_con))
+  if (qp_meq >= n_con) {
+    return(list(Amat = qp_Amat, bvec = qp_bvec, meq = qp_meq))
+  }
+
+  ineq_cols <- seq.int(qp_meq + 1L, n_con)
+  if (length(ineq_cols) == 0L) {
+    return(list(Amat = qp_Amat, bvec = qp_bvec, meq = qp_meq))
+  }
+
+  eps <- sqrt(.Machine$double.eps)
+  block_id <- rep(NA_integer_, length(ineq_cols))
+  keep_ineq <- integer(0)
+
+  for (j in seq_along(ineq_cols)) {
+    col_idx <- ineq_cols[[j]]
+    nz <- which(abs(qp_Amat[, col_idx]) > eps)
+
+    if (length(nz) == 0L) {
+      next
+    }
+
+    blocks_hit <- unique(ceiling(nz / p_expansions))
+    if (length(blocks_hit) == 1L) {
+      block_id[[j]] <- blocks_hit[[1]]
+    } else {
+      keep_ineq <- c(keep_ineq, col_idx)
+    }
+  }
+
+  block_jobs <- lapply(sort(unique(stats::na.omit(block_id))), function(k) {
+    cols_k <- ineq_cols[which(block_id == k)]
+    row_k <- ((k - 1L) * p_expansions + 1L):(k * p_expansions)
+    list(
+      cols = cols_k,
+      A_local = qp_Amat[row_k, cols_k, drop = FALSE],
+      b_local = qp_bvec[cols_k]
+    )
+  })
+
+  reduce_job <- function(job) {
+    if (length(job$cols) <= 1L) return(job$cols)
+
+    round_digits <- max(6L, min(14L, ceiling(-log10(tol))))
+    keep_cols <- integer(0)
+    seen_keys <- character(0)
+
+    for (j in seq_along(job$cols)) {
+      col_vec <- c(job$A_local[, j], job$b_local[[j]])
+      col_norm <- sqrt(sum(col_vec^2))
+      if (!is.finite(col_norm) || col_norm <= eps) {
+        next
+      }
+
+      key <- paste(round(col_vec / col_norm, round_digits), collapse = ",")
+      if (!(key %in% seen_keys)) {
+        seen_keys <- c(seen_keys, key)
+        keep_cols <- c(keep_cols, job$cols[[j]])
+      }
+    }
+
+    sort(keep_cols)
+  }
+
+  if (isTRUE(parallel_qr_qp) &&
+      !is.null(cl) &&
+      inherits(cl, "cluster") &&
+      length(block_jobs) > 1L) {
+    kept_blocks <- unlist(parallel::parLapply(cl, block_jobs, reduce_job))
+  } else {
+    kept_blocks <- unlist(lapply(block_jobs, reduce_job))
+  }
+
+  keep_cols <- sort(unique(c(seq_len(qp_meq), keep_ineq, kept_blocks)))
+
+  list(
+    Amat = qp_Amat[, keep_cols, drop = FALSE],
+    bvec = qp_bvec[keep_cols],
+    meq = qp_meq
+  )
+}
+
+
+## Resolve keyed subsets for one derivative variable.
+#   The derivative list may use either the original variable names or the
+#   internal "_j_" labels, so try both forms.
+.get_obs_for_var <- function(obs_map, constraint_type, var_nm, og_cols) {
+  if (is.null(obs_map) || obs_map$mode != "keyed") return(NULL)
+
+  obs_var <- .lookup_qp_obs(obs_map, constraint_type, var_nm)
+  if (!is.null(obs_var)) return(obs_var)
+
+  if (is.null(og_cols)) return(NULL)
+
+  if (grepl("^_[0-9]+_$", var_nm)) {
+    j <- suppressWarnings(as.integer(gsub("_", "", var_nm)))
+    if (!is.na(j) && j >= 1L && j <= length(og_cols)) {
+      obs_var <- .lookup_qp_obs(obs_map, constraint_type, og_cols[j])
+      if (!is.null(obs_var)) return(obs_var)
+    }
+  } else if (var_nm %in% og_cols) {
+    j <- which(og_cols == var_nm)
+    if (length(j) == 1L) {
+      obs_var <- .lookup_qp_obs(
+        obs_map,
+        constraint_type,
+        paste0("_", j, "_")
+      )
+      if (!is.null(obs_var)) return(obs_var)
+    }
+  }
+
+  NULL
+}
+
+
 #' Build Derivative QP Constraints in Full \eqn{P}-Dimensional Space
 #'
 #' @description
@@ -70,6 +293,13 @@
 #'   are constrained.
 #' @param og_cols Optional character vector of original predictor column
 #'   names, used to resolve character \code{target_vars} to integer indices.
+#' @param obs_map Optional parsed \code{qp_observations} map. In keyed mode,
+#'   derivative rows are filtered per variable using
+#'   \code{constraint_type} and \code{obs_order}.
+#' @param constraint_type Optional character scalar naming the current
+#'   derivative constraint, for example \code{"qp_negative_derivative"}.
+#' @param obs_order Optional integer vector of original observation indices,
+#'   one per row of \code{X_block}.
 #'
 #' @return A list with components:
 #' \describe{
@@ -98,9 +328,19 @@
                             include_quadratic_interactions,
                             expansion_scales,
                             target_vars = NULL,
-                            og_cols = NULL) {
+                            og_cols = NULL,
+                            obs_map = NULL,
+                            constraint_type = NULL,
+                            obs_order = NULL) {
 
   N_sub <- nrow(X_block)
+  if (N_sub == 0) {
+    return(list(
+      Amat = matrix(0, nrow = p_expansions * (K + 1), ncol = 0),
+      bvec = numeric(0),
+      meq = 0L
+    ))
+  }
 
   ## Recover the p-column expansion matrix from the block-diagonal design.
   # Each row of X_block belongs to exactly one partition k, and its
@@ -108,7 +348,7 @@
   C_qp <- matrix(0, N_sub, p_expansions)
   colnames(C_qp) <- colnm_expansions
   partition_assignment <- integer(N_sub)
-  for (i in 1:N_sub) {
+  for (i in seq_len(N_sub)) {
     for (k in 1:(K + 1)) {
       cols_k <- ((k - 1) * p_expansions + 1):(k * p_expansions)
       if (any(X_block[i, cols_k] != 0)) {
@@ -215,15 +455,36 @@
   ## Map each row of each derivative matrix into P-dimensional space.
   # One constraint column per (observation, variable) pair.
   constraint_cols <- list()
+  deriv_names_kept <- names(deriv_list)
   for (v in seq_along(deriv_list)) {
     deriv_mat <- deriv_list[[v]]
-    for (i in 1:nrow(deriv_mat)) {
+    var_nm <- deriv_names_kept[[v]]
+
+    row_mask <- rep(TRUE, nrow(deriv_mat))
+    if (!is.null(obs_map) &&
+        !is.null(constraint_type) &&
+        !is.null(obs_order)) {
+      obs_var <- .get_obs_for_var(obs_map, constraint_type, var_nm, og_cols)
+      if (!is.null(obs_var)) {
+        row_mask <- obs_order %in% obs_var
+      }
+    }
+
+    for (i in which(row_mask)) {
       k <- partition_assignment[i]
       col_P <- rep(0, p_expansions * (K + 1))
       col_P[((k - 1) * p_expansions + 1):(k * p_expansions)] <-
         sign_mult * deriv_mat[i, ]
       constraint_cols[[length(constraint_cols) + 1]] <- col_P
     }
+  }
+
+  if (length(constraint_cols) == 0) {
+    return(list(
+      Amat = matrix(0, nrow = p_expansions * (K + 1), ncol = 0),
+      bvec = numeric(0),
+      meq = 0L
+    ))
   }
 
   qp_Amat <- do.call(cbind, constraint_cols)
@@ -299,7 +560,20 @@
 #' @param family GLM family object.
 #' @param mean_y,sd_y Numeric scalars for response standardization.
 #' @param N_obs Integer. Total sample size.
-#' @param qp_observations Optional integer vector of observation indices.
+#' @param qp_observations Optional observation subset. Supply either a single
+#'   integer vector to thin every active built-in QP constraint the same way,
+#'   or a named list keyed by \code{"var:qp_<type>"} (or bare
+#'   \code{"qp_<type>"}) to give different constraints different subsets.
+#'   Known types are \code{qp_range_lower}, \code{qp_range_upper},
+#'   \code{qp_positive_derivative}, \code{qp_negative_derivative},
+#'   \code{qp_positive_2ndderivative}, \code{qp_negative_2ndderivative},
+#'   \code{qp_monotonic_increase}, and \code{qp_monotonic_decrease}. For
+#'   range and monotonicity, use the bare keys such as
+#'   \code{"qp_range_lower"} and \code{"qp_monotonic_increase"} because
+#'   those constraints are variable-independent; prefixed versions are still
+#'   accepted and unioned internally.
+#'   Unknown keyed entries are ignored with a warning when
+#'   \code{include_warnings = TRUE}.
 #' @param qp_positive_derivative,qp_negative_derivative Logical scalar,
 #'   character vector, or integer vector. See section
 #'   \emph{Per-Variable Derivative Constraints}.
@@ -315,9 +589,21 @@
 #'   marks QP handling as active, but this helper does not append them to the
 #'   built-in constraints it constructs; they are expected to be handled
 #'   outside this constructor.
+#' @param qr_pivot_inequality_constraints Logical. If \code{TRUE},
+#'   partition-local inequality columns are thinned to QR pivot columns
+#'   before the final \code{solve.QP} objects are stacked. Leading equality
+#'   columns are left untouched; built-in range and monotonicity blocks are
+#'   also left untouched; and columns spanning multiple partitions are left
+#'   untouched.
+#' @param parallel_qr_qp Logical. If \code{TRUE} and a cluster is supplied
+#'   in \code{cl}, the partition-local QR pivot steps used by
+#'   \code{qr_pivot_inequality_constraints} are parallelized across
+#'   partitions.
 #' @param all_derivatives_fxn Function to compute derivatives from expansion
 #'   matrices (the \code{all_derivatives} closure from \code{lgspline.fit}).
 #' @param og_cols Optional character vector of original predictor column names.
+#' @param cl Optional parallel cluster object used only when
+#'   \code{parallel_qr_qp = TRUE}.
 #' @param include_warnings Logical. Whether to issue warnings.
 #' @param ... Additional arguments forwarded to custom constraint functions.
 #'
@@ -423,8 +709,11 @@ process_qp <- function(X,
                        qp_Amat = NULL,
                        qp_bvec = NULL,
                        qp_meq = 0,
+                       qr_pivot_inequality_constraints = FALSE,
+                       parallel_qr_qp = FALSE,
                        all_derivatives_fxn = NULL,
                        og_cols = NULL,
+                       cl = NULL,
                        include_warnings = TRUE,
                        ...) {
 
@@ -467,22 +756,52 @@ process_qp <- function(X,
   qp_Amat_list <- list()
   qp_bvec_list <- list()
   qp_meq_list <- list()
+  qp_type_list <- list()
+
+  ## Parse qp_observations once so each constraint block can pull the rows
+  #  it needs while keeping the legacy shared-subset path intact.
+  obs_map <- .parse_qp_observations(qp_observations)
+
+  ## Warn on unknown keyed entries so typos do not silently do nothing.
+  if (obs_map$mode == "keyed" && include_warnings) {
+    known_qp_types <- c(
+      "qp_range_lower",
+      "qp_range_upper",
+      "qp_positive_derivative",
+      "qp_negative_derivative",
+      "qp_positive_2ndderivative",
+      "qp_negative_2ndderivative",
+      "qp_monotonic_increase",
+      "qp_monotonic_decrease"
+    )
+
+    for (key in names(obs_map$per_key)) {
+      key_parts <- strsplit(key, ":", fixed = TRUE)[[1]]
+      key_type <- key_parts[[length(key_parts)]]
+      if (!(key_type %in% known_qp_types)) {
+        warning("\n\t qp_observations key '", key,
+                "' is not a known constraint type and will be ignored.\n")
+      }
+    }
+  }
 
   ## Build the block-diagonal design matrix for QP observations.
-  # This is N_sub x P where P = p_expansions * (K+1).
-  X_block <- Reduce("rbind", lapply(1:(K + 1), function(k) {
+  # This is N_full x P where P = p_expansions * (K+1).
+  X_block_full <- Reduce("rbind", lapply(1:(K + 1), function(k) {
     if (nrow(X[[k]]) == 0) return(X[[k]])
     Reduce("cbind", lapply(1:(K + 1), function(j) {
       if (j == k) X[[k]] else 0 * X[[k]]
     }))
   }))
 
-  if (any(!is.null(qp_observations))) {
-    qp_observations <- try(c(qp_observations), silent = TRUE)
-    if (any(inherits(qp_observations, 'try-error'))) {
-      stop('\n \t qp_observations must be coercible to a numeric vector \n')
-    }
-    X_block <- X_block[c(unlist(order_list)) %in% qp_observations, , drop = FALSE]
+  obs_order_full <- unlist(order_list)
+
+  if (obs_map$mode == "global") {
+    X_block <- .subset_X_block(X_block_full, obs_order_full, obs_map$global)
+    obs_order <- obs_order_full[obs_order_full %in% obs_map$global]
+  } else {
+    X_block <- X_block_full
+    obs_order <- obs_order_full
   }
 
   ## Resolve per-variable derivative flag to target_vars (NULL = all).
@@ -515,7 +834,45 @@ process_qp <- function(X,
       }
     }
 
-    if (!any(is.null(qp_range_upper)) & !any(is.null(qp_range_lower))) {
+    if (obs_map$mode == "keyed") {
+      obs_lo <- .lookup_qp_obs_nonvar(obs_map, "qp_range_lower")
+      obs_up <- .lookup_qp_obs_nonvar(obs_map, "qp_range_upper")
+      X_block_lo <- .subset_X_block(X_block_full, obs_order_full, obs_lo)
+      X_block_up <- .subset_X_block(X_block_full, obs_order_full, obs_up)
+
+      if (!any(is.null(qp_range_lower)) && nrow(X_block_lo) > 0) {
+        range_Amat <- t(X_block_lo)
+        if (length(qp_range_lower) == 1) {
+          range_Amat <- t(unique(t(range_Amat)))
+          range_bvec <- rep(qp_range_lower, ncol(range_Amat))
+        } else {
+          range_bvec <- qp_range_lower
+        }
+        range_bvec <- (range_bvec - mean_y) / sd_y
+        qp_Amat_list[[length(qp_Amat_list) + 1]] <- range_Amat
+        qp_bvec_list[[length(qp_bvec_list) + 1]] <- range_bvec
+        qp_meq_list[[length(qp_meq_list) + 1]] <- 0
+        qp_type_list[[length(qp_type_list) + 1]] <- "qp_range_lower"
+      }
+
+      if (!any(is.null(qp_range_upper)) && nrow(X_block_up) > 0) {
+        range_Amat <- -t(X_block_up)
+        if (length(qp_range_upper) == 1) {
+          range_Amat <- t(unique(t(range_Amat)))
+          range_bvec <- rep(qp_range_upper, ncol(range_Amat))
+        } else {
+          range_bvec <- qp_range_upper
+        }
+        range_bvec <- -(range_bvec - mean_y) / sd_y
+        qp_Amat_list[[length(qp_Amat_list) + 1]] <- range_Amat
+        qp_bvec_list[[length(qp_bvec_list) + 1]] <- range_bvec
+        qp_meq_list[[length(qp_meq_list) + 1]] <- 0
+        qp_type_list[[length(qp_type_list) + 1]] <- "qp_range_upper"
+      }
+
+    } else if (!any(is.null(qp_range_upper)) &&
+               !any(is.null(qp_range_lower)) &&
+               nrow(X_block) > 0) {
       range_Amat <- cbind(t(X_block), -t(X_block))
       if (length(qp_range_lower) == 1) {
         if (length(qp_range_upper) == 1) {
@@ -536,8 +893,9 @@ process_qp <- function(X,
       qp_bvec_list[[length(qp_bvec_list) + 1]] <- c(range_bvec_lower,
                                                      range_bvec_upper)
       qp_meq_list[[length(qp_meq_list) + 1]] <- 0
+      qp_type_list[[length(qp_type_list) + 1]] <- "qp_range_both"
 
-    } else if (!any(is.null(qp_range_upper))) {
+    } else if (!any(is.null(qp_range_upper)) && nrow(X_block) > 0) {
       range_Amat <- -t(X_block)
       if (length(qp_range_upper) == 1) {
         range_Amat <- t(unique(t(range_Amat)))
@@ -549,8 +907,9 @@ process_qp <- function(X,
       qp_Amat_list[[length(qp_Amat_list) + 1]] <- range_Amat
       qp_bvec_list[[length(qp_bvec_list) + 1]] <- range_bvec
       qp_meq_list[[length(qp_meq_list) + 1]] <- 0
+      qp_type_list[[length(qp_type_list) + 1]] <- "qp_range_upper"
 
-    } else if (!any(is.null(qp_range_lower))) {
+    } else if (!any(is.null(qp_range_lower)) && nrow(X_block) > 0) {
       range_Amat <- t(X_block)
       if (length(qp_range_lower) == 1) {
         range_Amat <- t(unique(t(range_Amat)))
@@ -562,6 +921,7 @@ process_qp <- function(X,
       qp_Amat_list[[length(qp_Amat_list) + 1]] <- range_Amat
       qp_bvec_list[[length(qp_bvec_list) + 1]] <- range_bvec
       qp_meq_list[[length(qp_meq_list) + 1]] <- 0
+      qp_type_list[[length(qp_type_list) + 1]] <- "qp_range_lower"
     }
   }
 
@@ -591,13 +951,17 @@ process_qp <- function(X,
     args <- c(deriv_shared, list(
       sign_mult = +1,
       just_first = TRUE,
-      target_vars = target_pos1
+      target_vars = target_pos1,
+      obs_map = obs_map,
+      constraint_type = "qp_positive_derivative",
+      obs_order = obs_order
     ))
     deriv_qp <- do.call(.build_deriv_qp, args)
     if (ncol(deriv_qp$Amat) > 0) {
       qp_Amat_list[[length(qp_Amat_list) + 1]] <- deriv_qp$Amat
       qp_bvec_list[[length(qp_bvec_list) + 1]] <- deriv_qp$bvec
       qp_meq_list[[length(qp_meq_list) + 1]] <- deriv_qp$meq
+      qp_type_list[[length(qp_type_list) + 1]] <- "qp_positive_derivative"
     }
   }
 
@@ -607,13 +971,17 @@ process_qp <- function(X,
     args <- c(deriv_shared, list(
       sign_mult = -1,
       just_first = TRUE,
-      target_vars = target_neg1
+      target_vars = target_neg1,
+      obs_map = obs_map,
+      constraint_type = "qp_negative_derivative",
+      obs_order = obs_order
     ))
     deriv_qp <- do.call(.build_deriv_qp, args)
     if (ncol(deriv_qp$Amat) > 0) {
       qp_Amat_list[[length(qp_Amat_list) + 1]] <- deriv_qp$Amat
       qp_bvec_list[[length(qp_bvec_list) + 1]] <- deriv_qp$bvec
       qp_meq_list[[length(qp_meq_list) + 1]] <- deriv_qp$meq
+      qp_type_list[[length(qp_type_list) + 1]] <- "qp_negative_derivative"
     }
   }
 
@@ -623,13 +991,17 @@ process_qp <- function(X,
     args <- c(deriv_shared, list(
       sign_mult = +1,
       just_first = FALSE,
-      target_vars = target_pos2
+      target_vars = target_pos2,
+      obs_map = obs_map,
+      constraint_type = "qp_positive_2ndderivative",
+      obs_order = obs_order
     ))
     deriv_qp <- do.call(.build_deriv_qp, args)
     if (ncol(deriv_qp$Amat) > 0) {
       qp_Amat_list[[length(qp_Amat_list) + 1]] <- deriv_qp$Amat
       qp_bvec_list[[length(qp_bvec_list) + 1]] <- deriv_qp$bvec
       qp_meq_list[[length(qp_meq_list) + 1]] <- deriv_qp$meq
+      qp_type_list[[length(qp_type_list) + 1]] <- "qp_positive_2ndderivative"
     }
   }
 
@@ -639,48 +1011,58 @@ process_qp <- function(X,
     args <- c(deriv_shared, list(
       sign_mult = -1,
       just_first = FALSE,
-      target_vars = target_neg2
+      target_vars = target_neg2,
+      obs_map = obs_map,
+      constraint_type = "qp_negative_2ndderivative",
+      obs_order = obs_order
     ))
     deriv_qp <- do.call(.build_deriv_qp, args)
     if (ncol(deriv_qp$Amat) > 0) {
       qp_Amat_list[[length(qp_Amat_list) + 1]] <- deriv_qp$Amat
       qp_bvec_list[[length(qp_bvec_list) + 1]] <- deriv_qp$bvec
       qp_meq_list[[length(qp_meq_list) + 1]] <- deriv_qp$meq
+      qp_type_list[[length(qp_type_list) + 1]] <- "qp_negative_2ndderivative"
     }
   }
 
   ## Monotonic increase (observation order, not per-variable)
   if (qp_monotonic_increase || qp_monotonic_decrease) {
-    sign_mono <- if(qp_monotonic_increase) +1 else -1
-
-    ## Recover original observation order from partition-stacked X_block.
-    #  order_list[[k]] gives the original row indices for partition k.
-    #  Stacking them in partition order gives the permutation applied to
-    #  build X_block; inverting it restores original observation order.
-    obs_order    <- unlist(order_list)
-    inv_order    <- order(obs_order)
-    X_block_orig <- X_block[inv_order, , drop = FALSE]
-
-    ## If qp_observations was applied, X_block may be a subset.
-    #  In that case inv_order may be longer than nrow(X_block); guard.
-    if(nrow(X_block_orig) != nrow(X_block)){
-      ## Fallback: use X_block as-is (already filtered by qp_observations)
-      X_block_orig <- X_block
+    sign_mono <- if (qp_monotonic_increase) +1 else -1
+    mono_type <- if (qp_monotonic_increase) {
+      "qp_monotonic_increase"
+    } else {
+      "qp_monotonic_decrease"
     }
 
-    value_constraints <- t(Reduce(
-      'rbind',
-      lapply(2:nrow(X_block_orig), function(i) {
-        matrix(sign_mono * c(X_block_orig[i, ] - X_block_orig[i - 1, ]),
-               nrow = 1)
-      })
-    ))
-    mono_Amat <- cbind(value_constraints)
-    mono_Amat <- t(unique(t(mono_Amat)))
-    mono_bvec <- rep(0, ncol(mono_Amat))
-    qp_Amat_list[[length(qp_Amat_list) + 1]] <- mono_Amat
-    qp_bvec_list[[length(qp_bvec_list) + 1]] <- mono_bvec
-    qp_meq_list[[length(qp_meq_list) + 1]] <- 0
+    X_block_mono <- X_block
+    obs_order_mono <- obs_order
+    if (obs_map$mode == "keyed") {
+      obs_mono <- .lookup_qp_obs_nonvar(obs_map, mono_type)
+      X_block_mono <- .subset_X_block(X_block_full, obs_order_full, obs_mono)
+      if (!is.null(obs_mono)) {
+        obs_order_mono <- obs_order_full[obs_order_full %in% obs_mono]
+      }
+    }
+
+    inv_order <- order(obs_order_mono)
+    X_block_orig <- X_block_mono[inv_order, , drop = FALSE]
+
+    if (nrow(X_block_orig) >= 2) {
+      value_constraints <- t(Reduce(
+        'rbind',
+        lapply(2:nrow(X_block_orig), function(i) {
+          matrix(sign_mono * c(X_block_orig[i, ] - X_block_orig[i - 1, ]),
+                 nrow = 1)
+        })
+      ))
+      mono_Amat <- cbind(value_constraints)
+      mono_Amat <- t(unique(t(mono_Amat)))
+      mono_bvec <- rep(0, ncol(mono_Amat))
+      qp_Amat_list[[length(qp_Amat_list) + 1]] <- mono_Amat
+      qp_bvec_list[[length(qp_bvec_list) + 1]] <- mono_bvec
+      qp_meq_list[[length(qp_meq_list) + 1]] <- 0
+      qp_type_list[[length(qp_type_list) + 1]] <- mono_type
+    }
   }
 
   ## User-supplied constraint builders are evaluated last and then appended
@@ -733,6 +1115,7 @@ process_qp <- function(X,
     qp_Amat_list[[length(qp_Amat_list) + 1]] <- custom_Amat
     qp_bvec_list[[length(qp_bvec_list) + 1]] <- custom_bvec
     qp_meq_list[[length(qp_meq_list) + 1]] <- custom_meq
+    qp_type_list[[length(qp_type_list) + 1]] <- "custom"
   }
 
   ## Preserve any user-supplied solve.QP objects by prepending them to
@@ -742,6 +1125,36 @@ process_qp <- function(X,
     qp_Amat_list <- c(list(qp_Amat), qp_Amat_list)
     qp_bvec_list <- c(list(qp_bvec), qp_bvec_list)
     qp_meq_list <- c(list(qp_meq), qp_meq_list)
+    qp_type_list <- c(list("user"), qp_type_list)
+  }
+
+  ## Reduce partition-local inequality columns before stacking the final
+  #  solve.QP matrix. Columns spanning multiple partitions, such as
+  #  monotonicity constraints, are left as supplied.
+  if (qr_pivot_inequality_constraints) {
+    reduced_qp <- lapply(seq_along(qp_Amat_list), function(i) {
+      if (qp_type_list[[i]] %in%
+          c("qp_monotonic_increase", "qp_monotonic_decrease",
+            "qp_range_lower", "qp_range_upper", "qp_range_both")) {
+        return(list(
+          Amat = qp_Amat_list[[i]],
+          bvec = qp_bvec_list[[i]],
+          meq = qp_meq_list[[i]]
+        ))
+      }
+      .reduce_qp_constraint_block(
+        qp_Amat = qp_Amat_list[[i]],
+        qp_bvec = qp_bvec_list[[i]],
+        qp_meq = qp_meq_list[[i]],
+        p_expansions = p_expansions,
+        K = K,
+        parallel_qr_qp = parallel_qr_qp,
+        cl = cl
+      )
+    })
+    qp_Amat_list <- lapply(reduced_qp, `[[`, "Amat")
+    qp_bvec_list <- lapply(reduced_qp, `[[`, "bvec")
+    qp_meq_list <- lapply(reduced_qp, `[[`, "meq")
   }
 
   ## If QP flags were supplied but no conformable columns were generated,

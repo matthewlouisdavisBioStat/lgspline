@@ -39,8 +39,11 @@ process_qp(
   qp_Amat = NULL,
   qp_bvec = NULL,
   qp_meq = 0,
+  qr_pivot_inequality_constraints = FALSE,
+  parallel_qr_qp = FALSE,
   all_derivatives_fxn = NULL,
   og_cols = NULL,
+  cl = NULL,
   include_warnings = TRUE,
   ...
 )
@@ -87,7 +90,20 @@ quadratic interactions are included in derivative construction.}
 
 \item{N_obs}{Integer. Total sample size.}
 
-\item{qp_observations}{Optional integer vector of observation indices.}
+\item{qp_observations}{Optional observation subset. Supply either a single
+integer vector to thin every active built-in QP constraint the same way,
+or a named list keyed by \code{"var:qp_<type>"} (or bare
+\code{"qp_<type>"}) to give different constraints different subsets.
+Known types are \code{qp_range_lower}, \code{qp_range_upper},
+\code{qp_positive_derivative}, \code{qp_negative_derivative},
+\code{qp_positive_2ndderivative}, \code{qp_negative_2ndderivative},
+\code{qp_monotonic_increase}, and \code{qp_monotonic_decrease}. For
+range and monotonicity, use the bare keys such as
+\code{"qp_range_lower"} and \code{"qp_monotonic_increase"} because
+those constraints are variable-independent; prefixed versions are still
+accepted and unioned internally.
+Unknown keyed entries are ignored with a warning when
+\code{include_warnings = TRUE}.}
 
 \item{qp_positive_derivative, qp_negative_derivative}{Logical scalar,
 character vector, or integer vector. See section
@@ -110,10 +126,25 @@ marks QP handling as active, but this helper does not append them to the
 built-in constraints it constructs; they are expected to be handled
 outside this constructor.}
 
+\item{qr_pivot_inequality_constraints}{Logical. If \code{TRUE},
+partition-local inequality columns are thinned to QR pivot columns
+before the final \code{solve.QP} objects are stacked. Leading equality
+columns are left untouched; built-in range and monotonicity blocks are
+also left untouched; and columns spanning multiple partitions are left
+untouched.}
+
+\item{parallel_qr_qp}{Logical. If \code{TRUE} and a cluster is supplied
+in \code{cl}, the partition-local QR pivot steps used by
+\code{qr_pivot_inequality_constraints} are parallelized across
+partitions.}
+
 \item{all_derivatives_fxn}{Function to compute derivatives from expansion
 matrices (the \code{all_derivatives} closure from \code{lgspline.fit}).}
 
 \item{og_cols}{Optional character vector of original predictor column names.}
+
+\item{cl}{Optional parallel cluster object used only when
+\code{parallel_qr_qp = TRUE}.}
 
 \item{include_warnings}{Logical. Whether to issue warnings.}
 

@@ -79,12 +79,17 @@ lgspline(
   include_constrain_first_deriv = TRUE,
   include_constrain_second_deriv = TRUE,
   include_constrain_interactions = TRUE,
+  qr_pivot_smoothing_constraints = TRUE,
   cl = NULL,
   chunk_size = NULL,
   parallel_eigen = TRUE,
   parallel_trace = FALSE,
   parallel_aga = FALSE,
   parallel_matmult = FALSE,
+  parallel_qr = FALSE,
+  parallel_bfgs = TRUE,
+  parallel_grideval = TRUE,
+  parallel_qr_qp = FALSE,
   parallel_unconstrained = TRUE,
   parallel_find_neighbors = FALSE,
   parallel_penalty = FALSE,
@@ -117,6 +122,7 @@ lgspline(
   qp_monotonic_decrease = FALSE,
   qp_range_upper = NULL,
   qp_range_lower = NULL,
+  qr_pivot_inequality_constraints = FALSE,
   qp_Amat_fxn = NULL,
   qp_bvec_fxn = NULL,
   qp_meq_fxn = NULL,
@@ -351,6 +357,10 @@ derivatives at knot points.}
 \item{include_constrain_interactions}{Default: TRUE. Logical switch to constrain
 interaction terms at knot points.}
 
+\item{qr_pivot_smoothing_constraints}{Default: TRUE. Logical switch to reduce
+the smoothness/equality constraint matrix to a linearly independent set
+before fitting. Disabling this keeps the original equality columns.}
+
 \item{cl}{Default: NULL. Parallel processing cluster object
 (use \code{parallel::makeCluster()}).}
 
@@ -366,6 +376,29 @@ processing.}
 
 \item{parallel_matmult}{Default: FALSE. Logical flag for parallel block-diagonal matrix
 multiplication.}
+
+\item{parallel_qr}{Default: FALSE. Logical flag for the tall-skinny
+least-squares and rank-reduction steps that arise in transformed
+constraint solves. When active and a cluster is supplied, these steps use
+row-chunked cross-products with small dense fallback solves instead of
+relying entirely on base QR; unstable cases fall back automatically to
+\code{.lm.fit()} or \code{qr()}.}
+
+\item{parallel_bfgs}{Default: TRUE. Logical flag for parallel evaluation of
+damped BFGS step candidates during penalty tuning. When active and a
+cluster is supplied, multiple damping factors are evaluated across
+workers and the best improving candidate is retained.}
+
+\item{parallel_grideval}{Default: TRUE. Logical flag for parallel evaluation
+of the initial tuning grid. When active and a cluster is supplied, grid
+points are distributed across workers, and if more than six workers are
+available, additional random penalty candidates are added before the
+starting point is chosen.}
+
+\item{parallel_qr_qp}{Default: FALSE. Logical flag for parallel QR pivot
+reduction of partition-local inequality constraint columns. When active
+and a cluster is supplied, each partition's reducible QP block is handled
+independently across workers before the final QP matrix is assembled.}
 
 \item{parallel_unconstrained}{Default: TRUE. Logical flag for parallel unconstrained
 MLE for non-identity-link-Gaussian models.}
@@ -401,9 +434,21 @@ Score function for quadratic programming, blockfit, and GEE formulations.
 Accepts arguments \code{"X, y, mu, order_list, dispersion, VhalfInv,
 observation_weights, ..."}.}
 
-\item{qp_observations}{Default: NULL. Numeric vector of observation indices
-at which built-in QP constraints are evaluated. Useful for reducing the
-size of the constrained system.}
+\item{qp_observations}{Default: NULL. Either a numeric vector of
+observation indices at which every active built-in QP constraint is
+evaluated, or a named list keyed by \code{"var:qp_<type>"} (or bare
+\code{"qp_<type>"}) giving different built-in constraints different
+observation subsets. The known types are \code{qp_range_lower},
+\code{qp_range_upper}, \code{qp_positive_derivative},
+\code{qp_negative_derivative}, \code{qp_positive_2ndderivative},
+\code{qp_negative_2ndderivative}, \code{qp_monotonic_increase}, and
+\code{qp_monotonic_decrease}. For range and monotonicity the canonical
+keys are the bare forms such as \code{"qp_range_lower"} and
+\code{"qp_monotonic_increase"}, because those constraints are not tied
+to a specific variable; prefixed entries are still accepted and unioned.
+Derivative entries dispatch per variable, so different variables and
+constraint types may use different subsets. Unknown keys are ignored
+with a warning when \code{include_warnings = TRUE}.}
 
 \item{qp_Amat}{Default: NULL. Optional pre-built QP constraint matrix.
 In the current pipeline its presence marks QP handling as active, but the
@@ -446,6 +491,12 @@ fitted values.}
 
 \item{qp_range_lower}{Default: NULL. Optional lower bound on constrained
 fitted values.}
+
+\item{qr_pivot_inequality_constraints}{Default: FALSE. Logical switch to
+reduce partition-local inequality constraint columns to QR pivot columns
+before solving. Built-in range and monotonicity constraints are left
+unchanged, and more generally any inequality columns spanning multiple
+partitions are also left unchanged.}
 
 \item{qp_Amat_fxn}{Default: NULL. Custom function generating Amat.}
 
@@ -567,7 +618,11 @@ Post-fit inference recomputed from whitened Gram matrices.}
 
 \item{VhalfInv_fxn}{Default: NULL. Parametric function for \eqn{\mathbf{V}^{-1/2}};
 takes single numeric vector \code{"par"}, returns \eqn{N \times N} matrix.
-Optimized via BFGS when \code{VhalfInv_par_init} is provided.}
+If \code{VhalfInv} is not supplied, correlation parameters are
+optimized from this function; when \code{VhalfInv_par_init} is
+omitted, the optimizer starts at \code{1e-2}. Helper functions that
+also use \code{correlation_id}, \code{spacetime}, or matching extra
+arguments are supported.}
 
 \item{Vhalf_fxn}{Default: NULL. Optional function for efficient computation of
 \eqn{\mathbf{V}^{1/2}} from the same parameter vector used by
@@ -575,7 +630,9 @@ Optimized via BFGS when \code{VhalfInv_par_init} is provided.}
 matrix inversion of \code{VhalfInv}.}
 
 \item{VhalfInv_par_init}{Default: \code{c()}. Initial parameter values for
-\code{VhalfInv_fxn} optimization, on unbounded transformed scale.}
+\code{VhalfInv_fxn} optimization, on unbounded transformed scale. If
+left empty while \code{VhalfInv_fxn} is supplied and \code{VhalfInv}
+is \code{NULL}, it is set internally to \code{1e-2}.}
 
 \item{REML_grad}{Default: NULL. Function for the gradient of the negative REML (or
 custom loss) with respect to the parameters of \code{VhalfInv_fxn}. Takes
@@ -624,7 +681,7 @@ A list of class \code{"lgspline"} containing model components:
   \item{y}{Original response vector.}
   \item{ytilde}{Fitted/predicted values on the scale of the response.}
   \item{X}{List of design matrices \eqn{\mathbf{X}_{k}} for each partition k, containing basis expansions including intercept, linear, quadratic, cubic, and interaction terms as specified. Returned on the unstandardized scale.}
-  \item{A}{Constraint matrix \eqn{\mathbf{A}} encoding smoothness constraints at knot points and any user-specified linear constraints. Only a linearly independent subset of columns is retained (via pivoted QR decomposition).}
+  \item{A}{Constraint matrix \eqn{\mathbf{A}} encoding smoothness constraints at knot points and any user-specified linear constraints. When \code{qr_pivot_smoothing_constraints = TRUE}, only a linearly independent subset of columns is retained via pivoted QR decomposition; otherwise the original equality columns are kept.}
   \item{B}{List of fitted coefficients \eqn{\boldsymbol{\beta}_{k}} for each partition k on the original, unstandardized scale of the predictors and response.}
   \item{B_raw}{List of fitted coefficients for each partition on the predictor-and-response standardized scale.}
   \item{K}{Number of interior knots with one predictor (number of partitions minus 1 with > 1 predictor).}
@@ -711,7 +768,20 @@ A list of class \code{"lgspline"} containing model components:
   \item{generate_posterior}{Function for drawing from the posterior distribution of coefficients. When \code{VhalfInv} is non-\code{NULL}, draws are from the correct joint posterior \eqn{\mathbf{U}\mathbf{G}_{\mathrm{correct}}^{1/2}\mathbf{z}} using the full penalized GLS information, reflecting cross-partition posterior covariance induced by off-diagonal blocks of \eqn{\mathbf{V}^{-1/2}}.}
   \item{find_extremum}{Function for optimizing the fitted function. Accepts both numeric column indices and character column names for \code{vars}. When \code{select_vars_fl = TRUE}, L-BFGS-B bounds are correctly subsetted to the optimized variables.}
   \item{plot}{Function for visualizing fitted curves.}
-  \item{quadprog_list}{List containing quadratic programming components if applicable.}
+  \item{qp_info}{Metadata for inequality-constrained solves, or
+    \code{NULL}. Includes active constraints, multipliers, and a
+    \code{method} string describing the solver path:
+    \code{"active_set"} = partition-wise active-set on the standard
+    block-diagonal path; \code{"active_set_full"} = active-set with
+    full-system equality re-solves; \code{"active_set_woodbury"} =
+    active-set with Woodbury equality re-solves on the correlated
+    low-rank path; \code{"dense_qp_gee_gaussian"} = dense QP fallback
+    for correlated Gaussian fits; \code{"dense_qp_gee_glm"} = dense
+    SQP / dense QP-subproblem fallback for correlated non-Gaussian
+    fits.}
+  \item{quadprog_list}{List containing the assembled QP objects
+    \code{qp_Amat}, \code{qp_bvec}, \code{qp_meq}, and when
+    applicable a copy of \code{qp_info}.}
   \item{.fit_call_args}{List containing the arguments passed to
     \code{\link{lgspline}}.}
 }
@@ -863,7 +933,8 @@ individual arguments. Individual arguments remain available for backward compati
     \code{tuning_criterion},
     \code{gcv_gamma},
     \code{initial_wiggle}, \code{initial_flat},
-    \code{iterate_tune}, \code{iterate_final_fit}.}
+    \code{iterate_tune}, \code{iterate_final_fit},
+    \code{blockfit}.}
   \item{\code{expansion_args}}{Groups: \code{include_quadratic_terms},
     \code{include_cubic_terms}, \code{include_quartic_terms},
     \code{include_2way_interactions}, \code{include_3way_interactions},
@@ -877,11 +948,31 @@ individual arguments. Individual arguments remain available for backward compati
     \code{include_constrain_first_deriv},
     \code{include_constrain_second_deriv},
     \code{include_constrain_interactions},
+    \code{qr_pivot_smoothing_constraints},
     \code{constraint_values}, \code{constraint_vectors},
-    \code{no_intercept}.}
-  \item{\code{qp_args}}{Groups all \code{qp_*} arguments.}
+    \code{null_constraint}, \code{no_intercept}.}
+  \item{\code{qp_args}}{Groups: \code{qp_score_function},
+    \code{qp_observations}, \code{qp_Amat}, \code{qp_bvec},
+    \code{qp_meq}, \code{qp_positive_derivative},
+    \code{qp_negative_derivative},
+    \code{qp_positive_2ndderivative},
+    \code{qp_negative_2ndderivative},
+    \code{qp_monotonic_increase},
+    \code{qp_monotonic_decrease},
+    \code{qp_range_upper}, \code{qp_range_lower},
+    \code{qr_pivot_inequality_constraints},
+    \code{qp_Amat_fxn}, \code{qp_bvec_fxn},
+    \code{qp_meq_fxn}.}
   \item{\code{parallel_args}}{Groups: \code{cl},
-    \code{chunk_size}, and all \code{parallel_*} flags.}
+    \code{chunk_size}, \code{parallel_eigen},
+    \code{parallel_trace}, \code{parallel_aga},
+    \code{parallel_matmult}, \code{parallel_qr},
+    \code{parallel_bfgs}, \code{parallel_grideval},
+    \code{parallel_qr_qp},
+    \code{parallel_unconstrained},
+    \code{parallel_find_neighbors},
+    \code{parallel_penalty},
+    \code{parallel_make_constraint}.}
   \item{\code{covariance_args}}{Groups: \code{correlation_id},
     \code{spacetime}, \code{correlation_structure},
     \code{VhalfInv}, \code{Vhalf}, \code{VhalfInv_fxn},
@@ -1047,6 +1138,7 @@ model_fit <- lgspline(y ~ spl(t),
                       data = data.frame(t = t, y = y),
                       qp_range_lower = -150,
                       qp_range_upper = 150,
+                      qp_observations = sample(1:length(t), 50),
                       opt = FALSE)
 
 ## Plotting the constraints and knots
@@ -1675,6 +1767,7 @@ if (requireNamespace("parallel", quietly = TRUE)) {
                        parallel_find_neighbors = FALSE,
                        parallel_trace = FALSE,
                        parallel_matmult = TRUE,
+                       parallel_qr = FALSE,
                        parallel_make_constraint = FALSE,
                        parallel_penalty = FALSE)
   })

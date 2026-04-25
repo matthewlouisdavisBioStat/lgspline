@@ -11,7 +11,9 @@
   qp_bvec,
   qp_meq,
   active_ineq = integer(0),
-  rank_tol = 1e-10
+  rank_tol = 1e-10,
+  parallel_qr = FALSE,
+  cl = NULL
 )
 }
 \arguments{

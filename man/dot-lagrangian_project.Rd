@@ -18,7 +18,8 @@
   cl,
   chunk_size,
   num_chunks,
-  rem_chunks
+  rem_chunks,
+  parallel_qr = FALSE
 )
 }
 \arguments{
@@ -45,8 +46,8 @@ added.}
 \item{family}{GLM family object (used for \code{linkinv(0)} fallback
 when \code{NA} values arise in \eqn{\mathbf{y}^*}).}
 
-\item{parallel_aga, parallel_matmult}{Logical flags for parallel
-computation.}
+\item{parallel_aga, parallel_matmult, parallel_qr}{Logical flags for
+parallel computation.}
 
 \item{cl}{Parallel cluster object.}
 

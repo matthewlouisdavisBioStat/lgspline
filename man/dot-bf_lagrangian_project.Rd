@@ -11,7 +11,9 @@
   cv_spline,
   K,
   nc_spline,
-  A_spline
+  A_spline,
+  parallel_qr = FALSE,
+  cl = NULL
 )
 }
 \arguments{

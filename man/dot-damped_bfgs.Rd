@@ -11,6 +11,7 @@
   gr_fxn,
   env,
   tol,
+  parallel_bfgs = TRUE,
   max_iter = 100,
   ...
 )

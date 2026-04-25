@@ -25,6 +25,7 @@
   num_chunks,
   rem_chunks,
   tol,
+  parallel_qr = FALSE,
   include_warnings = TRUE,
   warn_context = ".try_woodbury_active_set"
 )

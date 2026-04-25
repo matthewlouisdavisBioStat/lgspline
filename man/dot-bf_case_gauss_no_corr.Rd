@@ -18,6 +18,8 @@
   A_spline,
   tol,
   max_backfit_iter,
+  parallel_qr = FALSE,
+  cl = NULL,
   verbose,
   split = NULL,
   constraint_values = list(),

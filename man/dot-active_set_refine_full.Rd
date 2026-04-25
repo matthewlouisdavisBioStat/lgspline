@@ -17,6 +17,8 @@
   rhs_full,
   Ghalf_full,
   tol,
+  parallel_qr = FALSE,
+  cl = NULL,
   max_as_iter = NULL,
   method = "active_set_full"
 )

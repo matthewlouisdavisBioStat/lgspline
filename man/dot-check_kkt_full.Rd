@@ -14,7 +14,9 @@
   qp_bvec,
   active_ineq,
   K,
-  tol
+  tol,
+  parallel_qr = FALSE,
+  cl = NULL
 )
 }
 \description{

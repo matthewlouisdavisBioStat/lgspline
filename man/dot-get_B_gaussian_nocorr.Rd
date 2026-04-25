@@ -22,6 +22,7 @@
   qp_score_function,
   parallel_aga,
   parallel_matmult,
+  parallel_qr,
   cl,
   chunk_size,
   num_chunks,

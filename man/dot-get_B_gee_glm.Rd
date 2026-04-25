@@ -30,6 +30,8 @@
   need_dispersion_for_estimation,
   dispersion_function,
   VhalfInv,
+  parallel_qr = FALSE,
+  cl = NULL,
   ...
 )
 }

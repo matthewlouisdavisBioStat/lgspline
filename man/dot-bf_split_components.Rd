@@ -12,6 +12,9 @@
   Lambda,
   L_partition_list,
   A,
+  qr_pivot_smoothing_constraints = TRUE,
+  parallel_qr = FALSE,
+  cl = NULL,
   constraint_values
 )
 }

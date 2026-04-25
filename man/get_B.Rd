@@ -22,6 +22,7 @@ get_B(
   parallel_eigen,
   parallel_aga,
   parallel_matmult,
+  parallel_qr,
   parallel_unconstrained,
   cl,
   chunk_size,
@@ -85,7 +86,7 @@ get_B(
 
 \item{GhalfInv}{List of \eqn{\mathbf{G}^{-1/2}_k} matrices.}
 
-\item{parallel_eigen, parallel_aga, parallel_matmult, parallel_unconstrained}{Logical flags.}
+\item{parallel_eigen, parallel_aga, parallel_matmult, parallel_qr, }{parallel_unconstrained Logical flags.}
 
 \item{cl}{Cluster object.}
 

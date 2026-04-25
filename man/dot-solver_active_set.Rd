@@ -16,7 +16,9 @@
   solve_subproblem,
   kkt_subproblem,
   method,
-  debug_label = "active-set"
+  debug_label = "active-set",
+  parallel_qr = FALSE,
+  cl = NULL
 )
 }
 \arguments{

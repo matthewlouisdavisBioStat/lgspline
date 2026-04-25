@@ -26,6 +26,7 @@
   qp_score_function = NULL,
   tol = 1e-08,
   parallel_eigen = FALSE,
+  parallel_qr = FALSE,
   cl = NULL,
   chunk_size = NULL,
   num_chunks = NULL,

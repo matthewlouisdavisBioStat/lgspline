@@ -42,6 +42,7 @@
   chunk_size,
   num_chunks,
   rem_chunks,
+  parallel_qr = FALSE,
   ...
 )
 }

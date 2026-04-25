@@ -30,6 +30,8 @@ blockfit_solve(
   iterate,
   tol,
   parallel_eigen,
+  parallel_qr = FALSE,
+  qr_pivot_smoothing_constraints = TRUE,
   cl,
   chunk_size,
   num_chunks,
@@ -101,6 +103,10 @@ blockfit_solve(
 \item{tol}{Convergence tolerance.}
 
 \item{parallel_eigen, cl, chunk_size, num_chunks, rem_chunks}{Parallel arguments.}
+
+\item{qr_pivot_smoothing_constraints}{Logical. If \code{TRUE}, spline-only
+and flat-only equality blocks are rank-reduced by QR pivoting before the
+blockfit updates are run.}
 
 \item{return_G_getB}{Logical.}
 

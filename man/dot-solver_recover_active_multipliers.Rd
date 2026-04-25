@@ -10,7 +10,9 @@
   n_eq_orig,
   K,
   tol = sqrt(.Machine$double.eps),
-  ineq_sign = -1
+  ineq_sign = -1,
+  parallel_qr = FALSE,
+  cl = NULL
 )
 }
 \arguments{

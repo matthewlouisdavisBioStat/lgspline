@@ -30,6 +30,8 @@
   parallel_trace,
   parallel_aga,
   parallel_matmult,
+  parallel_qr = FALSE,
+  qr_pivot_smoothing_constraints = TRUE,
   parallel_unconstrained,
   cl,
   chunk_size,

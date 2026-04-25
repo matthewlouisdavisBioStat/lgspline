@@ -23,6 +23,8 @@
   qp_score_function,
   order_list,
   observation_weights,
+  parallel_qr = FALSE,
+  cl = NULL,
   ...
 )
 }

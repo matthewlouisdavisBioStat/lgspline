@@ -175,6 +175,9 @@
 #' @keywords internal
 .bf_split_components <- function(X, flat_cols, p_expansions, K, Lambda,
                                  L_partition_list, A,
+                                 qr_pivot_smoothing_constraints = TRUE,
+                                 parallel_qr = FALSE,
+                                 cl = NULL,
                                  constraint_values){
 
   spline_cols <- setdiff(1:p_expansions, flat_cols)
@@ -209,9 +212,12 @@
   keep_cols <- which(colSums(abs(A_spline)) > sqrt(.Machine$double.eps))
   if(length(keep_cols) > 0){
     A_spline <- A_spline[, keep_cols, drop = FALSE]
-    qr_As <- qr(A_spline)
-    if(qr_As$rank < ncol(A_spline)){
-      A_spline <- qr.Q(qr_As)[, 1:qr_As$rank, drop = FALSE]
+    if (qr_pivot_smoothing_constraints) {
+      A_spline <- .reduce_constraint_basis(
+        A = A_spline,
+        parallel_qr = parallel_qr,
+        cl = cl
+      )
     }
   } else {
     A_spline <- cbind(rep(0, nc_spline * (K + 1)))
@@ -222,9 +228,12 @@
   keep_cols_flat <- which(colSums(abs(A_flat)) > sqrt(.Machine$double.eps))
   if(length(keep_cols_flat) > 0){
     A_flat_kept <- A_flat[, keep_cols_flat, drop = FALSE]
-    qr_Af <- qr(A_flat_kept)
-    if(qr_Af$rank < ncol(A_flat_kept)){
-      A_flat_kept <- qr.Q(qr_Af)[, 1:qr_Af$rank, drop = FALSE]
+    if (qr_pivot_smoothing_constraints) {
+      A_flat_kept <- .reduce_constraint_basis(
+        A = A_flat_kept,
+        parallel_qr = parallel_qr,
+        cl = cl
+      )
     }
     A_flat <- A_flat_kept
   } else {
@@ -434,14 +443,20 @@
 #' @keywords internal
 .bf_lagrangian_project <- function(Xy_adj, Ghalf_cur, GhalfA_cur,
                                    cv_spline, K, nc_spline,
-                                   A_spline){
+                                   A_spline,
+                                   parallel_qr = FALSE,
+                                   cl = NULL){
   GhalfXy <- cbind(unlist(lapply(1:(K + 1), function(k){
     Ghalf_cur[[k]] %**% Xy_adj[[k]]
   })))
 
   sc <- 1 / sqrt(K + 1)
-  resids_star <- .lm.fit(GhalfA_cur * sc,
-                         GhalfXy * sc)$residuals / sc
+  resids_star <- .parallel_qr_lm_fit(
+    X = GhalfA_cur * sc,
+    y = GhalfXy * sc,
+    parallel_qr = parallel_qr,
+    cl = cl
+  )$residuals / sc
 
   if(length(cv_spline) > 0){
     if(any(unlist(cv_spline) != 0)){
@@ -519,6 +534,7 @@
                                qp_score_function = NULL,
                                tol = 1e-8,
                                parallel_eigen = FALSE,
+                               parallel_qr = FALSE,
                                cl = NULL,
                                chunk_size = NULL,
                                num_chunks = NULL,
@@ -555,7 +571,12 @@
   X_star <- G_bf_half %**% A
 
   sc <- 1 / sqrt(K + 1)
-  resids_bf <- .lm.fit(X_star * sc, y_star * sc)$residuals / sc
+  resids_bf <- .parallel_qr_lm_fit(
+    X = X_star * sc,
+    y = y_star * sc,
+    parallel_qr = parallel_qr,
+    cl = cl
+  )$residuals / sc
 
   if(length(constraint_values) > 0){
     if(any(unlist(constraint_values) != 0)){
@@ -629,6 +650,7 @@
             num_chunks = num_chunks,
             rem_chunks = rem_chunks,
             tol = tol,
+            parallel_qr = parallel_qr,
             include_warnings = include_warnings,
             warn_context = ".bf_case_gauss_gee"
           )
@@ -773,6 +795,8 @@
                                    nc_spline, nc_flat,
                                    A_spline,
                                    tol, max_backfit_iter,
+                                   parallel_qr = FALSE,
+                                   cl = NULL,
                                    verbose,
                                    split = NULL,
                                    constraint_values = list(),
@@ -797,7 +821,9 @@
     })
     beta_spline_new <- .bf_lagrangian_project(
       Xy_adj, Ghalf_sp, GhalfA_sp,
-      constraint_values_spline, K, nc_spline, A_spline)
+      constraint_values_spline, K, nc_spline, A_spline,
+      parallel_qr = parallel_qr,
+      cl = cl)
 
     ## Flat step
     Xfr <- Reduce("+", lapply(1:(K + 1), function(k){
@@ -890,7 +916,9 @@
                                nc_spline, nc_flat,
                                beta_spline_init, beta_flat_init,
                                tol, max_backfit_iter,
-                               parallel_eigen, cl,
+                               parallel_eigen,
+                               parallel_qr = FALSE,
+                               cl,
                                chunk_size, num_chunks,
                                rem_chunks,
                                split = NULL,
@@ -935,7 +963,9 @@
     })
     beta_spline_new <- .bf_lagrangian_project(
       Xy_adj, Ghalf_sp_w, GhalfA_sp_w,
-      constraint_values_spline, K, nc_spline, A_spline)
+      constraint_values_spline, K, nc_spline, A_spline,
+      parallel_qr = parallel_qr,
+      cl = cl)
 
     ## Flat step (weighted, pooled)
     XfWXf <- Reduce("+", lapply(1:(K + 1), function(k){
@@ -1391,7 +1421,7 @@
       nc_spline, nc_flat,
       beta_spline, beta_flat,
       tol, max_backfit_iter,
-      parallel_eigen, cl,
+      parallel_eigen, parallel_qr, cl,
       chunk_size, num_chunks, rem_chunks,
       split = split,
       constraint_values = constraint_values,
@@ -1562,7 +1592,8 @@
           chunk_size = chunk_size,
           num_chunks = num_chunks,
           rem_chunks = rem_chunks,
-          tol = max(tol, 100 * sqrt(.Machine$double.eps))
+          tol = max(tol, 100 * sqrt(.Machine$double.eps)),
+          parallel_qr = parallel_qr
         ), silent = TRUE)
 
         if (!inherits(as_out, "try-error") && isTRUE(as_out$converged)) {
@@ -1601,6 +1632,8 @@
           rhs_full = dvec_full_as,
           Ghalf_full = Ghalf_as,
           tol = max(tol, 100 * sqrt(.Machine$double.eps)),
+          parallel_qr = parallel_qr,
+          cl = cl,
           method = "active_set_woodbury"
         ), silent = TRUE)
 
@@ -1741,7 +1774,9 @@
                                  dispersion_function,
                                  observation_weights,
                                  iterate, tol, max_backfit_iter,
-                                 parallel_eigen, cl,
+                                 parallel_eigen,
+                                 parallel_qr = FALSE,
+                                 cl,
                                  chunk_size, num_chunks,
                                  rem_chunks, schur_zero,
                                  unique_penalty_per_partition,
@@ -1811,7 +1846,7 @@
       nc_spline, nc_flat,
       beta_spline, beta_flat,
       tol, max_backfit_iter,
-      parallel_eigen, cl,
+      parallel_eigen, parallel_qr, cl,
       chunk_size, num_chunks, rem_chunks,
       split = split,
       constraint_values = constraint_values,
@@ -1998,6 +2033,9 @@
 #' @param iterate Logical; if FALSE, single pass (no iteration).
 #' @param tol Convergence tolerance.
 #' @param parallel_eigen,cl,chunk_size,num_chunks,rem_chunks Parallel arguments.
+#' @param qr_pivot_smoothing_constraints Logical. If \code{TRUE}, spline-only
+#'   and flat-only equality blocks are rank-reduced by QR pivoting before the
+#'   blockfit updates are run.
 #' @param return_G_getB Logical.
 #' @param quadprog Logical; apply inequality constraint refinement if TRUE.
 #' @param qp_Amat Inequality constraint matrix for
@@ -2167,6 +2205,8 @@ blockfit_solve <- function(
     iterate,
     tol,
     parallel_eigen,
+    parallel_qr = FALSE,
+    qr_pivot_smoothing_constraints = TRUE,
     cl,
     chunk_size,
     num_chunks,
@@ -2201,6 +2241,10 @@ blockfit_solve <- function(
   #  The spline-only objects are then reused across the case-specific solvers.
   split <- .bf_split_components(X, flat_cols, p_expansions, K, Lambda,
                                 L_partition_list, A,
+                                qr_pivot_smoothing_constraints =
+                                  qr_pivot_smoothing_constraints,
+                                parallel_qr = parallel_qr,
+                                cl = cl,
                                 constraint_values)
 
   ## Compute spline-only G^{1/2}
@@ -2261,6 +2305,7 @@ blockfit_solve <- function(
       qp_score_function = qp_score_function,
       tol = tol,
       parallel_eigen = parallel_eigen,
+      parallel_qr = parallel_qr,
       cl = cl,
       chunk_size = chunk_size,
       num_chunks = num_chunks,
@@ -2281,7 +2326,7 @@ blockfit_solve <- function(
       Ghalf_sp, GhalfA_sp, XfXf_pen_inv,
       split$constraint_values_spline,
       nc_spline, nc_flat, split$A_spline,
-      tol, max_backfit_iter, verbose,
+      tol, max_backfit_iter, parallel_qr, cl, verbose,
       split = split,
       constraint_values = constraint_values,
       Lambda_flat = split$Lambda_flat,
@@ -2324,7 +2369,7 @@ blockfit_solve <- function(
       need_dispersion_for_estimation, dispersion_function,
       observation_weights,
       iterate, tol, max_backfit_iter,
-      parallel_eigen, cl,
+      parallel_eigen, parallel_qr, cl,
       chunk_size, num_chunks, rem_chunks, schur_zero,
       unique_penalty_per_partition, VhalfInv,
       verbose,
@@ -2371,7 +2416,8 @@ blockfit_solve <- function(
       parallel_aga = FALSE, parallel_matmult = FALSE,
       cl = cl, chunk_size = chunk_size,
       num_chunks = num_chunks, rem_chunks = rem_chunks,
-      tol = tol)
+      tol = tol,
+      parallel_qr = parallel_qr)
 
     if(as_out$converged){
       result <- as_out$result

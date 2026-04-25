@@ -85,7 +85,8 @@
 #'     where \eqn{\mathbf{W}_k} and \eqn{\mathbf{D}_k} are defined below.
 #'   \item \eqn{\mathbf{A}_{(P \times r)}}: Constraint matrix encoding smoothness
 #'     conditions. Reduced to linearly independent columns via pivoted QR
-#'     decomposition.
+#'     decomposition by default, or by the \code{parallel_qr} reduced-system
+#'     route when that option is active.
 #'   \item \eqn{\mathbf{U}_{(P \times P)}}:
 #'     \eqn{\mathbf{I} - \mathbf{G}\mathbf{A}(\mathbf{A}^{\top}\mathbf{G}\mathbf{A})^{-1}\mathbf{A}^{\top}}.
 #'   \item \eqn{\mathbf{D}_{(N \times N)}}: Diagonal matrix of user-supplied
@@ -188,7 +189,16 @@
 #' \code{chunk_size}, and enabling stages such as \code{parallel_eigen}
 #' for the eigendecompositions and, in non-Gaussian Path 3, \code{parallel_unconstrained}
 #' for the partition-wise unconstrained fits; nearby stages can likewise use
-#' \code{parallel_penalty} and \code{parallel_make_constraint}. The eigenvalue
+#' \code{parallel_penalty}, \code{parallel_make_constraint}, and
+#' \code{parallel_qr}. The \code{parallel_qr} flag does not change the estimator;
+#' it changes how the tall linear algebra is carried out. Instead of asking one
+#' worker to run a single QR sweep over the full transformed system, the rows are
+#' split into chunks, each worker accumulates its local cross-products, and the
+#' package solves the resulting reduced dense system. In other words, the
+#' expensive serial operation on a tall matrix is replaced by a parallel
+#' reduction of smaller \eqn{r \times r} or \eqn{p \times p} summaries, with
+#' automatic fallback to base \code{.lm.fit()} or \code{qr()} when that is
+#' numerically safer. The eigenvalue
 #' decomposition and matrix square roots of each \eqn{\mathbf{G}_k} are
 #' computed by \code{\link{compute_G_eigen}}, and can be returned in the fitted
 #' object as \code{G} and \code{Ghalf} when \code{return_G = TRUE} and
@@ -239,9 +249,21 @@
 #' \code{0 +} in the formula interface).
 #'
 #' Before computing the projection \eqn{\mathbf{U}}, the constraint matrix is
-#' reduced to a linearly independent subset of columns via pivoted QR
-#' decomposition. This avoids numerical instability from redundant constraints
-#' and ensures \eqn{\mathbf{A}^{\top}\mathbf{G}\mathbf{A}} is invertible.
+#' optionally reduced to a linearly independent subset of columns. When
+#' \code{qr_pivot_smoothing_constraints = TRUE} (the default), this uses
+#' pivoted QR decomposition; when \code{parallel_qr = TRUE} and a cluster is
+#' supplied, the code instead partitions the rows of \eqn{\mathbf{A}} into
+#' blocks \eqn{\mathbf{A}_{(1)}, \dots, \mathbf{A}_{(B)}} and computes
+#' \deqn{\mathbf{A}^{\top}\mathbf{A}
+#'   = \sum_{b = 1}^{B}\mathbf{A}_{(b)}^{\top}\mathbf{A}_{(b)}}
+#' in parallel. The linearly independent constraint basis is then recovered
+#' from that reduced system, so the package avoids running one full serial QR on
+#' a tall redundant matrix whenever the parallel route is well-conditioned.
+#' If the reduced system appears unstable, the code falls back to pivoted QR.
+#' This avoids numerical instability from redundant constraints and ensures
+#' \eqn{\mathbf{A}^{\top}\mathbf{G}\mathbf{A}} is invertible. When
+#' \code{qr_pivot_smoothing_constraints = FALSE}, the original equality columns
+#' are carried forward unchanged.
 #' }
 #'
 #' \subsection{Lagrangian Projection}{
@@ -282,7 +304,8 @@
 #'   \item Set \eqn{\mathbf{y}^{*} = \mathbf{G}^{-1/2}\hat{\boldsymbol{\beta}}} and
 #'     \eqn{\mathbf{X}^{*} = \mathbf{G}^{1/2}\mathbf{A}}.
 #'   \item Fit the linear model \eqn{\mathbb{E}[\mathbf{y}^{*}] = \mathbf{X}^{*}\boldsymbol{\gamma}}
-#'     by OLS using QR decomposition.
+#'     by OLS using QR decomposition, or with the \code{parallel_qr}
+#'     cross-product route when that option is enabled.
 #'   \item Compute the residuals \eqn{\mathbf{r}^{*} = \mathbf{y}^{*} - \mathbf{X}^{*}(\mathbf{X}^{*\top}\mathbf{X}^{*})^{-1}\mathbf{X}^{*\top}\mathbf{y}^{*}} from that transformed OLS
 #'     fit and recover the constrained estimate by
 #'     \eqn{\tilde{\boldsymbol{\beta}} = \mathbf{G}^{1/2}\mathbf{r}^{*}}.
@@ -293,9 +316,39 @@
 #' and divided out afterward, improving numerical conditioning when the
 #' constraint matrix has many rows.
 #'
-#' The most expensive operation in this approach is the QR decomposition of the
-#' \eqn{P \times r} matrix \eqn{\mathbf{X}^{*} = \mathbf{G}^{1/2}\mathbf{A}},
-#' which is far cheaper than working with the full \eqn{P \times P} system directly.
+#' This is where \code{parallel_qr} enters most directly. Write the rows of the
+#' transformed system as \eqn{\mathbf{X}^{*}_{(1)}, \dots, \mathbf{X}^{*}_{(B)}}
+#' and \eqn{\mathbf{y}^{*}_{(1)}, \dots, \mathbf{y}^{*}_{(B)}}. The default
+#' route fits Step 3 with a standard QR decomposition of the full tall matrix
+#' \eqn{\mathbf{X}^{*}}. When \code{parallel_qr = TRUE}, the package instead
+#' forms
+#' \deqn{\mathbf{M}
+#'   = \mathbf{X}^{*\top}\mathbf{X}^{*}
+#'   = \sum_{b = 1}^{B}\mathbf{X}^{*\top}_{(b)}\mathbf{X}^{*}_{(b)},
+#'   \qquad
+#'   \mathbf{u}
+#'   = \mathbf{X}^{*\top}\mathbf{y}^{*}
+#'   = \sum_{b = 1}^{B}\mathbf{X}^{*\top}_{(b)}\mathbf{y}^{*}_{(b)}}
+#' in parallel, solves the reduced dense system
+#' \eqn{\mathbf{M}\hat{\boldsymbol{\gamma}} = \mathbf{u}}, and then computes
+#' \eqn{\mathbf{r}^{*} = \mathbf{y}^{*} - \mathbf{X}^{*}\hat{\boldsymbol{\gamma}}}.
+#' So the costly operation being replaced is not the Lagrangian projection
+#' itself, but the single tall QR decomposition inside the transformed OLS
+#' solve. Algebraically the fit is the same projection; computationally it is a
+#' parallel reduction followed by a much smaller dense solve. If that reduced
+#' system is judged too unstable, the code falls back to the serial
+#' \code{.lm.fit()} or \code{qr()} route.
+#'
+#' The same idea reappears in other equality-only solves used during tuning,
+#' active-set refinement, and constraint reduction. In each case the package
+#' replaces one tall QR or least-squares call with a chunked accumulation of
+#' cross-products, while keeping the surrounding notation and estimator
+#' unchanged.
+#'
+#' The most expensive object in this approach remains the
+#' \eqn{P \times r} transformed matrix \eqn{\mathbf{X}^{*} = \mathbf{G}^{1/2}\mathbf{A}},
+#' but either route is far cheaper than working with the full
+#' \eqn{P \times P} system directly.
 #' Without correlation or SQP constraints, \eqn{\mathbf{G}} is stored and operated upon as a
 #' list of \eqn{K+1} small \eqn{p \times p} matrices rather than the full
 #' \eqn{P \times P} block-diagonal, saving substantial memory when \eqn{K}
@@ -1099,6 +1152,16 @@
 #' \code{return_lagrange_multipliers = TRUE}, the fitted object also stores
 #' the final multiplier vector directly as \code{lagrange_multipliers}.
 #'
+#' The \code{qp_info$method} string records which solver path produced the
+#' final inequality-constrained estimate:
+#' \code{"active_set"} = partition-wise active-set on the standard
+#' block-diagonal path; \code{"active_set_full"} = active-set with
+#' full-system equality re-solves; \code{"active_set_woodbury"} =
+#' active-set with Woodbury equality re-solves on the correlated low-rank
+#' path; \code{"dense_qp_gee_gaussian"} = dense QP fallback for
+#' correlated Gaussian fits; \code{"dense_qp_gee_glm"} = dense SQP /
+#' dense QP-subproblem fallback for correlated non-Gaussian fits.
+#'
 #' The original assembled inequality data are retained in the fitted
 #' object's \code{quadprog_list} component (containing \code{qp_Amat},
 #' \code{qp_bvec}, and \code{qp_meq} from \code{\link{process_qp}}) so
@@ -1139,9 +1202,27 @@
 #'     activation markers rather than being merged into the constraint set
 #'     assembled by \code{\link{process_qp}}.
 #' }
-#' All constraints can be thinned to a user-specified subset of rows via
-#' \code{qp_observations}, which \code{\link{process_qp}} applies before
-#' assembly.
+#' Built-in constraints can be thinned via \code{qp_observations}. A single
+#' numeric vector applies the same subset to every active built-in
+#' constraint, while a named list keyed by \code{"var:qp_<type>"} or bare
+#' \code{"qp_<type>"} lets different constraint types use different row
+#' subsets. For range and monotonicity, matching keyed entries are unioned;
+#' derivative entries dispatch per variable. Unknown keys are ignored with a
+#' warning when \code{include_warnings = TRUE}.
+#'
+#' After assembly, \code{process_qp} can also stabilize the partition-local
+#' inequality blocks by QR pivoting them before the final QP solve. When
+#' \code{qr_pivot_inequality_constraints = TRUE}, each partition-local block
+#' of \eqn{\mathbf{C}} is scanned for linearly dependent columns and only the
+#' pivot columns are carried forward, while the leading equality columns are
+#' left untouched. If \code{parallel_qr_qp = TRUE}, those partition-wise QR
+#' pivots are farmed out across workers in the same style as the package's
+#' other parallel QR reductions. Built-in range and monotonicity constraints
+#' are intentionally excluded from this reduction. For range bounds, keeping
+#' the full block preserves the direct user-facing lower/upper-value meaning;
+#' for monotonicity, the consecutive differences are defined in observation
+#' order and can bridge neighboring partitions even when some individual
+#' difference columns happen to sit inside one partition block.
 #' }
 #'
 #' @section Blockfit Backfitting for Linear Non-Interactive Effects:
@@ -1613,6 +1694,11 @@
 #' point for BFGS optimization. Grid points producing non-finite
 #' objective values are discarded. If all grid points fail, an error
 #' is raised advising the user to check the data or adjust the grid.
+#' When \code{parallel_grideval = TRUE} and a cluster is supplied,
+#' these candidate fits are spread across workers. If more than six
+#' workers are available, additional raw-scale penalty pairs are drawn
+#' from \eqn{[\min/10,\max\times 10]} in each direction before the
+#' starting point is chosen.
 #'
 #' \strong{Damped BFGS optimizer.} A custom damped BFGS quasi-Newton optimizer,
 #' implemented in \code{\link{tune_Lambda}} through
@@ -1620,7 +1706,9 @@
 #' \eqn{P_{\mathrm{meta}}}. When analytic gradients are not preferred, or when
 #' the exact LOO leverage derivative appears too noisy for a given problem, a
 #' base-R \code{\link[stats]{optim}} call with method \code{"BFGS"} provides
-#' the finite-difference fallback.
+#' the finite-difference fallback. When \code{parallel_bfgs = TRUE} and a
+#' cluster is supplied, the damping trial values are evaluated as a batch
+#' across workers, and the best improving candidate is retained.
 #'
 #' \emph{Iterations 1-2: steepest descent.} The first two iterations use
 #' steepest descent with a damping factor \eqn{\alpha}:

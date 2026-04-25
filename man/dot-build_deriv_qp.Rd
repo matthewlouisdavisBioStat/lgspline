@@ -22,7 +22,10 @@
   include_quadratic_interactions,
   expansion_scales,
   target_vars = NULL,
-  og_cols = NULL
+  og_cols = NULL,
+  obs_map = NULL,
+  constraint_type = NULL,
+  obs_order = NULL
 )
 }
 \arguments{
@@ -76,6 +79,16 @@ are constrained.}
 
 \item{og_cols}{Optional character vector of original predictor column
 names, used to resolve character \code{target_vars} to integer indices.}
+
+\item{obs_map}{Optional parsed \code{qp_observations} map. In keyed mode,
+derivative rows are filtered per variable using
+\code{constraint_type} and \code{obs_order}.}
+
+\item{constraint_type}{Optional character scalar naming the current
+derivative constraint, for example \code{"qp_negative_derivative"}.}
+
+\item{obs_order}{Optional integer vector of original observation indices,
+one per row of \code{X_block}.}
 }
 \value{
 A list with components:
