@@ -2,3 +2,13 @@
 .r-lib
 .codex
 AGENTS
+scripts
+.tmp
+.github
+..Rcheck
+lgspline.Rcheck
+.r-lib
+JCGS
+.git
+.github
+.Rbuildignore

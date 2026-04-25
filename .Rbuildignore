@@ -9,3 +9,8 @@
 ^\.tmp$
 ^\.codex$
 ^\.\.Rcheck$
+^scripts$
+^\.tmp$
+^lgspline\.Rcheck$
+^JCGS$
+^AGENTS$

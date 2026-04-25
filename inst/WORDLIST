@@ -83,6 +83,7 @@ XB
 Zounemat
 affine
 al
+andmSQP
 antiderivative
 antiderivatives
 approxiamte
@@ -137,7 +138,10 @@ monomials
 natively
 nc
 nd
+nondecreasing
+nonincreasing
 nonlinearly
+nonpositive
 nonzeros
 num
 og
@@ -160,15 +164,13 @@ se
 softplus
 standardised
 standardises
-subfunctions
 subproblem
 subproblems
-testability
 th
 tol
 tridiagonal
 trigamma
-tunable
+unioned
 unpenalised
 unstandardize
 unstandardizing

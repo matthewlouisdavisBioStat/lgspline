@@ -1,7 +1,0 @@
-model = "gpt-5.4"
-
-approval_policy = "on-failure"
-sandbox_mode = "workspace-write"
-
-[tools]
-web_search = true
