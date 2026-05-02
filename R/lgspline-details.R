@@ -1,34 +1,19 @@
 #' Lagrangian Multiplier Smoothing Splines: Mathematical Details
 #'
 #' @description
-#' This document provides the mathematical and implementation details for
-#' Lagrangian Multiplier Smoothing Splines as implemented in \pkg{lgspline}.
+#' This document gives mathematical and implementation details for
+#' Lagrangian Multiplier Smoothing Splines (LMSS) as implemented in
+#' \pkg{lgspline}.
 #'
-#' This package provides exhaustive resources for fitting multivariate smoothing
-#' smoothing splines with a monomial basis and analytical form cubic smoothing
-#' spline penalty.
+#' LMSS fits smoothing splines directly in a monomial basis. Smoothness is
+#' imposed by external equality constraints rather than by embedding knots in a
+#' specialized spline basis. This keeps the fitted model interpretable at the
+#' coefficient level, but moves some complexity into constraint construction
+#' and constrained estimation.
 #'
-#' The material is presented such that a programmer or statistician of
-#' reasonable experience and background can understand and implement the
-#' procedure from scratch, and also potentially critique some of the modelling
-#' choices that went into designing this package.
-#'
-#' Informally, \pkg{lgspline} answers the following question:
-#' How can we best adapt a useful functionality of basis splines, under the
-#' alternative interpretation of smoothing as explicit external constraints instead?
-#'
-#' The obvious benefit is a much more flexible and interpretable final model that for
-#' non-experienced users is simply easier to understand without post-hoc processing, and
-#' for experienced users can be used to customize models more easily.
-#'
-#' The drawback is that the interpretation of constraints as external adds a new layer of complexity
-#' to each step of the model fitting process, whereas for implicit design matrix
-#' construction these complications are bypassed.
-#'
-#' While it is true a B-spline can always be converted back into monomial form,
-#' tensor-product splines that generalize this to multiple dimensions often
-#' explodes the number and degree of interaction terms, the conversion may not
-#' be computationally stable, and it is not available in standard software.
+#' B-spline fits can be converted to monomial form in principle, but
+#' multivariate tensor-product conversions can be high-dimensional,
+#' numerically unstable, and unavailable in standard software.
 #'
 #' @section Statistical Problem Formulation:
 #'
@@ -125,21 +110,14 @@
 #' objects that actually enter \code{\link{lgspline.fit}()}, not necessarily the raw
 #' objects originally supplied by the user.
 #'
-#' From the user side, many of the arguments that control these internal objects
-#' can be supplied either individually or through the grouped lists
-#' \code{penalty_args}, \code{tuning_args}, \code{expansion_args},
+#' Most user-facing controls can also be supplied through grouped lists
+#' (\code{penalty_args}, \code{tuning_args}, \code{expansion_args},
 #' \code{constraint_args}, \code{qp_args}, \code{parallel_args},
-#' \code{covariance_args}, \code{return_args}, and \code{glm_args}, as
-#' documented in \code{\link{lgspline}}. These grouped lists are unpacked before
-#' dispatch into the same fitting pipeline, so they are a convenience layer
-#' rather than a separate modeling abstraction. A closely related exploratory
-#' mode is \code{dummy_fit = TRUE} in \code{\link{lgspline}} or
-#' \code{\link{lgspline.fit}}, which runs the preprocessing, partition
-#' construction, expansion building, and penalty setup without solving for
-#' nonzero coefficients, making it a practical way to inspect objects such as
-#' \code{X}, \code{A}, the returned \code{make_partition_list} from
-#' \code{\link{make_partitions}}, and the assembled \code{penalties} from
-#' \code{\link{compute_Lambda}} before a full fit.
+#' \code{covariance_args}, \code{return_args}, and \code{glm_args}); these are
+#' unpacked before entering the same fitting pipeline. Setting
+#' \code{dummy_fit = TRUE} runs preprocessing, partitioning, expansion, and
+#' penalty construction without estimating nonzero coefficients, which is useful
+#' for inspecting \code{X}, \code{A}, partitions, and penalties before fitting.
 #'
 #'
 #' @section Model Formulation and Estimation:
@@ -185,24 +163,16 @@
 #' \eqn{\mathbf{G}_k = (\mathbf{X}_k^{\top}\mathbf{X}_k + \boldsymbol{\Lambda}_k)^{-1}}.
 #' The block-diagonal structure means these can be computed in parallel across
 #' partitions. In the user-facing interface this is realized by supplying a
-#' cluster through \code{cl}, optionally controlling work splitting with
-#' \code{chunk_size}, and enabling stages such as \code{parallel_eigen}
-#' for the eigendecompositions and, in non-Gaussian Path 3, \code{parallel_unconstrained}
-#' for the partition-wise unconstrained fits; nearby stages can likewise use
-#' \code{parallel_penalty}, \code{parallel_make_constraint}, and
-#' \code{parallel_qr}. The \code{parallel_qr} flag does not change the estimator;
-#' it changes how the tall linear algebra is carried out. Instead of asking one
-#' worker to run a single QR sweep over the full transformed system, the rows are
-#' split into chunks, each worker accumulates its local cross-products, and the
-#' package solves the resulting reduced dense system. In other words, the
-#' expensive serial operation on a tall matrix is replaced by a parallel
-#' reduction of smaller \eqn{r \times r} or \eqn{p \times p} summaries, with
-#' automatic fallback to base \code{.lm.fit()} or \code{qr()} when that is
-#' numerically safer. The eigenvalue
-#' decomposition and matrix square roots of each \eqn{\mathbf{G}_k} are
-#' computed by \code{\link{compute_G_eigen}}, and can be returned in the fitted
-#' object as \code{G} and \code{Ghalf} when \code{return_G = TRUE} and
-#' \code{return_Ghalf = TRUE}.
+#' cluster through \code{cl}, controlling work splitting with \code{chunk_size},
+#' and enabling stages such as \code{parallel_eigen},
+#' \code{parallel_unconstrained}, \code{parallel_penalty},
+#' \code{parallel_make_constraint}, and \code{parallel_qr}. The
+#' \code{parallel_qr} option does not change the estimator; it replaces one QR
+#' decomposition of a tall transformed system with parallel cross-product
+#' accumulation and a smaller dense solve, with fallback to base linear algebra
+#' when needed. The eigendecomposition and matrix square roots of each
+#' \eqn{\mathbf{G}_k} are computed by \code{\link{compute_G_eigen}} and can be
+#' returned as \code{G} and \code{Ghalf}.
 #'
 #' Fitted values for the canonical Gaussian case appear as
 #' \eqn{\tilde{\mathbf{y}} = \mathbf{X}\tilde{\boldsymbol{\beta}} = \mathbf{H}\mathbf{y}}
@@ -226,22 +196,25 @@
 #' \eqn{\mathbf{x} = (1, t, t^2, t^3)^{\top}}, these derivative vectors are
 #' \deqn{\mathbf{x}' = (0, 1, 2t, 3t^2)^{\top}, \qquad
 #'   \mathbf{x}'' = (0, 0, 2, 6t)^{\top}.}
-#' With \eqn{K} knots this yields up to \eqn{3K} scalar
-#' constraints (for a single predictor; more for multiple predictors with
-#' interactions), collected as linear equations
+#' With \eqn{K} knots this yields up to \eqn{3K} scalar constraints for one
+#' predictor. With multiple spline-expanded predictors, the default combines the
+#' corresponding first- and second-derivative rows before adding them to the
+#' equality matrix. With one spline-expanded predictor and additional
+#' non-spline effects, derivative constraints are kept separate by default.
+#' The flag \code{add_first_and_second_derivative_constraints} can force either
+#' construction. The constraints are collected as linear equations
 #' \eqn{\mathbf{A}^{\top}\boldsymbol{\beta} = \mathbf{0}}
 #' in a \eqn{P \times r} matrix \eqn{\mathbf{A}}. The constraint matrix is
 #' built by \code{\link{make_constraint_matrix}} and returned in the fitted
 #' object as \code{A}.
 #'
-#' In higher dimensions or with many partitions, the constraints can become
-#' over-specified and force the model toward a single global polynomial. In these
-#' cases it is recommended to drop second-derivative constraints or include quartic
-#' terms, allowing the model to fit a richer surface while maintaining
-#' perceived smoothness at knots. The appropriate constraint level can be
-#' controlled via \code{include_constrain_fitted},
-#' \code{include_constrain_first_deriv}, and
-#' \code{include_constrain_second_deriv}.
+#' In higher dimensions or with many partitions, separate derivative
+#' constraints can over-specify the fit and push it toward a single global
+#' polynomial. Combining first- and second-derivative rows reduces redundant
+#' equality constraints while retaining a smooth join condition. The constraint
+#' level can be controlled via \code{include_constrain_fitted},
+#' \code{include_constrain_first_deriv}, \code{include_constrain_second_deriv},
+#' and \code{add_first_and_second_derivative_constraints}.
 #' The companion flag \code{include_constrain_interactions} determines whether
 #' the analogous mixed-partial constraints are imposed for interaction terms,
 #' and \code{no_intercept} adds the special homogeneous equality constraint that
@@ -533,7 +506,7 @@
 #' precomputed product, then split and re-factored via
 #' \code{\link{.woodbury_redecompose_weighted}}.
 #'
-#' The Woodbury path is used when \eqn{r < P/3}; otherwise the code falls
+#' The Woodbury path is used when \eqn{r < 2P/3}; otherwise the code falls
 #' back to the dense whitened solve. If \eqn{\mathbf{F}} is not positive
 #' definite, the dense path is also used.
 #' See \code{\link{.get_B_gee_woodbury}} (Gaussian) and
@@ -1101,12 +1074,22 @@
 #' \code{\link{.active_set_refine}} and
 #' \code{\link{.check_kkt_partitionwise}}.
 #'
+#' During penalty tuning, the active inequality set from the last accepted
+#' tuning evaluation is used as the next initial working set. This only
+#' changes where the add/drop loop starts; the KKT check still determines the
+#' final active set for each penalty value.
+#'
+#' The method adds or drops one constraint at a time. It is usually fast when
+#' the final active set is small and well separated, but can slow down when
+#' many derivative constraints are nearly binding, redundant, or nearly
+#' collinear. The implementation tracks visited active sets, filters rank
+#' deficient augmented systems, and falls back to dense SQP if the active-set
+#' route does not converge within its iteration budget.
+#'
 #' When any column of \eqn{\mathbf{C}} spans multiple partition blocks
-#' (for example, cross-knot monotonicity constraints), the block-diagonal
-#' structure is broken and the dense SQP approach is required. The
-#' selection is made automatically. If the active-set method does not
-#' converge within its iteration limit (default 50), the code falls back
-#' to dense SQP as well.
+#' (for example, cross-knot monotonicity constraints), the equality re-solve
+#' switches to the full-system bridge rather than the partition-wise bridge.
+#' The selection is automatic; dense SQP is retained as the fallback.
 #' }
 #'
 #' \subsection{Dense SQP Iteration}{
@@ -1322,16 +1305,14 @@
 #' Because flat coefficients are shared by construction, the corresponding
 #' equality constraints are satisfied exactly. Smoothness constraints on the
 #' spline block are enforced by the spline-only Lagrangian projection.
-#' After backfitting convergence, inequality constraints are enforced via
-#' the same partition-wise active-set or dense SQP refinement used by
-#' \code{\link{get_B}}. The method is selected automatically by
-#' \code{.solver_detect_qp_global}: block-separable constraints use the
-#' active-set method through \code{\link{.active_set_refine}}, while
-#' cross-partition constraints trigger the dense SQP loop through
-#' \code{\link{.bf_sqp_loop}}. For GEE (Case c), inequality handling
-#' still operates on the whitened system, but Woodbury-accelerated
-#' block-separable constraints can now reuse the active-set method
-#' through \code{\link{.active_set_refine_woodbury}}.
+#' After backfitting convergence, inequality constraints use the same
+#' active-set-first refinement used by \code{\link{get_B}}. Block-separable
+#' constraints use partition-wise equality re-solves through
+#' \code{\link{.active_set_refine}}; cross-partition constraints use the
+#' full-system bridge; and GEE paths use the whitened system, with
+#' Woodbury equality re-solves when the low-rank gate succeeds. Dense SQP
+#' through \code{\link{.bf_sqp_loop}} remains the fallback when active-set
+#' refinement does not converge.
 #'
 #' After convergence, the shared flat vector \eqn{\mathbf{v}} is copied
 #' into each partition's coefficient vector, yielding
@@ -1455,11 +1436,9 @@
 #' integral factorizes over predictors:
 #' \deqn{\int_{\mathbf{a}}^{\mathbf{b}}\prod_{j=1}^{q} t_j^{e_j}\,d\mathbf{t}
 #'   = \prod_{j=1}^{q}\frac{b_j^{e_j+1} - a_j^{e_j+1}}{e_j + 1}.}
-#' Crucially, this integral runs over \emph{all} \eqn{q} predictor ranges,
-#' including predictors that do not appear in the integrand (for which
-#' \eqn{e_j = 0} and the factor reduces to \eqn{b_j - a_j}). This ensures
-#' that the penalty is properly scaled relative to the volume of the
-#' predictor space.
+#' The integral runs over all \eqn{q} predictor ranges, including predictors
+#' absent from the integrand, for which \eqn{e_j = 0} and the factor is
+#' \eqn{b_j - a_j}.
 #'
 #' \strong{Single-predictor verification.}
 #' For \eqn{q = 1} with expansion
@@ -1621,67 +1600,26 @@
 #' }
 #'
 #' \subsection{Closed-Form Gradients for Tuning Criteria}{
-#' The gradient of the GCV objective with respect to
-#' \eqn{\theta_1 = \log\lambda_w} is computed analytically via the quotient
-#' rule:
-#' \deqn{\frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\theta_1}
-#'   = \frac{1}{D^{2}}\left(\frac{\partial\mathcal{N}}{\partial\theta_1}D
-#'   - \mathcal{N}\frac{\partial D}{\partial\theta_1}\right),}
-#' where \eqn{\mathcal{N} = \sum r_i^{2}} (numerator) and
-#' \eqn{D = N(1 - \gamma\bar{W})^{2}} (denominator). The key intermediates are:
-#' \itemize{
-#'   \item \eqn{\partial\mathbf{G}/\partial\lambda_w}, computed from the
-#'     matrix identity
-#'     \eqn{\partial(\mathbf{X}^{\top}\mathbf{X} + \boldsymbol{\Lambda})^{-1}/\partial\lambda = -\mathbf{G}(\partial\boldsymbol{\Lambda}/\partial\lambda)\mathbf{G}}.
-#'   \item \eqn{\partial\mathbf{G}^{1/2}/\partial\lambda_w}, derived from
-#'     \eqn{\partial\mathbf{G}/\partial\lambda_w} via the eigendecomposition
-#'     chain rule.
-#'   \item \eqn{\partial\bar{W}/\partial\lambda_w}, the derivative of the
-#'     trace of the hat matrix
-#'     \eqn{\mathbf{H} = \mathbf{X}\mathbf{U}\mathbf{G}\mathbf{X}^{\top}},
-#'     which depends on both
-#'     \eqn{\partial\mathbf{G}/\partial\lambda_w} and
-#'     \eqn{\partial\mathbf{G}^{1/2}/\partial\lambda_w}.
-#'   \item \eqn{\partial\mathcal{N}/\partial\theta_1 = -2\mathbf{r}^{\top}\mathbf{X}(\partial(\mathbf{U}\mathbf{G})/\partial\lambda_w)\mathbf{X}^{\top}\mathbf{y}\cdot\lambda_w},
-#'     via the chain rule applied to the residual vector.
-#'   \item \eqn{\partial D/\partial\theta_1 =
-#'     2(1 - \gamma\bar{W})(-\gamma\,\partial\bar{W}/\partial\lambda_w)\cdot\lambda_w}.
+#' Let \eqn{\ell} denote the selected tuning criterion. The analytic gradient
+#' differentiates \eqn{\ell} through the fitted quantities
+#' \eqn{\mathbf{G}}, \eqn{\mathbf{U}}, and \eqn{\mathbf{H}} once, then stores
+#' the blockwise adjoint
+#' \eqn{\mathbf{M}_k = \partial\ell/\partial\boldsymbol{\Lambda}_k}. For any
+#' log-penalty \eqn{\theta_j = \log\lambda_j},
+#' \deqn{
+#'   \frac{\partial\ell}{\partial\theta_j}
+#'   =
+#'   \sum_{k=0}^{K}\mathrm{tr}\{\mathbf{M}_k\mathbf{L}_{j,k}\},
 #' }
-#' In the implementation, these quantities are assembled by a small set of
-#' helper routines: \code{\link{compute_dG_dlambda}} for
-#' \eqn{\partial\mathbf{G}/\partial\lambda}, \code{\link{compute_dGhalf}}
-#' for \eqn{\partial\mathbf{G}^{1/2}/\partial\lambda},
-#' \code{\link{compute_trace_H}} together with the tuning hat-diagonal
-#' derivative helpers for the effective-degrees-of-freedom term, and
-#' \code{\link{compute_dG_u_dlambda_xy}} for the derivative of the fitted-value
-#' quadratic form.
+#' where \eqn{\mathbf{L}_{j,k}} is that penalty's current contribution to
+#' \eqn{\boldsymbol{\Lambda}_k}. Thus each additional penalty derivative costs
+#' only a blockwise Frobenius inner product, rather than a separate derivative
+#' through the full fitted criterion.
 #'
-#' For exact leave-one-out, the implementation instead differentiates the
-#' per-observation PRESS form directly, requiring both
-#' \eqn{\partial r_i / \partial\lambda_w} and
-#' \eqn{\partial h_{ii} / \partial\lambda_w}. The latter is assembled
-#' partition-wise from the same constrained-\eqn{\mathbf{G}} ingredients used
-#' elsewhere in tuning. The exact LOO path does not explicitly form the full
-#' projection matrix \eqn{\mathbf{U}} or the full hat matrix \eqn{\mathbf{H}};
-#' instead it works with blockwise matrices
-#' \eqn{\mathbf{C}_k = \mathbf{G}_k - \mathbf{G}_k\mathbf{A}_k(\mathbf{A}^\top\mathbf{G}\mathbf{A})^{-1}\mathbf{A}_k^\top\mathbf{G}_k}
-#' and their derivatives. Empirically, this observation-wise leverage
-#' derivative is the most numerically delicate part of the analytic LOO
-#' gradient: most observations are typically well behaved, but a diffuse set of
-#' small local errors can remain even when the overall LOO objective and the
-#' corresponding GCV gradient are stable.
-#'
-#' The shared wiggle and flat directions are differentiated directly. For
-#' predictor- and partition-specific penalties, a lower-cost ratio heuristic is
-#' used:
-#' \deqn{\frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\theta_l} \approx
-#'   \frac{\mathrm{mean}(\mathrm{diag}(\mathbf{L}_l))}{\mathrm{mean}(\mathrm{diag}(\boldsymbol{\Lambda}))}
-#'   \frac{\partial\mathrm{GCV}_{u,\gamma}}{\partial\theta_w},}
-#' where \eqn{\theta_l = \log \lambda_l} and
-#' \eqn{\mathbf{L}_l} denotes the current contribution of the corresponding
-#' predictor- or partition-specific penalty to \eqn{\boldsymbol{\Lambda}}. This
-#' keeps the extra penalty directions inexpensive while preserving the direct
-#' derivatives for the shared wiggle and flat penalties.
+#' For exact leave-one-out, \eqn{\ell} is the mean squared PRESS residual on
+#' the transformed problem, using blockwise constrained leverages rather than
+#' forming the full hat matrix. For GCV, \eqn{\ell} uses the usual
+#' trace-based denominator, optionally inflated by \code{gcv_gamma}.
 #' }
 #'
 #' \subsection{Optimization Procedure}{
@@ -1737,12 +1675,17 @@
 #' On rejection, \eqn{\alpha} is halved. If \eqn{\alpha < 2^{-10}} (early
 #' iterations) or \eqn{\alpha < 2^{-12}} (later iterations), the optimizer
 #' terminates with the best solution found.
+#' With inequality constraints, the active set from the last accepted tuning
+#' evaluation initializes the next coefficient solve, avoiding repeated
+#' reconstruction of the same working set for nearby penalty values.
 #'
-#' \emph{Convergence.} The optimizer terminates when
-#' the absolute change in the tuning criterion is less than \eqn{\epsilon}, or
+#' \emph{Convergence.} After at least 10 iterations, the optimizer terminates
+#' when the absolute change in the tuning criterion is less than
+#' \eqn{\epsilon}, when
 #' \eqn{\|\boldsymbol{\phi}^{(t)} - \boldsymbol{\phi}^{(t-1)}\|_{\infty} < \epsilon},
-#' provided at least 10 iterations have elapsed, for penalties
-#' \eqn{\boldsymbol{\phi} = \lambda_w, \lambda_r, \lambda_{l,k}, ...}.
+#' or when accepted criterion changes remain below a small scale-aware
+#' plateau threshold for several iterations. The plateau threshold is
+#' \eqn{\max\{\epsilon,\min(10^{-5},10^{-5}|\ell_{\mathrm{best}}|)\}}.
 #'
 #' \emph{Alternative.} A base-R
 #' \code{\link[stats]{optim}} call with method \code{"BFGS"} and
@@ -1759,51 +1702,32 @@
 #'
 #' @section Incorporating Non-Spline Effects:
 #'
-#' Multiple fixed effects are accommodated naturally in the LMSS framework
-#' because spline effects, linear effects, and many interaction terms all live
-#' in the same partition-wise polynomial expansion. The distinction is therefore
-#' not whether a term is "allowed" by the solver, but whether it receives full
-#' spline treatment or remains structurally linear across partitions.
-#'
-#' The constrained framework naturally accommodates non-spline terms. If only
-#' linear terms are included for a predictor (via
+#' Fixed effects and spline effects share the same partition-wise polynomial
+#' bookkeeping. Predictors included only linearly via
 #' \code{just_linear_without_interactions} or
-#' \code{just_linear_with_interactions}), the first-derivative smoothing
-#' constraint forces the linear coefficient to be identical across all
-#' partitions, since the derivative of a linear function is its slope. This
-#' is not an algorithmic modification but a natural consequence of the
-#' constraint structure.
-#'
-#' For example, a model with one spline effect and a linear treatment indicator
-#' interaction will naturally keep the treatment-time interaction coefficient
-#' constant across partitions while allowing the time effect to vary
-#' nonlinearly. This conveniently extends to arbitrary combinations of spline
-#' and linear terms without requiring special handling.
+#' \code{just_linear_with_interactions} remain structurally linear. The
+#' first-derivative constraint then keeps their slope constant across
+#' partitions, while spline-expanded predictors remain free to vary
+#' nonlinearly.
 #'
 #' When \code{blockfit = TRUE} is specified alongside
 #' \code{just_linear_without_interactions}, the flat-block path provides an
-#' alternative enforcement mechanism. Rather than relying on constraint
-#' projection, flat coefficients are pooled structurally across partitions
-#' during backfitting. The two approaches agree at the point estimate but
-#' differ in their uncertainty quantification; see the Blockfit section above.
+#' alternative enforcement mechanism: flat coefficients are pooled across
+#' partitions during backfitting. The point estimate agrees with constraint
+#' projection, but uncertainty quantification differs; see the Blockfit section.
 #'
 #' @section Integration:
 #'
-#' Because the fitted object retains an explicit polynomial representation in
-#' each partition, numerical integration can be carried out in a fairly direct
-#' way. The package wraps that calculation in a user-facing S3 method so the
-#' user does not need to manage knot boundaries or partition membership by hand.
+#' Because each partition retains an explicit polynomial representation,
+#' numerical integration can be carried out directly.
 #'
-#' In the user-facing interface, numerical integration is applied through
-#' \code{\link{integrate.lgspline}}, which applies Gauss-Legendre quadrature to
-#' predictions from the fitted model produced by \code{\link{predict.lgspline}}.
+#' The user-facing method \code{\link{integrate.lgspline}} applies
+#' Gauss-Legendre quadrature to predictions from \code{\link{predict.lgspline}}.
 #'
 #' \subsection{Implementation}{
-#' For a user-supplied rectangular domain, \code{\link{integrate.lgspline}} constructs a
-#' tensor-product grid of Gauss-Legendre nodes, evaluates the fitted model at
-#' those points, and forms the weighted sum. This works for both univariate and
-#' multivariate models, respects the fitted partition structure automatically,
-#' and avoids requiring the user to keep track of knot boundaries by hand.
+#' For a rectangular domain, \code{\link{integrate.lgspline}} constructs a
+#' tensor-product grid of Gauss-Legendre nodes, evaluates the fitted model, and
+#' forms the weighted sum. The fitted partition structure is handled internally.
 #'
 #' The \code{vars} argument selects which predictors are integrated over.
 #' Predictors not listed in \code{vars} are held fixed at

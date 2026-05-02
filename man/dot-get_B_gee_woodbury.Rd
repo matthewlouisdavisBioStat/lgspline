@@ -34,6 +34,7 @@
   qp_global,
   tol,
   parallel_qr = FALSE,
+  initial_active_ineq = integer(0),
   ...
 )
 }

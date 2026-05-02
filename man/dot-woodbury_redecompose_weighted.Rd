@@ -22,7 +22,7 @@
   chunk_size,
   num_chunks,
   rem_chunks,
-  rank_threshold_fraction = 1/3,
+  rank_threshold_fraction = 2/3,
   family
 )
 }
@@ -56,7 +56,7 @@ of \eqn{(\mathbf{V}^{-1} - \mathbf{I})\mathbf{X}}.}
 
 \item{cl, chunk_size, num_chunks, rem_chunks}{Parallel parameters.}
 
-\item{rank_threshold_fraction}{Numeric; Woodbury threshold (default 1/3).}
+\item{rank_threshold_fraction}{Numeric; Woodbury threshold (default 2/3).}
 
 \item{family}{GLM family object.}
 }

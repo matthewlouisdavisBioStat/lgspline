@@ -43,6 +43,7 @@
   num_chunks,
   rem_chunks,
   parallel_qr = FALSE,
+  initial_active_ineq = integer(0),
   ...
 )
 }

@@ -442,6 +442,7 @@
                                     rhs_full, Ghalf_full,
                                     tol, parallel_qr = FALSE, cl = NULL,
                                     max_as_iter = NULL,
+                                    initial_active_ineq = integer(0),
                                     method = "active_set_full") {
 
   n_ineq <- if (is.null(qp_Amat)) 0L else ncol(qp_Amat)
@@ -492,6 +493,7 @@
     },
     method = method,
     debug_label = "full-as",
+    initial_active_ineq = initial_active_ineq,
     parallel_qr = parallel_qr,
     cl = cl
   )
@@ -699,6 +701,8 @@
 #' @param cl,chunk_size,num_chunks,rem_chunks Parallel parameters.
 #' @param tol Convergence tolerance.
 #' @param max_as_iter Maximum active-set iterations (default 50).
+#' @param initial_active_ineq Integer vector of inequality columns used as the
+#'   initial working set.
 #'
 #' @return Same structure as \code{.active_set_refine()}.
 #'
@@ -716,7 +720,8 @@
                                         cl, chunk_size, num_chunks,
                                         rem_chunks, tol,
                                         parallel_qr = FALSE,
-                                        max_as_iter = NULL) {
+                                        max_as_iter = NULL,
+                                        initial_active_ineq = integer(0)) {
   n_ineq <- if (is.null(qp_Amat)) 0L else ncol(qp_Amat)
   rhs_full <- cbind(unlist(rhs_list))
   GhalfXy_V <- .woodbury_transform_constraint_matrix_transpose(
@@ -791,6 +796,7 @@
     },
     method = "active_set_woodbury",
     debug_label = "woodbury-as",
+    initial_active_ineq = initial_active_ineq,
     parallel_qr = parallel_qr,
     cl = cl
   )
@@ -822,6 +828,8 @@
 #' @param include_warnings Logical; emit warning if the active-set call
 #'   errors and the caller will fall back.
 #' @param warn_context Character scalar identifying the caller in warning text.
+#' @param initial_active_ineq Integer vector of inequality columns used as the
+#'   initial working set.
 #'
 #' @return Either a list with \code{result} and \code{qp_info}, or
 #'   \code{NULL} to signal dense fallback.
@@ -841,7 +849,8 @@
                                      rem_chunks, tol,
                                      parallel_qr = FALSE,
                                      include_warnings = TRUE,
-                                     warn_context = ".try_woodbury_active_set") {
+                                     warn_context = ".try_woodbury_active_set",
+                                     initial_active_ineq = integer(0)) {
 
   as_tol <- max(tol, 100 * sqrt(.Machine$double.eps))
   as_out <- try(.active_set_refine_woodbury(
@@ -865,7 +874,8 @@
     num_chunks = num_chunks,
     rem_chunks = rem_chunks,
     tol = as_tol,
-    parallel_qr = parallel_qr
+    parallel_qr = parallel_qr,
+    initial_active_ineq = initial_active_ineq
   ), silent = TRUE)
 
   if (inherits(as_out, "try-error")) {
@@ -1150,6 +1160,8 @@
 #' @param cl,chunk_size,num_chunks,rem_chunks Parallel parameters.
 #' @param tol Convergence tolerance.
 #' @param max_as_iter Maximum active-set iterations (default 50).
+#' @param initial_active_ineq Integer vector of inequality columns used as the
+#'   initial working set.
 #'
 #' @return A list with components:
 #' \describe{
@@ -1170,7 +1182,8 @@
                                cl, chunk_size, num_chunks,
                                rem_chunks, tol,
                                parallel_qr = FALSE,
-                               max_as_iter = NULL) {
+                               max_as_iter = NULL,
+                               initial_active_ineq = integer(0)) {
   n_ineq <- if (is.null(qp_Amat)) 0L else ncol(qp_Amat)
 
   ## Match the Woodbury active-set budget: many observation-local
@@ -1246,6 +1259,7 @@
     },
     method = "active_set",
     debug_label = "dense-as",
+    initial_active_ineq = initial_active_ineq,
     parallel_qr = parallel_qr,
     cl = cl
   )
@@ -1571,7 +1585,7 @@
 #' @param parallel_eigen Logical; parallel eigendecomposition.
 #' @param cl,chunk_size,num_chunks,rem_chunks Parallel parameters.
 #' @param rank_threshold_fraction Numeric; Woodbury is used only when
-#'   \eqn{r < P \times} this fraction (default 1/3).
+#'   \eqn{r < P \times} this fraction (default 2/3).
 #' @param family GLM family object.
 #'
 #' @return A list with components:
@@ -1603,7 +1617,7 @@
                                   order_list,
                                   parallel_eigen, cl,
                                   chunk_size, num_chunks, rem_chunks,
-                                  rank_threshold_fraction = 1/3,
+                                  rank_threshold_fraction = 2/3,
                                   family) {
 
   P <- p_expansions * (K + 1)
@@ -1758,7 +1772,7 @@
 #' @param L_partition_list Partition-specific penalty matrices.
 #' @param parallel_eigen Logical; parallel eigendecomposition.
 #' @param cl,chunk_size,num_chunks,rem_chunks Parallel parameters.
-#' @param rank_threshold_fraction Numeric; Woodbury threshold (default 1/3).
+#' @param rank_threshold_fraction Numeric; Woodbury threshold (default 2/3).
 #' @param family GLM family object.
 #'
 #' @return A list with the same structure as \code{.woodbury_decompose_V}:
@@ -1790,7 +1804,7 @@
                                            parallel_eigen, cl,
                                            chunk_size, num_chunks,
                                            rem_chunks,
-                                           rank_threshold_fraction = 1/3,
+                                           rank_threshold_fraction = 2/3,
                                            family) {
 
   P <- p_expansions * (K + 1)
@@ -2136,6 +2150,8 @@
 #' @param qp_Amat,qp_bvec,qp_meq QP constraint specification.
 #' @param qp_score_function Score function for QP step.
 #' @param order_list,observation_weights Standard partition arguments.
+#' @param obs_wt_precomp,Gram_full_precomp,Xy_tilde_precomp Optional
+#'   pre-computed tuning quantities for repeated correlated Gaussian fits.
 #' @param ... Passed to score function.
 #'
 #' @return If \code{return_G_getB = TRUE}: list with \code{B},
@@ -2150,21 +2166,32 @@
                                 quadprog, qp_Amat, qp_bvec, qp_meq,
                                 qp_score_function,
                                 order_list, observation_weights,
+                                obs_wt_precomp = NULL,
+                                Gram_full_precomp = NULL,
+                                Xy_tilde_precomp = NULL,
                                 parallel_qr = FALSE,
                                 cl = NULL, ...) {
 
   ## Observation weights enter the Gaussian GEE solve in the whitened system,
   #  exactly as they do in the iterative GLM GEE paths.
-  obs_wt <- c(unlist(observation_weights))
-  if (length(obs_wt) == 0L) {
-    obs_wt <- rep(1, nrow(X_tilde))
-  } else if (length(obs_wt) == 1L) {
-    obs_wt <- rep(obs_wt, nrow(X_tilde))
+  if (!is.null(obs_wt_precomp)) {
+    obs_wt <- obs_wt_precomp
+  } else {
+    obs_wt <- c(unlist(observation_weights))
+    if (length(obs_wt) == 0L) {
+      obs_wt <- rep(1, nrow(X_tilde))
+    } else if (length(obs_wt) == 1L) {
+      obs_wt <- rep(obs_wt, nrow(X_tilde))
+    }
   }
 
   ## Full P x P Gram matrix from the weighted whitened design:
   #  X_tilde^T D X_tilde = X^T V^{-1/2} D V^{-1/2} X.
-  Gram_full <- crossprod(X_tilde, obs_wt * X_tilde)
+  if (!is.null(Gram_full_precomp)) {
+    Gram_full <- Gram_full_precomp
+  } else {
+    Gram_full <- crossprod(X_tilde, obs_wt * X_tilde)
+  }
 
   ## G = (X_tilde^T X_tilde + Lambda)^{-1}, a dense P x P matrix.
   G_full_inv <- Gram_full + Lambda_block
@@ -2184,7 +2211,11 @@
     (t(eig_G$vectors) * inv_sqrt_vals_G)
 
   ## X_tilde^T D y_tilde: the P x 1 sufficient statistic for beta.
-  Xy_tilde <- crossprod(X_tilde, obs_wt * y_tilde)
+  if (!is.null(Xy_tilde_precomp)) {
+    Xy_tilde <- Xy_tilde_precomp
+  } else {
+    Xy_tilde <- crossprod(X_tilde, obs_wt * y_tilde)
+  }
 
   ## Lagrangian projection in the full P-dimensional space.
   if (K == 0 | any(all.equal(unique(A), 0) == TRUE)) {
@@ -2387,7 +2418,8 @@
                                 parallel_aga, parallel_matmult,
                                 cl, chunk_size, num_chunks, rem_chunks,
                                 qp_global, tol,
-                                parallel_qr = FALSE, ...) {
+                                parallel_qr = FALSE,
+                                initial_active_ineq = integer(0), ...) {
 
   dots <- list(...)
   include_warnings <- TRUE
@@ -2464,7 +2496,8 @@
       num_chunks = num_chunks,
       rem_chunks = rem_chunks,
       tol = max(tol, 100 * sqrt(.Machine$double.eps)),
-      parallel_qr = parallel_qr
+      parallel_qr = parallel_qr,
+      initial_active_ineq = initial_active_ineq
     ), silent = TRUE)
 
     if (!inherits(as_out, "try-error") && isTRUE(as_out$converged)) {
@@ -2497,6 +2530,7 @@
         tol = max(tol, 100 * sqrt(.Machine$double.eps)),
         parallel_qr = parallel_qr,
         cl = cl,
+        initial_active_ineq = initial_active_ineq,
         method = "active_set_woodbury"
       ), silent = TRUE)
 
@@ -2983,7 +3017,8 @@
                                     parallel_matmult,
                                     cl, chunk_size, num_chunks,
                                     rem_chunks,
-                                    parallel_qr = FALSE, ...) {
+                                    parallel_qr = FALSE,
+                                    initial_active_ineq = integer(0), ...) {
 
   dots <- list(...)
   include_warnings <- TRUE
@@ -3309,7 +3344,8 @@
           num_chunks = num_chunks,
           rem_chunks = rem_chunks,
           tol = max(tol, 100 * sqrt(.Machine$double.eps)),
-          parallel_qr = parallel_qr
+          parallel_qr = parallel_qr,
+          initial_active_ineq = initial_active_ineq
         ), silent = TRUE)
       }
     }
@@ -3348,6 +3384,7 @@
       tol = max(tol, 100 * sqrt(.Machine$double.eps)),
       parallel_qr = parallel_qr,
       cl = cl,
+      initial_active_ineq = initial_active_ineq,
       method = "active_set_woodbury"
       ), silent = TRUE)
 
@@ -3457,7 +3494,8 @@
                                    dispersion_function,
                                    unique_penalty_per_partition,
                                    L_partition_list, VhalfInv,
-                                   homogenous_weights, ...) {
+                                   homogenous_weights,
+                                   initial_active_ineq = integer(0), ...) {
 
   ## Fast path: K = 0, no inequality constraints, homogeneous RHS.
   #  Direct solution: beta = G X^T y (one partition, no projection needed).
@@ -3509,7 +3547,8 @@
       Xy_or_uncon = Xy, is_path3 = FALSE,
       parallel_aga, parallel_matmult,
       cl, chunk_size, num_chunks, rem_chunks, tol,
-      parallel_qr = parallel_qr), silent = TRUE)
+      parallel_qr = parallel_qr,
+      initial_active_ineq = initial_active_ineq), silent = TRUE)
     if (!inherits(as_out, "try-error") && as_out$converged) {
       result <- as_out$result
       qp_info <- as_out$qp_info
@@ -3611,7 +3650,8 @@
                               schur_correction_function,
                               need_dispersion_for_estimation,
                               dispersion_function, VhalfInv,
-                              homogenous_weights, ...) {
+                              homogenous_weights,
+                              initial_active_ineq = integer(0), ...) {
 
   ## Lambda^{1/2} for augmented regression in unconstrained_fit_fxn.
   LambdaHalf <- matsqrt(Lambda)
@@ -3804,7 +3844,8 @@
       Xy_or_uncon = unconstrained_estimate, is_path3 = TRUE,
       parallel_aga, parallel_matmult,
       cl, chunk_size, num_chunks, rem_chunks, tol,
-      parallel_qr = parallel_qr), silent = TRUE)
+      parallel_qr = parallel_qr,
+      initial_active_ineq = initial_active_ineq), silent = TRUE)
     if (!inherits(as_out, "try-error") && as_out$converged) {
       result <- as_out$result
       qp_info <- as_out$qp_info
@@ -3953,6 +3994,10 @@
 #'   working correlation matrix in the original observation ordering.
 #'   When both are non-\code{NULL}, dispatches to Path 1; \code{VhalfInv}
 #'   is permuted internally to partition ordering via \code{order_list}.
+#' @param gee_precomp Optional pre-computed correlated tuning objects. Internal
+#'   use only; avoids rebuilding fixed whitening objects at each tuning step.
+#' @param initial_active_ineq Optional inequality columns used as the first
+#'   active set in tuning or repeated solves.
 #' @param ... Passed to fitting, weight, correction, and dispersion
 #'   functions.
 #'
@@ -4022,6 +4067,8 @@ get_B <- function(X,
                   just_linear_without_interactions,
                   Vhalf,
                   VhalfInv,
+                  gee_precomp = NULL,
+                  initial_active_ineq = integer(0),
                   ...) {
 
   ## Path 1: GEE (correlation structure present)
@@ -4029,23 +4076,31 @@ get_B <- function(X,
 
     ## Permute correlation matrices so rows/columns align with partition
     #  ordering rather than the original data ordering.
-    perm <- unlist(order_list)
-    Vhalf_perm    <- Vhalf[perm, perm]
-    VhalfInv_perm <- VhalfInv[perm, perm]
+    if (!is.null(gee_precomp)) {
+      perm <- gee_precomp$perm
+      VhalfInv_perm <- gee_precomp$VhalfInv_perm
+      X_block <- gee_precomp$X_block
+      y_block <- gee_precomp$y_block
+      X_tilde <- gee_precomp$X_tilde
+      y_tilde <- gee_precomp$y_tilde
+    } else {
+      perm <- unlist(order_list)
+      VhalfInv_perm <- VhalfInv[perm, perm]
+
+      ## Assemble the full N x P block-diagonal design.
+      X_block <- collapse_block_diagonal(X)
+      y_block <- cbind(unlist(y))
+
+      ## Whiten: X_tilde = V^{-1/2} X, y_tilde = V^{-1/2} y.
+      X_tilde <- VhalfInv_perm %**% X_block
+      y_tilde <- VhalfInv_perm %**% y_block
+    }
 
     ## Default to unit observation weights when none were supplied.
     if (is.null(observation_weights) |
         length(unlist(observation_weights)) == 0) {
       observation_weights <- 1
     }
-
-    ## Assemble the full N x P block-diagonal design.
-    X_block <- collapse_block_diagonal(X)
-    y_block <- cbind(unlist(y))
-
-    ## Whiten: X_tilde = V^{-1/2} X, y_tilde = V^{-1/2} y.
-    X_tilde <- VhalfInv_perm %**% X_block
-    y_tilde <- VhalfInv_perm %**% y_block
 
     ## Full P x P block-diagonal penalty matrix.
     Lambda_block <- .build_lambda_block(Lambda, K,
@@ -4067,7 +4122,7 @@ get_B <- function(X,
       order_list,
       parallel_eigen, cl,
       chunk_size, num_chunks, rem_chunks,
-      rank_threshold_fraction = 1/3,
+      rank_threshold_fraction = 2/3,
       family)
 
     if (is_gauss_id) {
@@ -4103,7 +4158,8 @@ get_B <- function(X,
             parallel_aga, parallel_matmult,
             cl, chunk_size, num_chunks, rem_chunks,
             qp_global = .detect_qp_global(qp_Amat, p_expansions, K),
-            tol = tol, ...)
+            tol = tol,
+            initial_active_ineq = initial_active_ineq, ...)
         } else {
           ## F failed the half-square-root step, so use the dense path.
           out <- .get_B_gee_gaussian(
@@ -4114,6 +4170,9 @@ get_B <- function(X,
             quadprog, qp_Amat, qp_bvec, qp_meq,
             qp_score_function,
             order_list, observation_weights,
+            obs_wt_precomp = gee_precomp$obs_wt,
+            Gram_full_precomp = gee_precomp$Gram_full,
+            Xy_tilde_precomp = gee_precomp$Xy_tilde,
             parallel_qr = parallel_qr,
             cl = cl, ...)
           out <- .attach_qp_fallback_info(
@@ -4129,6 +4188,9 @@ get_B <- function(X,
           quadprog, qp_Amat, qp_bvec, qp_meq,
           qp_score_function,
           order_list, observation_weights,
+          obs_wt_precomp = gee_precomp$obs_wt,
+          Gram_full_precomp = gee_precomp$Gram_full,
+          Xy_tilde_precomp = gee_precomp$Xy_tilde,
           parallel_qr = parallel_qr,
           cl = cl, ...)
         fallback_reason <- if (!can_use_gauss_woodbury) {
@@ -4164,7 +4226,8 @@ get_B <- function(X,
             VhalfInv,
             parallel_eigen, parallel_aga, parallel_matmult,
             cl, chunk_size, num_chunks, rem_chunks,
-            parallel_qr = parallel_qr, ...)
+            parallel_qr = parallel_qr,
+            initial_active_ineq = initial_active_ineq, ...)
         } else {
           ## F failed the half-square-root step, so use the dense path.
           out <- .get_B_gee_glm(
@@ -4234,7 +4297,8 @@ get_B <- function(X,
       glm_weight_function, schur_correction_function,
       need_dispersion_for_estimation, dispersion_function,
       unique_penalty_per_partition, L_partition_list,
-      VhalfInv, homogenous_weights, ...
+      VhalfInv, homogenous_weights,
+      initial_active_ineq = initial_active_ineq, ...
     )
   } else {
     ## Path 3: Non-Gaussian GLM, no correlation.
@@ -4255,7 +4319,8 @@ get_B <- function(X,
       order_list, observation_weights,
       glm_weight_function, schur_correction_function,
       need_dispersion_for_estimation, dispersion_function,
-      VhalfInv, homogenous_weights, ...
+      VhalfInv, homogenous_weights,
+      initial_active_ineq = initial_active_ineq, ...
     )
   }
 

@@ -539,6 +539,7 @@
                                chunk_size = NULL,
                                num_chunks = NULL,
                                rem_chunks = NULL,
+                               initial_active_ineq = integer(0),
                                include_warnings = TRUE,
                                verbose = FALSE,
                                ...){
@@ -611,7 +612,7 @@
         order_list,
         parallel_eigen, cl,
         chunk_size, num_chunks, rem_chunks,
-        rank_threshold_fraction = 1/3,
+        rank_threshold_fraction = 2/3,
         family = gaussian()
       )
 
@@ -652,7 +653,8 @@
             tol = tol,
             parallel_qr = parallel_qr,
             include_warnings = include_warnings,
-            warn_context = ".bf_case_gauss_gee"
+            warn_context = ".bf_case_gauss_gee",
+            initial_active_ineq = initial_active_ineq
           )
 
           if (!is.null(as_out)) {
@@ -701,7 +703,7 @@
       info <- Gram_bf + Lambda_block_bf
       sc <- sqrt(mean(abs(info)))
       qp_result <- try({
-        quadprog::solve.QP(
+        .solve_qp_stable(
           Dmat = info / sc,
           dvec = (qp_score -
                     Lambda_block_bf %**% beta_block +
@@ -1175,7 +1177,7 @@
     }
 
     ## Solve QP
-    qp_sol <- try({quadprog::solve.QP(
+    qp_sol <- try({.solve_qp_stable(
       Dmat = info / sc,
       dvec = (qp_score -
                 Lambda_block %**% beta_block +
@@ -1355,6 +1357,7 @@
                              unique_penalty_per_partition,
                              A, constraint_values,
                              Vhalf, VhalfInv,
+                             initial_active_ineq = integer(0),
                              include_warnings = TRUE,
                              verbose, ...){
 
@@ -1528,7 +1531,7 @@
       unique_penalty_per_partition, L_partition_list,
       parallel_eigen, cl,
       chunk_size, num_chunks, rem_chunks,
-      rank_threshold_fraction = 1/3,
+      rank_threshold_fraction = 2/3,
       family = family
     )
 
@@ -1593,7 +1596,8 @@
           num_chunks = num_chunks,
           rem_chunks = rem_chunks,
           tol = max(tol, 100 * sqrt(.Machine$double.eps)),
-          parallel_qr = parallel_qr
+          parallel_qr = parallel_qr,
+          initial_active_ineq = initial_active_ineq
         ), silent = TRUE)
 
         if (!inherits(as_out, "try-error") && isTRUE(as_out$converged)) {
@@ -1634,6 +1638,7 @@
           tol = max(tol, 100 * sqrt(.Machine$double.eps)),
           parallel_qr = parallel_qr,
           cl = cl,
+          initial_active_ineq = initial_active_ineq,
           method = "active_set_woodbury"
         ), silent = TRUE)
 
@@ -2050,6 +2055,8 @@
 #' @param VhalfInv Inverse square root of the working correlation matrix
 #'   in the original observation ordering.  When both are non-\code{NULL},
 #'   the GEE paths are used.
+#' @param initial_active_ineq Optional inequality columns used as the first
+#'   active set in tuning or repeated solves.
 #' @param include_warnings Logical.
 #' @param verbose Logical.
 #' @param ... Additional arguments passed to weight and dispersion functions.
@@ -2221,6 +2228,7 @@ blockfit_solve <- function(
     max_backfit_iter = 100,
     Vhalf = NULL,
     VhalfInv = NULL,
+    initial_active_ineq = integer(0),
     include_warnings = TRUE,
     verbose = FALSE,
     ...
@@ -2311,6 +2319,7 @@ blockfit_solve <- function(
       num_chunks = num_chunks,
       rem_chunks = rem_chunks,
       include_warnings = include_warnings,
+      initial_active_ineq = initial_active_ineq,
       verbose = verbose,
       ...)
     beta_spline <- out_a$beta_spline
@@ -2352,8 +2361,10 @@ blockfit_solve <- function(
       Lambda, L_partition_list,
       unique_penalty_per_partition,
       A, constraint_values,
-      Vhalf, VhalfInv, include_warnings,
-      verbose, ...)
+      Vhalf, VhalfInv,
+      initial_active_ineq = initial_active_ineq,
+      include_warnings = include_warnings,
+      verbose = verbose, ...)
 
     result      <- out_c$result
     beta_spline <- out_c$beta_spline
@@ -2417,7 +2428,8 @@ blockfit_solve <- function(
       cl = cl, chunk_size = chunk_size,
       num_chunks = num_chunks, rem_chunks = rem_chunks,
       tol = tol,
-      parallel_qr = parallel_qr)
+      parallel_qr = parallel_qr,
+      initial_active_ineq = initial_active_ineq)
 
     if(as_out$converged){
       result <- as_out$result

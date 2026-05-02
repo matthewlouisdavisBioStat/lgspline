@@ -54,6 +54,8 @@ get_B(
   just_linear_without_interactions,
   Vhalf,
   VhalfInv,
+  gee_precomp = NULL,
+  initial_active_ineq = integer(0),
   ...
 )
 }
@@ -137,6 +139,12 @@ call-site compatibility.}
 working correlation matrix in the original observation ordering.
 When both are non-\code{NULL}, dispatches to Path 1; \code{VhalfInv}
 is permuted internally to partition ordering via \code{order_list}.}
+
+\item{gee_precomp}{Optional pre-computed correlated tuning objects. Internal
+use only; avoids rebuilding fixed whitening objects at each tuning step.}
+
+\item{initial_active_ineq}{Optional inequality columns used as the first
+active set in tuning or repeated solves.}
 
 \item{...}{Passed to fitting, weight, correction, and dispersion
 functions.}

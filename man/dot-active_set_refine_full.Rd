@@ -20,6 +20,7 @@
   parallel_qr = FALSE,
   cl = NULL,
   max_as_iter = NULL,
+  initial_active_ineq = integer(0),
   method = "active_set_full"
 )
 }

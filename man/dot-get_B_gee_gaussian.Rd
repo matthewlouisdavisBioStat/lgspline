@@ -23,6 +23,9 @@
   qp_score_function,
   order_list,
   observation_weights,
+  obs_wt_precomp = NULL,
+  Gram_full_precomp = NULL,
+  Xy_tilde_precomp = NULL,
   parallel_qr = FALSE,
   cl = NULL,
   ...
@@ -58,6 +61,9 @@ ordering.}
 \item{qp_score_function}{Score function for QP step.}
 
 \item{order_list, observation_weights}{Standard partition arguments.}
+
+\item{obs_wt_precomp, Gram_full_precomp, Xy_tilde_precomp}{Optional
+pre-computed tuning quantities for repeated correlated Gaussian fits.}
 
 \item{...}{Passed to score function.}
 }

@@ -145,12 +145,10 @@
 #'   diagnostics, the observation-wise derivative of the LOO leverage term can
 #'   be numerically delicate even when the overall tuning criterion and fitted
 #'   penalties remain well behaved; users who prefer a more conservative
-#'   optimization path can set \code{use_custom_bfgs = FALSE}. Shared wiggle
-#'   and flat tuning directions are differentiated directly, while optional
-#'   predictor- and partition-specific penalties continue to use a lower-cost
-#'   ratio approximation. For very large samples, generalized cross-validation
-#'   is often the more practical choice; as a rough guideline, \code{"gcv"}
-#'   is recommended once the sample size is above about 250,000.
+#'   optimization path can set \code{use_custom_bfgs = FALSE}. All tuned
+#'   penalty gradients reuse the same blockwise penalty derivative. For very
+#'   large samples, generalized cross-validation is often the more practical choice; as a rough guideline,
+#'   \code{"gcv"} is recommended once the sample size is above about 250,000.
 #' @param use_custom_bfgs Default: TRUE. Selects between a native damped-BFGS
 #'   implementation with closed-form gradients or base R's BFGS with finite-difference
 #'   gradients. The native path is usually faster, while the finite-difference
@@ -234,6 +232,14 @@
 #'   derivatives at knot points.
 #' @param include_constrain_interactions Default: TRUE. Logical switch to constrain
 #'   interaction terms at knot points.
+#' @param add_first_and_second_derivative_constraints Default: NULL. Logical
+#'   switch controlling how first- and second-derivative smoothness constraints
+#'   are assembled. If \code{TRUE}, the corresponding first- and
+#'   second-derivative rows are added before entering the equality constraint
+#'   matrix. If \code{FALSE}, they are kept as separate equality constraints.
+#'   If \code{NULL}, they are combined only when more than one predictor is
+#'   spline-expanded, so a model with one spline effect and any remaining
+#'   non-spline effects keeps the derivative constraints separate.
 #' @param qr_pivot_smoothing_constraints Default: TRUE. Logical switch to reduce
 #'   the smoothness/equality constraint matrix to a linearly independent set
 #'   before fitting. Disabling this keeps the original equality columns.
@@ -481,6 +487,7 @@
 #'     \code{include_constrain_first_deriv},
 #'     \code{include_constrain_second_deriv},
 #'     \code{include_constrain_interactions},
+#'     \code{add_first_and_second_derivative_constraints},
 #'     \code{qr_pivot_smoothing_constraints},
 #'     \code{constraint_values}, \code{constraint_vectors},
 #'     \code{null_constraint}, \code{no_intercept}.}
@@ -1566,6 +1573,7 @@ lgspline <- function(
     include_constrain_first_deriv = TRUE,
     include_constrain_second_deriv = TRUE,
     include_constrain_interactions = TRUE,
+    add_first_and_second_derivative_constraints = NULL,
     qr_pivot_smoothing_constraints = TRUE,
     cl = NULL,
     chunk_size = NULL,
@@ -1916,6 +1924,7 @@ lgspline <- function(
                                  include_constrain_first_deriv,
                                  include_constrain_second_deriv,
                                  include_constrain_interactions,
+                                 add_first_and_second_derivative_constraints,
                                  qr_pivot_smoothing_constraints,
                                  cl,
                                  chunk_size,
@@ -3024,6 +3033,7 @@ lgspline <- function(
                                          include_constrain_first_deriv,
                                          include_constrain_second_deriv,
                                          include_constrain_interactions,
+                                         add_first_and_second_derivative_constraints,
                                          qr_pivot_smoothing_constraints,
                                          cl,
                                          chunk_size,
@@ -3252,6 +3262,7 @@ lgspline <- function(
                               include_constrain_first_deriv,
                               include_constrain_second_deriv,
                               include_constrain_interactions,
+                              add_first_and_second_derivative_constraints,
                               qr_pivot_smoothing_constraints,
                               cl,
                               chunk_size,
@@ -4565,6 +4576,8 @@ lgspline <- function(
     include_constrain_first_deriv      = include_constrain_first_deriv,
     include_constrain_second_deriv     = include_constrain_second_deriv,
     include_constrain_interactions     = include_constrain_interactions,
+    add_first_and_second_derivative_constraints =
+      add_first_and_second_derivative_constraints,
     cl                                 = cl,
     chunk_size                         = chunk_size,
     parallel_eigen                     = parallel_eigen,
@@ -4924,6 +4937,7 @@ lgspline.fit <- function(predictors,
                          include_constrain_first_deriv = TRUE,
                          include_constrain_second_deriv = TRUE,
                          include_constrain_interactions = TRUE,
+                         add_first_and_second_derivative_constraints = NULL,
                          qr_pivot_smoothing_constraints = TRUE,
                          cl = NULL,
                          chunk_size = NULL,
@@ -5904,7 +5918,8 @@ lgspline.fit <- function(predictors,
                                           include_3way_interactions,
                                           include_quadratic_interactions,
                                           colnm_expansions,
-                                          expansion_scales
+                                          expansion_scales,
+                                          add_first_and_second_derivative_constraints
                                         )
                                       }))
     } else {
@@ -5948,7 +5963,8 @@ lgspline.fit <- function(predictors,
                                              include_3way_interactions,
                                              include_quadratic_interactions,
                                              colnm_expansions,
-                                             expansion_scales))
+                                             expansion_scales,
+                                             add_first_and_second_derivative_constraints))
         if(i == 1){
           A <- A[,-1,drop=FALSE]
         }
@@ -6033,7 +6049,8 @@ lgspline.fit <- function(predictors,
                                            include_3way_interactions,
                                            include_quadratic_interactions,
                                            colnm_expansions,
-                                           expansion_scales))
+                                           expansion_scales,
+                                           add_first_and_second_derivative_constraints))
     }
 
   } else {

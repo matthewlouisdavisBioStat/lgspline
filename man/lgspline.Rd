@@ -79,6 +79,7 @@ lgspline(
   include_constrain_first_deriv = TRUE,
   include_constrain_second_deriv = TRUE,
   include_constrain_interactions = TRUE,
+  add_first_and_second_derivative_constraints = NULL,
   qr_pivot_smoothing_constraints = TRUE,
   cl = NULL,
   chunk_size = NULL,
@@ -264,12 +265,10 @@ forming the full projection matrix or full hat matrix. In empirical
 diagnostics, the observation-wise derivative of the LOO leverage term can
 be numerically delicate even when the overall tuning criterion and fitted
 penalties remain well behaved; users who prefer a more conservative
-optimization path can set \code{use_custom_bfgs = FALSE}. Shared wiggle
-and flat tuning directions are differentiated directly, while optional
-predictor- and partition-specific penalties continue to use a lower-cost
-ratio approximation. For very large samples, generalized cross-validation
-is often the more practical choice; as a rough guideline, \code{"gcv"}
-is recommended once the sample size is above about 250,000.}
+optimization path can set \code{use_custom_bfgs = FALSE}. All tuned
+penalty gradients reuse the same blockwise penalty derivative. For very
+large samples, generalized cross-validation is often the more practical choice; as a rough guideline,
+\code{"gcv"} is recommended once the sample size is above about 250,000.}
 
 \item{gcv_gamma}{Default: 1.4. Numeric scalar, at least 1, used only when
 \code{tuning_criterion = "gcv"}. Multiplies the effective degrees of freedom
@@ -356,6 +355,15 @@ derivatives at knot points.}
 
 \item{include_constrain_interactions}{Default: TRUE. Logical switch to constrain
 interaction terms at knot points.}
+
+\item{add_first_and_second_derivative_constraints}{Default: NULL. Logical
+switch controlling how first- and second-derivative smoothness constraints
+are assembled. If \code{TRUE}, the corresponding first- and
+second-derivative rows are added before entering the equality constraint
+matrix. If \code{FALSE}, they are kept as separate equality constraints.
+If \code{NULL}, they are combined only when more than one predictor is
+spline-expanded, so a model with one spline effect and any remaining
+non-spline effects keeps the derivative constraints separate.}
 
 \item{qr_pivot_smoothing_constraints}{Default: TRUE. Logical switch to reduce
 the smoothness/equality constraint matrix to a linearly independent set
@@ -948,6 +956,7 @@ individual arguments. Individual arguments remain available for backward compati
     \code{include_constrain_first_deriv},
     \code{include_constrain_second_deriv},
     \code{include_constrain_interactions},
+    \code{add_first_and_second_derivative_constraints},
     \code{qr_pivot_smoothing_constraints},
     \code{constraint_values}, \code{constraint_vectors},
     \code{null_constraint}, \code{no_intercept}.}

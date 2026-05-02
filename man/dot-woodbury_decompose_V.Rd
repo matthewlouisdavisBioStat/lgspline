@@ -19,7 +19,7 @@
   chunk_size,
   num_chunks,
   rem_chunks,
-  rank_threshold_fraction = 1/3,
+  rank_threshold_fraction = 2/3,
   family
 )
 }
@@ -45,7 +45,7 @@ matrices.}
 \item{cl, chunk_size, num_chunks, rem_chunks}{Parallel parameters.}
 
 \item{rank_threshold_fraction}{Numeric; Woodbury is used only when
-\eqn{r < P \times} this fraction (default 1/3).}
+\eqn{r < P \times} this fraction (default 2/3).}
 
 \item{family}{GLM family object.}
 }

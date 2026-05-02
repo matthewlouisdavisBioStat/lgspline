@@ -45,13 +45,10 @@ where \eqn{N = \sum r_{i}^{2}} (numerator),
 log-scale penalty parameter, and the chain rule
 \eqn{d\lambda / d\theta = \lambda} (exp parameterization) is applied.
 
-The shared wiggle and flat directions are differentiated directly from the
-fitted criterion. For predictor- and partition-specific penalties, a
-lower-cost ratio heuristic is used on the log-penalty scale:
-\deqn{\frac{\partial \mathrm{GCV}_u}{\partial \theta_{j}}
-  \approx \frac{\mathrm{tr}(\mathbf{L}_{j})}{\mathrm{tr}(\boldsymbol{\Lambda})}
-  \cdot \frac{\partial \mathrm{GCV}_u}{\partial \theta_{w}},}
-where \eqn{\mathbf{L}_{j}} denotes the current contribution of that extra
-penalty to \eqn{\boldsymbol{\Lambda}}.
+After differentiating through \eqn{\mathbf{G}}, \eqn{\mathbf{U}}, and the
+trace term once, the gradient is stored as
+\eqn{\mathbf{M}_k = \partial \mathrm{GCV}_u /
+\partial \boldsymbol{\Lambda}_k}. Each log-penalty derivative is then
+\eqn{\sum_k \mathrm{tr}(\mathbf{M}_k\mathbf{L}_{j,k})}.
 }
 \keyword{internal}

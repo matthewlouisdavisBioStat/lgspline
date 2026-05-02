@@ -32,8 +32,9 @@ penalties appended to the optimization vector.}
 \item{env}{List; tuning environment (passed through to
 \code{criterion_fxn} and \code{gr_fxn}).}
 
-\item{tol}{Numeric; convergence tolerance for both criterion change and
-parameter change.}
+\item{tol}{Numeric; convergence tolerance for parameter change and the
+strict absolute criterion-change check. A small scale-aware plateau check
+is also used after the first few iterations.}
 
 \item{max_iter}{Integer; maximum number of BFGS iterations (default 100).}
 
@@ -61,6 +62,9 @@ The optimizer uses the following strategy:
   \item Backtracking: damping factor halved on rejection; terminates
     when damp < \eqn{2^{-10}} (early iterations) or \eqn{2^{-12}}
     (later iterations).
+  \item Convergence: after iteration 9, stop when either the strict
+    \code{tol} checks are met or the accepted criterion changes remain
+    below a small criterion-scale tolerance for several iterations.
 }
 }
 \keyword{internal}

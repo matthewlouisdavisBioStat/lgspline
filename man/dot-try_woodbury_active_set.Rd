@@ -27,7 +27,8 @@
   tol,
   parallel_qr = FALSE,
   include_warnings = TRUE,
-  warn_context = ".try_woodbury_active_set"
+  warn_context = ".try_woodbury_active_set",
+  initial_active_ineq = integer(0)
 )
 }
 \arguments{
@@ -63,6 +64,9 @@ Woodbury-refined quadratic approximation.}
 errors and the caller will fall back.}
 
 \item{warn_context}{Character scalar identifying the caller in warning text.}
+
+\item{initial_active_ineq}{Integer vector of inequality columns used as the
+initial working set.}
 }
 \value{
 Either a list with \code{result} and \code{qp_info}, or

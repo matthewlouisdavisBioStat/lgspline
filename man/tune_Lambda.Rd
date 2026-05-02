@@ -134,7 +134,9 @@ predictor/partition penalties to pull them towards 1 on the raw scale.}
 \item{qp_score_function, quadprog, qp_Amat, qp_bvec, qp_meq}{Quadratic
 programming parameters (see arguments of \code{\link[lgspline]{lgspline}}).}
 
-\item{tol}{Numeric; convergence tolerance.}
+\item{tol}{Numeric; convergence tolerance. Used directly for strict
+absolute criterion and log-parameter checks, and as the floor for the
+adaptive plateau check in the custom BFGS path.}
 
 \item{sd_y, delta}{Response standardization parameters.}
 
@@ -256,13 +258,18 @@ The tuning procedure consists of the following steps:
   \item \strong{BFGS optimization}: Minimize the selected tuning criterion via either the custom
     damped BFGS with closed-form gradients (see \code{.damped_bfgs},
     \code{.compute_gcvu_gradient}, \code{.compute_loocv_gradient}) or base R's \code{stats::optim} with
-    finite-difference gradients. The GCV gradient is differentiated directly
-    in the shared wiggle and flat directions; for LOO, the same direct
-    differentiation is used, but the leverage derivative may be numerically
-    delicate in some problems and can motivate the finite-difference
-    fallback. When \code{parallel_bfgs = TRUE} and a cluster is supplied,
-    each damped step evaluates a batch of halved step sizes in parallel and
-    takes the best improving candidate from that batch.
+    finite-difference gradients. The analytic paths differentiate the fitted
+    criterion once, then obtain each log-penalty gradient from the blockwise
+    Frobenius product \eqn{\sum_k\mathrm{tr}(\mathbf{M}_k\mathbf{L}_{j,k})}.
+    For LOO, the leverage derivative may be numerically delicate in some
+    problems and can motivate the finite-difference fallback. After the
+    first 10 iterations, the custom BFGS path also stops on a small
+    scale-aware plateau in accepted criterion values. When
+    \code{parallel_bfgs = TRUE} and a cluster is supplied, each damped step
+    evaluates a batch of halved step sizes in parallel and takes the best
+    improving candidate from that batch. If inequality constraints are
+    present, the active set from the last accepted coefficient solve is used
+    as the initial working set for the next tuning evaluation.
   \item \strong{Criterion choice}: \code{"loo"} uses exact per-observation
     leverages on the transformed tuning problem, while \code{"gcv"} uses the
     usual trace-based denominator with optional \code{gcv_gamma}
@@ -280,10 +287,16 @@ Parameterization: initial penalty values are accepted on the raw
 i.e. raw_penalty = exp(theta), so that raw penalties are always positive.
 The chain rule factor d(exp(theta))/d(theta) = exp(theta) = raw_penalty.
 
-For predictor- and partition-specific penalties, the current implementation
-still uses the lower-cost ratio approximation rather than a full direct
-derivative in every extra penalty direction. The shared wiggle and flat
-directions therefore remain the most accurate closed-form gradients.
+If \eqn{\mathbf{L}_{j,k}} is the current contribution of
+\eqn{\theta_j = \log\lambda_j} to partition \eqn{k}, then
+\deqn{
+  \frac{\partial \ell}{\partial \theta_j}
+  =
+  \sum_{k=0}^{K}
+  \mathrm{tr}\{\mathbf{M}_k\mathbf{L}_{j,k}\}.
+}
+This avoids repeating the full derivative through
+\eqn{\mathbf{G}}, \eqn{\mathbf{U}}, and \eqn{\mathbf{H}} for each penalty.
 
 The resulting penalty follows the same notation used in the paper:
 \deqn{

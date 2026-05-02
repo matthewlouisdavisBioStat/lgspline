@@ -1149,6 +1149,12 @@ make_derivative_matrix  <-  function(
 #' @param include_quadratic_interactions Logical; include quadratic interactions
 #' @param colnm_expansions Character vector; column names for basis expansions
 #' @param expansion_scales Numeric vector; scaling factors for standardization
+#' @param add_first_and_second_derivative_constraints Logical or \code{NULL};
+#'   when both first- and second-derivative constraints are requested, combine
+#'   the corresponding derivative rows before adding them to the smoothing
+#'   constraint matrix. If \code{NULL}, this is done when more than one
+#'   predictor is spline-expanded. If \code{FALSE}, first- and
+#'   second-derivative constraints are imposed as separate equality rows.
 #'
 #' @return Matrix \eqn{\textbf{A}} of constraint coefficients. Columns correspond to
 #' constraints, rows to coefficients across all \eqn{K+1} partitions.
@@ -1172,242 +1178,224 @@ make_constraint_matrix <- function(p_expansions,
                                    include_3way_interactions,
                                    include_quadratic_interactions,
                                    colnm_expansions,
-                                   expansion_scales){
+                                   expansion_scales,
+                                   add_first_and_second_derivative_constraints = NULL)
+{
+  ## Decide whether first and second derivative constraints should be combined
+  q_total <- length(c(power1_cols, nonspline_cols))
+  if (is.null(add_first_and_second_derivative_constraints)) {
+    combine_derivs <- length(power1_cols) > 1
+  } else {
+    combine_derivs <- isTRUE(add_first_and_second_derivative_constraints) &
+      q_total > 1
+  }
 
-  ## First, create a checkered matrix-each column alternates 1s/-1s,
-  # 0s on off-diagonals
-  checkered = matrix(0, nrow = K, ncol = K+1)
-
-  ## Handle matrix construction based on dimension and CKnots structure
-  if(!(any(is.null(rownames(CKnots))))){
+  ## Build checkered sign pattern matching adjacent partitions at each knot
+  checkered = matrix(0, nrow = K, ncol = K + 1)
+  if (!(any(is.null(rownames(CKnots))))) {
     rwnms <- rownames(CKnots)
-    if(length(rwnms) == 1){
-      if(rwnms == 'CKnots'){
-        ## For univariate case: Alternate 1/-1 in adjacent columns
-        for(j in 1:(K+1)){
-          checkered[,j] = -(2*(j %% 2) - 1)
+    if (length(rwnms) == 1) {
+      if (rwnms == "CKnots") {
+        for (j in 1:(K + 1)) {
+          checkered[, j] = -(2 * (j%%2) - 1)
         }
-        ## Zero out non-adjacent entries
-        for(i in 1:K){
-          checkered[i,-c(i,i+1)] = 0
+        for (i in 1:K) {
+          checkered[i, -c(i, i + 1)] = 0
         }
       }
-    } else {
-      ## For multivariate case: Set pairwise constraints from rownames
-      # Rownames code the neighbors i.e. 2_4 implies partitions 2 and 4
-      # are neighbors
-      for(i in 1:nrow(CKnots)){
+    }
+    else {
+      ## Use explicit partition pairs from row names
+      for (i in 1:nrow(CKnots)) {
         rown <- unlist(strsplit(rwnms[i], "_"))
         col1 <- as.numeric(rown[1])
         col2 <- as.numeric(rown[2])
-        checkered[i,col1] <- 1
-        checkered[i,col2] <- -1
+        checkered[i, col1] <- 1
+        checkered[i, col2] <- -1
       }
     }
-  } else {
-    ## Default univariate construction when no rownames present
-    for(j in 1:(K+1)){
-      checkered[,j] = -(2*(j %% 2) - 1)
+  }
+  else {
+    ## Default checkered pattern when no row names are present
+    for (j in 1:(K + 1)) {
+      checkered[, j] = -(2 * (j%%2) - 1)
     }
-    for(i in 1:K){
-      checkered[i,-c(i,i+1)] = 0
+    for (i in 1:K) {
+      checkered[i, -c(i, i + 1)] = 0
     }
   }
 
-  ## Special case handling for single knot with multiple variables
-  # (Fix for K = 1, q > 1)
-  if(length(checkered) == 2 & !any(unique(checkered) != 0)){
+  ## Handle 2-partition edge case where checkered has only two entries
+  if (length(checkered) == 2 & !any(unique(checkered) != 0)) {
     checkered[1] <- 1
     checkered[2] <- -1
   }
 
-  ## Expand out the checkered matrix to match dimensions of
-  # basis expansion dimensions
-  checkered_fitted_expand = checkered[, rep(1:(K+1), each = p_expansions), drop = FALSE]
+  ## Expand sign pattern across all basis columns per partition
+  checkered_fitted_expand = checkered[, rep(1:(K + 1), each = p_expansions),
+                                      drop = FALSE]
 
-  ## Expand out the constraints, located at knots
-  constrain_fitted <- CKnots[,rep(1:p_expansions, K+1), drop = FALSE] *
-    checkered_fitted_expand
+  ## Constrain fitted values to match across knot boundaries
+  constrain_fitted <- CKnots[, rep(1:p_expansions, K + 1),
+                             drop = FALSE] * checkered_fitted_expand
 
-  ## When non-spline and spline present, repeat fitted constraint for
-  # spline-only
-  if(length(nonspline_cols) > 0 & length(power1_cols) > 0){
+  ## Add separate fitted constraints for spline-only terms when
+  #  nonspline columns exist
+  if (length(nonspline_cols) > 0 & length(power1_cols) > 0) {
     CKnots0 <- CKnots
-    CKnots0[,nonspline_cols] <- 0
-    constrain_fitted0 <- CKnots0[,rep(1:p_expansions, K+1), drop = FALSE] *
+    CKnots0[, nonspline_cols] <- 0
+    constrain_fitted0 <- CKnots0[, rep(1:p_expansions, K +
+                                         1), drop = FALSE] *
       checkered_fitted_expand
     constrain_fitted <- rbind(constrain_fitted, constrain_fitted0)
   }
 
-  ## Zero-out the fitted constraint if not desired
-  if(!include_constrain_fitted){
+  ## Zero out fitted constraints if not requested
+  if (!include_constrain_fitted) {
     constrain_fitted <- 0 * constrain_fitted
   }
 
-  ## First derivative, for all numeric variables
-  if(include_constrain_first_deriv){
-    first_derivs <- lapply(colnames(CKnots)[power1_cols], function(v){
-      take_derivative(dat = CKnots, var = v, scale = expansion_scales[v])
-    })
-    first_deriv = Reduce('rbind',
-                         first_derivs
-    )
-    constrain_first_deriv <- first_deriv[, rep(1:p_expansions, K+1),
-                                         drop = FALSE] *
-      checkered_fitted_expand[
-
-        rep(c(1:nrow(checkered_fitted_expand)),
-            length(power1_cols)),
-      ]
+  ## Build first derivative constraints for spline (power1) variables
+  if (include_constrain_first_deriv) {
+    first_derivs <- lapply(colnames(CKnots)[power1_cols],
+                           function(v) {
+                             take_derivative(dat = CKnots,
+                                             var = v,
+                                             scale = expansion_scales[v])
+                           })
+    first_deriv = Reduce("rbind", first_derivs)
+    constrain_first_deriv <- first_deriv[, rep(1:p_expansions,
+                                               K + 1), drop = FALSE] *
+      checkered_fitted_expand[rep(c(1:nrow(checkered_fitted_expand)),
+                                                                                                   length(power1_cols)), ]
   }
 
-  ## First derivatives for non-spline effects
-  # = identical coefficients across partitions
-  if(length(nonspline_cols) > 0 &
-     include_constrain_first_deriv){
-    first_derivs <- lapply(colnames(CKnots)[nonspline_cols], function(v){
-      take_derivative(dat = CKnots,
-                      var = v,
-                      scale = expansion_scales[v])
-    })
-    first_derivs <- Reduce('rbind',
-                           first_derivs
-    )
-
-    ## New constraint
-    new_constr <- first_derivs[, rep(1:p_expansions, K+1), drop = FALSE] *
-      checkered_fitted_expand[
-        rep(c(1:nrow(checkered_fitted_expand)),
-            length(nonspline_cols)),
-      ]
-    new_constr <- unique(new_constr[rowSums(abs(new_constr)) > 0,,drop=FALSE])
-
-    ## Constrain first derivative
-    if(length(power1_cols) > 0){
-      constrain_first_deriv <- rbind(
-        constrain_first_deriv,
-        new_constr
-      )
-    } else {
+  ## Append first derivative constraints for nonspline variables,
+  #  dropping zero/duplicate rows
+  if (length(nonspline_cols) > 0 & include_constrain_first_deriv) {
+    first_derivs_ns <- lapply(colnames(CKnots)[nonspline_cols],
+                              function(v) {
+                                take_derivative(dat = CKnots,
+                                                var = v,
+                                                scale = expansion_scales[v])
+                              })
+    first_derivs_ns <- Reduce("rbind", first_derivs_ns)
+    new_constr <- first_derivs_ns[, rep(1:p_expansions, K +
+                                          1), drop = FALSE] *
+      checkered_fitted_expand[rep(c(1:nrow(checkered_fitted_expand)),
+                                                                                          length(nonspline_cols)), ]
+    new_constr <- unique(new_constr[rowSums(abs(new_constr)) >
+                                      0, , drop = FALSE])
+    if (length(power1_cols) > 0) {
+      constrain_first_deriv <- rbind(constrain_first_deriv,
+                                     new_constr)
+    }
+    else {
       constrain_first_deriv <- new_constr
     }
   }
 
-  ## Second derivative, for all numeric variables
-  if(include_constrain_second_deriv){
-    second_deriv = Reduce('rbind',
-                          lapply(colnames(CKnots)[c(power1_cols,
-                                                    nonspline_cols)],
-                                 function(v){
-                                   take_derivative(dat = CKnots,
-                                                   var = v,
-                                                   second = TRUE,
-                                                   scale = expansion_scales[v])
-                                 })
-    )
-    constrain_second_deriv <- second_deriv[, rep(1:p_expansions, K+1),
+  ## Build second derivative constraints across spline and nonspline variables
+  if (include_constrain_second_deriv) {
+    second_deriv = Reduce("rbind", lapply(colnames(CKnots)[
+      c(power1_cols, nonspline_cols)], function(v) {
+      take_derivative(
+        dat = CKnots,
+        var = v,
+        second = TRUE,
+        scale = expansion_scales[v]
+      )
+    }))
+    constrain_second_deriv <- second_deriv[, rep(1:p_expansions, K + 1),
                                            drop = FALSE] *
-      checkered_fitted_expand[
-        rep(c(1:nrow(checkered_fitted_expand)),
-            length(c(power1_cols, nonspline_cols))),
-      ]
-  }
+      checkered_fitted_expand[rep(c(1:nrow(checkered_fitted_expand)),
+                                  length(c(power1_cols, nonspline_cols))), ]
 
-  ## If interactions present
-  if ((include_2way_interactions |
-       include_3way_interactions |
-       include_quadratic_interactions) &
-      (length(c(power1_cols, nonspline_cols)) > 1) &
-      include_constrain_interactions){
-    second_deriv_interaction <-
-      Reduce('rbind',
-             lapply(colnames(CKnots)[
-               c(power1_cols, nonspline_cols)],
-               function(v) {
-                 if(v %in% nonspline_cols){
-                   take_derivative(dat = CKnots,
-                                   var = v,
-                                   scale = expansion_scales[v],
-                                   second = TRUE)
-                 } else {
-                   take_interaction_2ndderivative(
-                     dat = CKnots,
-                     var = v,
-                     interaction_single_cols,
-                     interaction_quad_cols,
-                     triplet_cols,
-                     colnm_expansions,
-                     power1_cols,
-                     power2_cols
-                   )
-                 }
-               }))
-    constrain_second_deriv_interactions <-
-      second_deriv_interaction[, rep(1:p_expansions, K+1), drop = FALSE] *
-      checkered_fitted_expand[
-        rep(c(1:nrow(checkered_fitted_expand)),
-            length(c(power1_cols,nonspline_cols))),
-      ]
-  }
+    ## Add interactions to second derivative constraints if applicable
+    if ((
+      include_2way_interactions | include_3way_interactions |
+      include_quadratic_interactions
+    ) & (length(c(power1_cols, nonspline_cols)) > 1) &
+    include_constrain_interactions) {
+      second_deriv_interaction <- Reduce("rbind", lapply(colnames(CKnots)[
+        c(power1_cols, nonspline_cols)], function(v) {
+        if (v %in% nonspline_cols) {
+          take_derivative(
+            dat = CKnots,
+            var = v,
+            scale = expansion_scales[v],
+            second = TRUE
+          )
+        }
+        else {
+          take_interaction_2ndderivative(
+            dat = CKnots,
+            var = v,
+            interaction_single_cols,
+            interaction_quad_cols,
+            triplet_cols,
+            colnm_expansions,
+            power1_cols,
+            power2_cols
+          )
+        }
+      }))
+      constrain_second_deriv_interactions <-
+        second_deriv_interaction[, rep(1:p_expansions, K + 1), drop = FALSE] *
+        checkered_fitted_expand[rep(c(1:nrow(checkered_fitted_expand)),
+                                    length(c(power1_cols, nonspline_cols))), ]
 
-  ## Combine the constraints into a single full-rank matrix A
-  if ((include_2way_interactions |
-       include_3way_interactions |
-       include_quadratic_interactions) &
-      (length(c(power1_cols, nonspline_cols)) > 1) &
-      include_constrain_interactions){
-    if (include_constrain_second_deriv) {
-      if (include_constrain_first_deriv) {
-        A = t(rbind(
-          constrain_fitted,
-          constrain_first_deriv,
-          constrain_second_deriv +
-            constrain_second_deriv_interactions
-        ))
-      } else {
-        A = t(rbind(constrain_fitted,
-                    constrain_second_deriv +
-                      constrain_second_deriv_interactions))
-      }
-    } else {
-      if (include_constrain_first_deriv) {
-        A = t(rbind(constrain_fitted,
-                    constrain_first_deriv,
-                    constrain_second_deriv_interactions))
-      } else {
-        A = t(rbind(constrain_fitted,
-                    constrain_second_deriv_interactions))
-      }
-    }
-  } else {
-    if (include_constrain_second_deriv) {
-      if (include_constrain_first_deriv) {
-        A = t(rbind(
-          constrain_fitted,
-          constrain_first_deriv,
-          constrain_second_deriv
-        ))
-      } else {
-        A = t(rbind(constrain_fitted,
-                    constrain_second_deriv))
-      }
-    } else {
-      if (include_constrain_first_deriv) {
-        A = t(rbind(constrain_fitted,
-                    constrain_first_deriv))
-      } else {
-        ## For compatibility
-        A = t(rbind(constrain_fitted,
-                    constrain_fitted))
-      }
+      constrain_second_deriv <- constrain_second_deriv +
+        constrain_second_deriv_interactions
     }
   }
 
-  ## If all 0s, return the 0s in conformable form
-  if(!any(A != 0)){
-    return(cbind(rep(0, (K+1)*p_expansions)))
-  } else {
-    ## Otherwise, return A
+  ## Combine first and second derivative constraints into single rows when requested
+  if (include_constrain_first_deriv &
+      include_constrain_second_deriv &
+      combine_derivs) {
+    n1 <- nrow(constrain_first_deriv)
+    n2 <- nrow(constrain_second_deriv)
+    n_align <- min(n1, n2)
+    constrain_deriv_total <- constrain_first_deriv[seq_len(n_align), ,
+                                                   drop = FALSE] +
+      constrain_second_deriv[seq_len(n_align), , drop = FALSE]
+    ## Append leftover rows from whichever derivative block is longer
+    if (n1 > n_align) {
+      constrain_deriv_total <- rbind(constrain_deriv_total,
+                                     constrain_first_deriv[(n_align + 1):n1, ,
+                                                           drop = FALSE])
+    }
+    if (n2 > n_align) {
+      constrain_deriv_total <- rbind(constrain_deriv_total,
+                                     constrain_second_deriv[(n_align + 1):n2, ,
+                                                            drop = FALSE])
+    }
+    A = t(rbind(constrain_fitted, constrain_deriv_total))
+  }
+  ## Stack first and second derivative constraints separately
+  else if (include_constrain_first_deriv & include_constrain_second_deriv) {
+    A = t(rbind(constrain_fitted, constrain_first_deriv,
+                constrain_second_deriv))
+  }
+  ## Stack only second derivative constraints
+  else if (include_constrain_second_deriv) {
+    A = t(rbind(constrain_fitted, constrain_second_deriv))
+  }
+  ## Stack only first derivative constraints
+  else if (include_constrain_first_deriv) {
+    A = t(rbind(constrain_fitted, constrain_first_deriv))
+  }
+  ## Fall back to fitted-only constraints duplicated
+  else {
+    A = t(rbind(constrain_fitted, constrain_fitted))
+  }
+
+  ## Return zero column if no active constraints, otherwise return A
+  if (!any(A != 0)) {
+    return(cbind(rep(0, (K + 1) * p_expansions)))
+  }
+  else {
     return(A)
   }
 }
@@ -1633,6 +1621,114 @@ compute_dG_dlambda <- function(G,
 }
 
 
+## Penalty adjoint used by tuning gradients
+
+.split_penalty_vector <- function(x, K, p_expansions) {
+  x <- c(x)
+  lapply(seq_len(K + 1), function(k) {
+    rows <- (k - 1) * p_expansions + seq_len(p_expansions)
+    cbind(x[rows])
+  })
+}
+
+
+.compute_penalty_adjoint <- function(G,
+                                     A,
+                                     AGAInv,
+                                     K,
+                                     p_expansions,
+                                     block_F,
+                                     low_rank_F = list(),
+                                     Lambda,
+                                     L_partition_list = list(),
+                                     unique_penalty_per_partition = FALSE,
+                                     wiggle_penalty = 1) {
+
+  n_partitions <- K + 1
+  unique_penalty_per_partition <- isTRUE(unique_penalty_per_partition)
+  V_list <- vector("list", n_partitions)
+
+  for (k in seq_len(n_partitions)) {
+    rows <- (k - 1) * p_expansions + seq_len(p_expansions)
+    A_k <- A[rows, , drop = FALSE]
+    V_list[[k]] <- G[[k]] %**% A_k
+  }
+
+  FV_list <- vector("list", n_partitions)
+  Fdiag_list <- vector("list", n_partitions)
+
+  for (k in seq_len(n_partitions)) {
+    FV_list[[k]] <- block_F[[k]] %**% V_list[[k]]
+    Fdiag_list[[k]] <- block_F[[k]]
+  }
+
+  if (length(low_rank_F) > 0) {
+    for (term in low_rank_F) {
+      vtV <- Reduce("+", lapply(seq_len(n_partitions), function(k) {
+        crossprod(term$v[[k]], V_list[[k]])
+      }))
+      for (k in seq_len(n_partitions)) {
+        FV_list[[k]] <- FV_list[[k]] +
+          term$coef * term$u[[k]] %**% vtV
+        Fdiag_list[[k]] <- Fdiag_list[[k]] +
+          term$coef * term$u[[k]] %**% t(term$v[[k]])
+      }
+    }
+  }
+
+  VtFV <- Reduce("+", lapply(seq_len(n_partitions), function(k) {
+    crossprod(V_list[[k]], FV_list[[k]])
+  }))
+
+  M_list <- vector("list", n_partitions)
+  Lambda_k_list <- vector("list", n_partitions)
+  wiggle_log_by_partition <- numeric(n_partitions)
+
+  for (k in seq_len(n_partitions)) {
+    rows <- (k - 1) * p_expansions + seq_len(p_expansions)
+    A_k <- A[rows, , drop = FALSE]
+    N_k <- Fdiag_list[[k]] -
+      A_k %**% AGAInv %**% t(FV_list[[k]]) -
+      FV_list[[k]] %**% AGAInv %**% t(A_k) +
+      A_k %**% AGAInv %**% VtFV %**% AGAInv %**% t(A_k)
+    M_k <- -G[[k]] %**% N_k %**% G[[k]]
+    M_k <- 0.5 * (M_k + t(M_k))
+
+    Lambda_k <- Lambda
+    if (unique_penalty_per_partition) {
+      Lambda_k <- Lambda_k + L_partition_list[[k]]
+    }
+
+    M_list[[k]] <- M_k
+    Lambda_k_list[[k]] <- Lambda_k
+    wiggle_log_by_partition[[k]] <- sum(M_k * Lambda_k)
+  }
+
+  list(M = M_list,
+       Lambda_k = Lambda_k_list,
+       wiggle_log_by_partition = wiggle_log_by_partition,
+       wiggle_raw_by_partition = wiggle_log_by_partition / wiggle_penalty)
+}
+
+
+.compute_log_penalty_gradient <- function(M_list, L_list, partitions = NULL) {
+  if (length(L_list) == 0) {
+    return(numeric(0))
+  }
+
+  sapply(seq_along(L_list), function(j) {
+    if (is.null(partitions)) {
+      sum(vapply(M_list, function(M_k) {
+        sum(M_k * L_list[[j]])
+      }, numeric(1)))
+    } else {
+      k <- partitions[[j]]
+      sum(M_list[[k]] * L_list[[j]])
+    }
+  })
+}
+
+
 #' Evaluate Exact Leave-One-Out Criterion at a Given Penalty Configuration
 #'
 #' @description
@@ -1699,6 +1795,7 @@ compute_dG_dlambda <- function(G,
   B_list <- .fit_coefficients(G_list, Lambda,
                               Lambda_list$L_partition_list,
                               env, return_G_getB, ...)
+  .tuning_store_active_set(env, B_list$qp_info)
   G_list <- B_list$G_list
   B <- B_list$B
 
@@ -1767,7 +1864,8 @@ compute_dG_dlambda <- function(G,
               residuals      = residuals,
               AGAInv         = AGAInv,
               h_diag         = hat_result$h_diag,
-              C_list         = hat_result$C_list))
+              C_list         = hat_result$C_list,
+              qp_info        = B_list$qp_info))
 }
 
 
@@ -1820,217 +1918,66 @@ compute_dG_dlambda <- function(G,
     outlist <- .compute_loocv(par, log_penalty_vec, env, ...)
   }
 
-  if (verbose) cat("        GhalfXy_temp_list \n")
-  GhalfXy_temp_list <- compute_GhalfXy_temp_wrapper(
-    outlist$G_list$G,
-    outlist$G_list$Ghalf,
-    env$A,
-    outlist$AGAInv,
-    env$Xy,
-    env$p_expansions,
-    env$K,
-    env$parallel & env$parallel_aga,
-    env$cl,
-    env$chunk_size,
-    env$num_chunks,
-    env$rem_chunks)
-  GhalfXy_temp <- GhalfXy_temp_list[[1]]
-  AGAInvAGXy <- GhalfXy_temp_list[[2]]
+  ## Build the exact LOO adjoint for all penalty directions.
+  #  L_*_list entries are current log-scale contributions to Lambda.
+  coef_r_list <- vector("list", env$K + 1)
+  coef_h_list <- vector("list", env$K + 1)
+  s_list <- vector("list", env$K + 1)
+  block_F <- vector("list", env$K + 1)
 
-  if (verbose) cat("        compute_dG_dlambda \n")
-  dPenalty_dlambda1 <- outlist$Lambda / lambda_1
-  dPenalty_partition_dlambda1 <- if (env$unique_penalty_per_partition) {
-    lapply(outlist$L_partition_list, function(L_k) L_k / lambda_1)
-  } else {
-    list()
-  }
-  dG_dlambda <- compute_dG_dlambda(outlist$G_list$G,
-                                   dPenalty_dlambda1,
-                                   env$K,
-                                   env$unique_penalty_per_partition,
-                                   dPenalty_partition_dlambda1,
-                                   env$parallel & env$parallel_matmult,
-                                   env$cl,
-                                   env$chunk_size,
-                                   env$num_chunks,
-                                   env$rem_chunks)
-
-  if (verbose) cat("        compute_dGhalf \n")
-  dGhalf <- compute_dGhalf(dG_dlambda,
-                           env$p_expansions,
-                           env$K,
-                           env$parallel & env$parallel_eigen,
-                           env$cl,
-                           env$chunk_size,
-                           env$num_chunks,
-                           env$rem_chunks)
-
-  if (verbose) cat("        compute_dG_u_dlambda_xy \n")
-  dG_u_dlambda1_Xyr <- compute_dG_u_dlambda_xy(
-    AGAInvAGXy,
-    outlist$AGAInv,
-    outlist$G_list$G,
-    env$A,
-    dG_dlambda,
-    env$p_expansions,
-    env$R_constraints,
-    env$K,
-    env$Xy,
-    outlist$G_list$Ghalf,
-    dGhalf,
-    GhalfXy_temp,
-    env$parallel & env$parallel_matmult,
-    env$cl,
-    env$chunk_size,
-    env$num_chunks,
-    env$rem_chunks,
-    env$parallel & env$parallel_qr)
-
-  dPenalty_dlambda2 <- (lambda_1 / lambda_2) * outlist$L2
-  dPenalty_partition_dlambda2 <- if (env$unique_penalty_per_partition) {
-    lapply(outlist$L_partition_list, function(L_k) 0 * L_k)
-  } else {
-    list()
-  }
-  dG_dlambda2 <- compute_dG_dlambda(outlist$G_list$G,
-                                    dPenalty_dlambda2,
-                                    env$K,
-                                    env$unique_penalty_per_partition,
-                                    dPenalty_partition_dlambda2,
-                                    env$parallel & env$parallel_matmult,
-                                    env$cl,
-                                    env$chunk_size,
-                                    env$num_chunks,
-                                    env$rem_chunks)
-  dGhalf2 <- compute_dGhalf(dG_dlambda2,
-                            env$p_expansions,
-                            env$K,
-                            env$parallel & env$parallel_eigen,
-                            env$cl,
-                            env$chunk_size,
-                            env$num_chunks,
-                            env$rem_chunks)
-  dG_u_dlambda2_Xyr <- compute_dG_u_dlambda_xy(
-    AGAInvAGXy,
-    outlist$AGAInv,
-    outlist$G_list$G,
-    env$A,
-    dG_dlambda2,
-    env$p_expansions,
-    env$R_constraints,
-    env$K,
-    env$Xy,
-    outlist$G_list$Ghalf,
-    dGhalf2,
-    GhalfXy_temp,
-    env$parallel & env$parallel_matmult,
-    env$cl,
-    env$chunk_size,
-    env$num_chunks,
-    env$rem_chunks,
-    env$parallel & env$parallel_qr)
-
-  if (verbose) cat("        compute_dhat_diag \n")
-  dhat_result <- .compute_dhat_diag(env$X,
-                                    outlist$G_list$G,
-                                    dG_dlambda,
-                                    env$A,
-                                    outlist$AGAInv,
-                                    env$K,
-                                    env$p_expansions)
-  dhat_result2 <- .compute_dhat_diag(env$X,
-                                     outlist$G_list$G,
-                                     dG_dlambda2,
-                                     env$A,
-                                     outlist$AGAInv,
-                                     env$K,
-                                     env$p_expansions)
-
-  ## .compute_loocv() clips h_diag into [0, 1 - eps]. The derivative used in
-  ## the LOO gradient must respect that same clipping; once an observation is
-  ## on a boundary, the derivative of the clipped value is zero.
-  dh_diag_clipped1 <- mapply(
-    function(h_k, dh_k) dh_k * ((h_k > 0) & (h_k < 1 - eps)),
-    outlist$h_diag,
-    dhat_result$dh_diag,
-    SIMPLIFY = FALSE
-  )
-  dh_diag_clipped2 <- mapply(
-    function(h_k, dh_k) dh_k * ((h_k > 0) & (h_k < 1 - eps)),
-    outlist$h_diag,
-    dhat_result2$dh_diag,
-    SIMPLIFY = FALSE
-  )
-
-  dr_list <- vector("list", env$K + 1)
   for (k in seq_len(env$K + 1)) {
-    rows <- (k - 1) * env$p_expansions + seq_len(env$p_expansions)
-    q_k <- dG_u_dlambda1_Xyr[rows, , drop = FALSE]
-    dr_list[[k]] <- -c(env$X[[k]] %**% q_k)
+    denom_k <- pmax(1 - outlist$h_diag[[k]], eps)
+    w_k <- outlist$residuals[[k]] / denom_k
+    keep_h <- (outlist$h_diag[[k]] > 0) &
+      (outlist$h_diag[[k]] < 1 - eps)
+    coef_r_list[[k]] <- (2 / env$N_obs) * (w_k / denom_k)
+    coef_h_list[[k]] <- (2 / env$N_obs) * (w_k / denom_k) *
+      w_k * keep_h
+    s_list[[k]] <- crossprod(env$X[[k]], cbind(coef_r_list[[k]]))
+    block_F[[k]] <- crossprod(env$X[[k]],
+                              env$X[[k]] * c(coef_h_list[[k]]))
   }
 
-  dLOO_dlambda1 <- (2 / env$N_obs) * sum(unlist(mapply(
-    function(r_k, h_k, dr_k, dh_k) {
-      denom_k <- pmax(1 - h_k, eps)
-      w_k <- r_k / denom_k
-      (w_k / denom_k) * (dr_k + w_k * dh_k)
-    },
-    outlist$residuals,
-    outlist$h_diag,
-    dr_list,
-    dh_diag_clipped1,
-    SIMPLIFY = FALSE
-  )))
-
-  dr_list2 <- vector("list", env$K + 1)
-  for (k in seq_len(env$K + 1)) {
-    rows <- (k - 1) * env$p_expansions + seq_len(env$p_expansions)
-    q_k <- dG_u_dlambda2_Xyr[rows, , drop = FALSE]
-    dr_list2[[k]] <- -c(env$X[[k]] %**% q_k)
-  }
-
-  dLOO_dlambda2 <- (2 / env$N_obs) * sum(unlist(mapply(
-    function(r_k, h_k, dr_k, dh_k) {
-      denom_k <- pmax(1 - h_k, eps)
-      w_k <- r_k / denom_k
-      (w_k / denom_k) * (dr_k + w_k * dh_k)
-    },
-    outlist$residuals,
-    outlist$h_diag,
-    dr_list2,
-    dh_diag_clipped2,
-    SIMPLIFY = FALSE
-  )))
-
-  ## The exact LOO gradient is kept fully analytic here. Empirically, the
-  # observation-wise leverage derivative can be numerically delicate even when
-  # the aggregated tuning gradient remains useful; see diagnostics for caveats.
-  log_wiggle_gradient <- dLOO_dlambda1 * lambda_1
-  log_flat_gradient <- dLOO_dlambda2 * lambda_2
+  low_rank_F <- list(
+    list(coef = -0.5, u = env$Xy, v = s_list),
+    list(coef = -0.5, u = s_list, v = env$Xy)
+  )
+  penalty_adjoint <- .compute_penalty_adjoint(
+    outlist$G_list$G,
+    env$A,
+    outlist$AGAInv,
+    env$K,
+    env$p_expansions,
+    block_F,
+    low_rank_F,
+    outlist$Lambda,
+    outlist$L_partition_list,
+    env$unique_penalty_per_partition,
+    lambda_1
+  )
+  log_wiggle_gradient <- sum(penalty_adjoint$wiggle_log_by_partition)
+  log_flat_gradient <- sum(vapply(penalty_adjoint$M, function(M_k) {
+    sum(M_k * (lambda_1 * outlist$L2))
+  }, numeric(1)))
 
   gradient <- cbind(c(log_wiggle_gradient,
                       log_flat_gradient))
 
   if (env$unique_penalty_per_predictor) {
-    predictor_penalties <- penalty_vec[grep("predictor", names(penalty_vec))]
-    predictor_penalty_gradient <- sapply(
-      seq_along(predictor_penalties), function(j) {
-        mean(diag(outlist$L_predictor_list[[j]])) /
-          mean(diag(outlist$Lambda)) *
-          log_wiggle_gradient
-      })
+    predictor_penalty_gradient <- .compute_log_penalty_gradient(
+      penalty_adjoint$M,
+      outlist$L_predictor_list
+    )
     gradient <- cbind(c(c(gradient), predictor_penalty_gradient))
   }
 
   if (env$unique_penalty_per_partition) {
     partition_penalties <- penalty_vec[grep("partition", names(penalty_vec))]
-    partition_penalty_gradient <- sapply(
-      seq_along(partition_penalties), function(j) {
-        mean(diag(outlist$L_partition_list[[j]])) /
-          mean(diag(outlist$Lambda +
-                      outlist$L_partition_list[[j]])) *
-          log_wiggle_gradient
-      })
+    partition_penalty_gradient <- .compute_log_penalty_gradient(
+      penalty_adjoint$M,
+      outlist$L_partition_list,
+      seq_along(partition_penalties)
+    )
     gradient <- cbind(c(gradient, partition_penalty_gradient))
   }
 
@@ -4575,7 +4522,6 @@ efficient_bfgs <- function(par, fn, control = list()) {
       if(f_new < best_f) {
         best_f <- f_new
         best_x <- x_new
-        best_Inv <- Inv
       }
 
       s0 <- cbind(x_new - x)
@@ -4588,6 +4534,12 @@ efficient_bfgs <- function(par, fn, control = list()) {
         term2 <- diag(n_params) - rho0 * tcrossprod(y0, s0)
         Inv <- crossprod(t(term1), crossprod(t(Inv), term2)) +
           rho0 * tcrossprod(s0)
+      }
+
+      ## Save inverse Hessian after the BFGS update so it reflects
+      #  the curvature learned from the step that reached best_x
+      if(f_new <= best_f) {
+        best_Inv <- Inv
       }
 
       x <- x_new
@@ -4620,7 +4572,38 @@ efficient_bfgs <- function(par, fn, control = list()) {
     counts = iter,
     convergence = (iter < ctrl$maxit),
     message = if(iter == ctrl$maxit)"Maximum iterations reached" else "Converged",
-    vcov = best_Inv
+    vcov = {
+      ## fallback: if any diagonal of the bfgs inverse hessian is
+      #  non-positive, replace with finite-difference hessian from
+      #  the analytic gradient. this guarantees a usable vcov for
+      #  confidence intervals on correlation parameters.
+      if(any(diag(best_Inv) <= 0)){
+        n_p <- length(best_x)
+        eps <- (.Machine$double.eps)^(1/3)
+        H <- matrix(0, n_p, n_p)
+        g0 <- fn(c(best_x))[[2]]
+        if(is.null(g0) || any(is.na(g0))) g0 <- -approx_grad(best_x, fn)
+        for(j in 1:n_p){
+          x_pert <- best_x
+          h_j <- eps * max(1, abs(best_x[j]))
+          x_pert[j] <- best_x[j] + h_j
+          g_pert <- fn(c(x_pert))[[2]]
+          if(is.null(g_pert) || any(is.na(g_pert))) g_pert <-
+            -approx_grad(x_pert, fn)
+          H[, j] <- (g_pert - g0) / h_j
+        }
+        ## symmetrize and invert
+        H <- 0.5 * (H + t(H))
+        vcov_fd <- try(solve(H), silent = TRUE)
+        if(inherits(vcov_fd, 'try-error') || any(diag(vcov_fd) <= 0)){
+          best_Inv
+        } else {
+          vcov_fd
+        }
+      } else {
+        best_Inv
+      }
+    }
   )
 }
 

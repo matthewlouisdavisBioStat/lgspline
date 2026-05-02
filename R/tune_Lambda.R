@@ -93,6 +93,13 @@
 }
 
 
+.tuning_adaptive_criterion_tol <- function(tol, criterion_value) {
+  crit_scale <- max(abs(c(criterion_value)), sqrt(.Machine$double.eps),
+                    na.rm = TRUE)
+  max(tol, min(1e-5, 1e-5 * crit_scale))
+}
+
+
 .safe_tuning_outlist <- function(par,
                                  criterion_fxn,
                                  log_penalty_vec,
@@ -381,6 +388,7 @@
                               env,
                               return_G_getB,
                               ...) {
+  initial_active_ineq <- .tuning_seed_active_set(env)
 
   ## Attempt blockfit_solve when conditions are met
   if (env$use_blockfit) {
@@ -428,6 +436,7 @@
         max_backfit_iter               = 100,
         Vhalf                          = env$Vhalf,
         VhalfInv                       = env$VhalfInv,
+        initial_active_ineq            = initial_active_ineq,
         include_warnings               = env$include_warnings,
         verbose                        = env$verbose,
         ...
@@ -526,6 +535,8 @@
     env$just_linear_without_interactions,
     env$Vhalf,
     env$VhalfInv,
+    gee_precomp = env$gee_precomp,
+    initial_active_ineq = .tuning_seed_active_set(env),
     ...
   )
 }
@@ -672,6 +683,7 @@
   B_list <- .fit_coefficients(G_list, Lambda,
                               Lambda_list$L_partition_list,
                               env, return_G_getB, ...)
+  .tuning_store_active_set(env, B_list$qp_info)
   G_list <- B_list$G_list
   B      <- B_list$B
 
@@ -767,7 +779,8 @@
               denominator = denominator,
               residuals   = residuals,
               denom_sq    = denom_sq,
-              AGAInv      = AGAInv))
+              AGAInv      = AGAInv,
+              qp_info     = B_list$qp_info))
 }
 
 
@@ -810,14 +823,11 @@
 #' log-scale penalty parameter, and the chain rule
 #' \eqn{d\lambda / d\theta = \lambda} (exp parameterization) is applied.
 #'
-#' The shared wiggle and flat directions are differentiated directly from the
-#' fitted criterion. For predictor- and partition-specific penalties, a
-#' lower-cost ratio heuristic is used on the log-penalty scale:
-#' \deqn{\frac{\partial \mathrm{GCV}_u}{\partial \theta_{j}}
-#'   \approx \frac{\mathrm{tr}(\mathbf{L}_{j})}{\mathrm{tr}(\boldsymbol{\Lambda})}
-#'   \cdot \frac{\partial \mathrm{GCV}_u}{\partial \theta_{w}},}
-#' where \eqn{\mathbf{L}_{j}} denotes the current contribution of that extra
-#' penalty to \eqn{\boldsymbol{\Lambda}}.
+#' After differentiating through \eqn{\mathbf{G}}, \eqn{\mathbf{U}}, and the
+#' trace term once, the gradient is stored as
+#' \eqn{\mathbf{M}_k = \partial \mathrm{GCV}_u /
+#' \partial \boldsymbol{\Lambda}_k}. Each log-penalty derivative is then
+#' \eqn{\sum_k \mathrm{tr}(\mathbf{M}_k\mathbf{L}_{j,k})}.
 #'
 #' @keywords internal
 .compute_gcvu_gradient <- function(par,
@@ -891,6 +901,7 @@
     B_list <- .fit_coefficients(G_list, Lambda,
                                 Lambda_list$L_partition_list,
                                 env, return_G_getB, ...)
+    .tuning_store_active_set(env, B_list$qp_info)
     G_list <- B_list$G_list
     B      <- B_list$B
 
@@ -977,151 +988,11 @@
                     denominator = denominator,
                     residuals   = residuals,
                     denom_sq    = denom_sq,
-                    AGAInv      = AGAInv)
+                    AGAInv      = AGAInv,
+                    qp_info     = B_list$qp_info)
   }
 
-  ## Differentiate the same fitted objects above so we do not have to
-  #  refit again just to get the gradient.
-
-  ## Key intermediate for the derivative calculations.
-  if (verbose) cat("        GhalfXy_temp_list \n")
-  GhalfXy_temp_list <- compute_GhalfXy_temp_wrapper(
-    outlist$G_list$G,
-    outlist$G_list$Ghalf,
-    env$A,
-    outlist$AGAInv,
-    env$Xy,
-    env$p_expansions,
-    env$K,
-    env$parallel & env$parallel_aga,
-    env$cl,
-    env$chunk_size,
-    env$num_chunks,
-    env$rem_chunks)
-  GhalfXy_temp <- GhalfXy_temp_list[[1]]
-  AGAInvAGXy   <- GhalfXy_temp_list[[2]]
-
-  ## dG/dlambda
-  if (verbose) cat("        compute_dG_dlambda \n")
-  dPenalty_dlambda1 <- outlist$Lambda / lambda_1
-  dPenalty_partition_dlambda1 <- if (env$unique_penalty_per_partition) {
-    lapply(outlist$L_partition_list, function(L_k) L_k / lambda_1)
-  } else {
-    list()
-  }
-  dG_dlambda <- compute_dG_dlambda(outlist$G_list$G,
-                                   dPenalty_dlambda1,
-                                   env$K,
-                                   env$unique_penalty_per_partition,
-                                   dPenalty_partition_dlambda1,
-                                   env$parallel & env$parallel_matmult,
-                                   env$cl,
-                                   env$chunk_size,
-                                   env$num_chunks,
-                                   env$rem_chunks)
-
-  ## dG^{1/2}/dlambda
-  if (verbose) cat("        Compute dGhalf \n")
-  dGhalf <- compute_dGhalf(dG_dlambda,
-                           env$p_expansions,
-                           env$K,
-                           env$parallel & env$parallel_eigen,
-                           env$cl,
-                           env$chunk_size,
-                           env$num_chunks,
-                           env$rem_chunks)
-
-  ## d(U G)/dlambda * X^T y
-  if (verbose) cat("        compute_dG_u_dlambda_xy \n")
-  dG_u_dlambda1_Xyr <- compute_dG_u_dlambda_xy(
-    AGAInvAGXy,
-    outlist$AGAInv,
-    outlist$G_list$G,
-    env$A,
-    dG_dlambda,
-    env$p_expansions,
-    env$R_constraints,
-    env$K,
-    env$Xy,
-    outlist$G_list$Ghalf,
-    dGhalf,
-    GhalfXy_temp,
-    env$parallel & env$parallel_matmult,
-    env$cl,
-    env$chunk_size,
-    env$num_chunks,
-    env$rem_chunks,
-    env$parallel & env$parallel_qr)
-
-  ## dW/dlambda (trace derivative)
-  #  trace(H) is the sum of the hat diagonals, so differentiate that
-  #  quantity directly rather than relying on the older trace helper.
-  if (verbose) cat("        compute_dhat_diag for dW \n")
-  dW_dlambda <- sum(unlist(
-    .compute_dhat_diag(
-      env$X,
-      outlist$G_list$G,
-      dG_dlambda,
-      env$A,
-      outlist$AGAInv,
-      env$K,
-      env$p_expansions
-    )$dh_diag
-  ))
-  dPenalty_dlambda2 <- (lambda_1 / lambda_2) * outlist$L2
-  dPenalty_partition_dlambda2 <- if (env$unique_penalty_per_partition) {
-    lapply(outlist$L_partition_list, function(L_k) 0 * L_k)
-  } else {
-    list()
-  }
-  dG_dlambda2 <- compute_dG_dlambda(outlist$G_list$G,
-                                    dPenalty_dlambda2,
-                                    env$K,
-                                    env$unique_penalty_per_partition,
-                                    dPenalty_partition_dlambda2,
-                                    env$parallel & env$parallel_matmult,
-                                    env$cl,
-                                    env$chunk_size,
-                                    env$num_chunks,
-                                    env$rem_chunks)
-  dGhalf2 <- compute_dGhalf(dG_dlambda2,
-                            env$p_expansions,
-                            env$K,
-                            env$parallel & env$parallel_eigen,
-                            env$cl,
-                            env$chunk_size,
-                            env$num_chunks,
-                            env$rem_chunks)
-  dG_u_dlambda2_Xyr <- compute_dG_u_dlambda_xy(
-    AGAInvAGXy,
-    outlist$AGAInv,
-    outlist$G_list$G,
-    env$A,
-    dG_dlambda2,
-    env$p_expansions,
-    env$R_constraints,
-    env$K,
-    env$Xy,
-    outlist$G_list$Ghalf,
-    dGhalf2,
-    GhalfXy_temp,
-    env$parallel & env$parallel_matmult,
-    env$cl,
-    env$chunk_size,
-    env$num_chunks,
-    env$rem_chunks,
-    env$parallel & env$parallel_qr)
-  dW_dlambda2 <- sum(unlist(
-    .compute_dhat_diag(
-      env$X,
-      outlist$G_list$G,
-      dG_dlambda2,
-      env$A,
-      outlist$AGAInv,
-      env$K,
-      env$p_expansions
-    )$dh_diag
-  ))
+  ## Build the residual side of the criterion adjoint.
 
   ## -2 * residuals^T * X
   if (verbose) cat("        neg2tresidX\n")
@@ -1137,54 +1008,58 @@
                           env$num_chunks,
                           env$rem_chunks))
 
-  ## Quotient rule for GCV_u derivative w.r.t. wiggle penalty
-  dnumerator_dlambda1   <- c(neg2tresidX %**% dG_u_dlambda1_Xyr)
-  ddenominator_dlambda1 <- 2 * (1 - gamma * outlist$mean_W) *
-    (-gamma * dW_dlambda)
-  dGCV_u_dlambda1 <- (dnumerator_dlambda1 * outlist$denominator -
-                        outlist$numerator * ddenominator_dlambda1) /
+  ## Reuse the wiggle chain as an adjoint for all penalty directions.
+  #  L_*_list entries are current log-scale contributions to Lambda.
+  cN <- 1 / outlist$denominator
+  cW <- outlist$numerator * 2 * gamma * (1 - gamma * outlist$mean_W) /
     outlist$denom_sq
-
-  dnumerator_dlambda2   <- c(neg2tresidX %**% dG_u_dlambda2_Xyr)
-  ddenominator_dlambda2 <- 2 * (1 - gamma * outlist$mean_W) *
-    (-gamma * dW_dlambda2)
-  dGCV_u_dlambda2 <- (dnumerator_dlambda2 * outlist$denominator -
-                        outlist$numerator * ddenominator_dlambda2) /
-    outlist$denom_sq
-
-  log_wiggle_gradient <- dGCV_u_dlambda1 * lambda_1
-  log_flat_gradient <- dGCV_u_dlambda2 * lambda_2
+  xy_list <- env$Xy
+  neg2_list <- .split_penalty_vector(c(neg2tresidX),
+                                     env$K,
+                                     env$p_expansions)
+  block_F <- lapply(env$X_gram, function(XtX_k) cW * XtX_k)
+  low_rank_F <- list(
+    list(coef = 0.5 * cN, u = xy_list,   v = neg2_list),
+    list(coef = 0.5 * cN, u = neg2_list, v = xy_list)
+  )
+  penalty_adjoint <- .compute_penalty_adjoint(
+    outlist$G_list$G,
+    env$A,
+    outlist$AGAInv,
+    env$K,
+    env$p_expansions,
+    block_F,
+    low_rank_F,
+    outlist$Lambda,
+    outlist$L_partition_list,
+    env$unique_penalty_per_partition,
+    lambda_1
+  )
+  log_wiggle_gradient <- sum(penalty_adjoint$wiggle_log_by_partition)
+  log_flat_gradient <- sum(vapply(penalty_adjoint$M, function(M_k) {
+    sum(M_k * (lambda_1 * outlist$L2))
+  }, numeric(1)))
 
   if (verbose) cat("        Gradient start \n")
   gradient <- cbind(c(log_wiggle_gradient,
                       log_flat_gradient))
 
-  ## The remaining penalty gradients follow the wiggle derivative
-  #  through the same trace-ratio approximation. These are already on the
-  #  log-penalty scale because L_predictor_list/L_partition_list contain the
-  #  current contribution of each penalty to Lambda, so no extra chain-rule
-  #  multiplication by the raw penalty magnitude is needed here.
   if (env$unique_penalty_per_predictor) {
-    predictor_penalties <- penalty_vec[grep("predictor", names(penalty_vec))]
-    predictor_penalty_gradient <- sapply(
-      seq_along(predictor_penalties), function(j) {
-        mean(diag(outlist$L_predictor_list[[j]])) /
-          mean(diag(outlist$Lambda)) *
-          log_wiggle_gradient
-      })
+    predictor_penalty_gradient <- .compute_log_penalty_gradient(
+      penalty_adjoint$M,
+      outlist$L_predictor_list
+    )
     gradient <- cbind(c(c(gradient), predictor_penalty_gradient))
   }
 
   ## Partition-specific penalty gradients
   if (env$unique_penalty_per_partition) {
     partition_penalties <- penalty_vec[grep("partition", names(penalty_vec))]
-    partition_penalty_gradient <- sapply(
-      seq_along(partition_penalties), function(j) {
-        mean(diag(outlist$L_partition_list[[j]])) /
-          mean(diag(outlist$Lambda +
-                      outlist$L_partition_list[[j]])) *
-          log_wiggle_gradient
-      })
+    partition_penalty_gradient <- .compute_log_penalty_gradient(
+      penalty_adjoint$M,
+      outlist$L_partition_list,
+      seq_along(partition_penalties)
+    )
     gradient <- cbind(c(gradient, partition_penalty_gradient))
   }
 
@@ -1229,8 +1104,9 @@
 #'   \code{function(par, log_penalty_vec, outlist, env, ...)}.
 #' @param env List; tuning environment (passed through to
 #'   \code{criterion_fxn} and \code{gr_fxn}).
-#' @param tol Numeric; convergence tolerance for both criterion change and
-#'   parameter change.
+#' @param tol Numeric; convergence tolerance for parameter change and the
+#'   strict absolute criterion-change check. A small scale-aware plateau check
+#'   is also used after the first few iterations.
 #' @param max_iter Integer; maximum number of BFGS iterations (default 100).
 #' @param ... Additional arguments passed to fitting functions.
 #'
@@ -1250,6 +1126,9 @@
 #'   \item Backtracking: damping factor halved on rejection; terminates
 #'     when damp < \eqn{2^{-10}} (early iterations) or \eqn{2^{-12}}
 #'     (later iterations).
+#'   \item Convergence: after iteration 9, stop when either the strict
+#'     \code{tol} checks are met or the accepted criterion changes remain
+#'     below a small criterion-scale tolerance for several iterations.
 #' }
 #'
 #' @keywords internal
@@ -1287,12 +1166,15 @@
   prev_lambda   <- old_lambda
   restart       <- TRUE
   n_workers     <- .tuning_worker_count(env$cl)
+  small_change_count <- 0L
+  small_change_patience <- 3L
 
   ## Evaluate and retain the grid-search start point before taking any
   # optimizer step. Otherwise a bad first gradient step can displace the
   # best-known solution even when the initialization was already better.
   outlist <- criterion_fxn(c(lambda[1], lambda[2], log_penalty_vec),
                            log_penalty_vec, env, ...)
+  .tuning_store_active_set(env, outlist$qp_info)
   criterion_value <- outlist$criterion_value
   best_lambda <- lambda
   best_criterion_value <- criterion_value
@@ -1307,6 +1189,7 @@
                          log_penalty_vec, outlist, env, ...)
       gradient <- cbind(result$gradient)
       outlist  <- result$outlist
+      .tuning_store_active_set(env, outlist$qp_info)
     }
 
     ## First two iterations: steepest descent
@@ -1499,6 +1382,7 @@
       prev_gradient <- gradient
       dont_skip_gr  <- TRUE
       prev_outlist  <- outlist
+      .tuning_store_active_set(env, outlist$qp_info)
       old_lambda    <- prev_lambda
       prev_lambda   <- lambda
       lambda        <- new_lambda
@@ -1513,8 +1397,20 @@
       }
 
       ## Check convergence
-      if (((abs(new_criterion_value - criterion_value) < tol) ||
-           (max(abs(lambda - prev_lambda)) < tol)) &&
+      criterion_change <- abs(new_criterion_value - criterion_value)
+      parameter_change <- max(abs(lambda - prev_lambda))
+      adaptive_criterion_tol <- .tuning_adaptive_criterion_tol(
+        tol, best_criterion_value
+      )
+      if (criterion_change < adaptive_criterion_tol) {
+        small_change_count <- small_change_count + 1L
+      } else {
+        small_change_count <- 0L
+      }
+
+      if (((criterion_change < tol) ||
+           (parameter_change < tol) ||
+           (small_change_count >= small_change_patience)) &&
           (iter > 9)) {
         return(list(par        = c(best_lambda),
                     criterion_value = best_criterion_value,
@@ -1725,6 +1621,86 @@
 }
 
 
+## Active-set warm start
+
+.tuning_seed_active_set <- function(env) {
+  if (is.null(env$active_set_cache) || is.null(env$qp_Amat)) {
+    return(integer(0))
+  }
+
+  active_ineq <- env$active_set_cache$active_ineq
+  if (is.null(active_ineq)) return(integer(0))
+
+  active_ineq <- as.integer(active_ineq)
+  active_ineq <- active_ineq[is.finite(active_ineq)]
+  unique(active_ineq[active_ineq >= 1L & active_ineq <= ncol(env$qp_Amat)])
+}
+
+
+.tuning_store_active_set <- function(env, qp_info) {
+  if (is.null(env$active_set_cache)) return(invisible(NULL))
+
+  active_ineq <- if (!is.null(qp_info$active_ineq)) {
+    qp_info$active_ineq
+  } else {
+    integer(0)
+  }
+  active_ineq <- as.integer(active_ineq)
+  active_ineq <- active_ineq[is.finite(active_ineq)]
+  if (!is.null(env$qp_Amat)) {
+    active_ineq <- active_ineq[active_ineq >= 1L &
+                                 active_ineq <= ncol(env$qp_Amat)]
+  }
+
+  env$active_set_cache$active_ineq <- unique(active_ineq)
+  invisible(NULL)
+}
+
+
+.tuning_clear_active_set <- function(env) {
+  if (!is.null(env$active_set_cache)) {
+    env$active_set_cache$active_ineq <- integer(0)
+  }
+  invisible(NULL)
+}
+
+
+## Correlated tuning cache
+
+.make_gee_tuning_precomp <- function(X, y, order_list, Vhalf, VhalfInv,
+                                     observation_weights) {
+  if (is.null(Vhalf) | is.null(VhalfInv)) {
+    return(NULL)
+  }
+
+  perm <- unlist(order_list)
+  VhalfInv_perm <- VhalfInv[perm, perm]
+  X_block <- collapse_block_diagonal(X)
+  y_block <- cbind(unlist(y))
+  X_tilde <- VhalfInv_perm %**% X_block
+  y_tilde <- VhalfInv_perm %**% y_block
+
+  obs_wt <- c(unlist(observation_weights))
+  if (length(obs_wt) == 0L) {
+    obs_wt <- rep(1, nrow(X_tilde))
+  } else if (length(obs_wt) == 1L) {
+    obs_wt <- rep(obs_wt, nrow(X_tilde))
+  }
+
+  list(
+    perm           = perm,
+    VhalfInv_perm = VhalfInv_perm,
+    X_block       = X_block,
+    y_block       = y_block,
+    X_tilde       = X_tilde,
+    y_tilde       = y_tilde,
+    obs_wt        = obs_wt,
+    Gram_full     = crossprod(X_tilde, obs_wt * X_tilde),
+    Xy_tilde      = crossprod(X_tilde, obs_wt * y_tilde)
+  )
+}
+
+
 ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 # Subfunction: .build_tuning_env
 ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
@@ -1798,6 +1774,9 @@
                               verbose, include_warnings,
                               flat_cols, use_blockfit) {
 
+  gee_precomp <- .make_gee_tuning_precomp(X, y, order_list, Vhalf, VhalfInv,
+                                          observation_weights)
+
   list(
     y                             = y,
     X                             = X,
@@ -1855,7 +1834,9 @@
     verbose                       = verbose,
     include_warnings              = include_warnings,
     flat_cols                     = flat_cols,
-    use_blockfit                  = use_blockfit
+    use_blockfit                  = use_blockfit,
+    gee_precomp                   = gee_precomp,
+    active_set_cache              = new.env(parent = emptyenv())
   )
 }
 
@@ -1913,7 +1894,9 @@
 #' @param keep_weighted_Lambda,iterate Logical controlling GLM fitting.
 #' @param qp_score_function,quadprog,qp_Amat,qp_bvec,qp_meq Quadratic
 #'   programming parameters (see arguments of \code{\link[lgspline]{lgspline}}).
-#' @param tol Numeric; convergence tolerance.
+#' @param tol Numeric; convergence tolerance. Used directly for strict
+#'   absolute criterion and log-parameter checks, and as the floor for the
+#'   adaptive plateau check in the custom BFGS path.
 #' @param sd_y,delta Response standardization parameters.
 #' @param tuning_criterion Character scalar selecting the tuning objective:
 #'   \code{"loo"} for exact leave-one-out on the transformed tuning problem or
@@ -2006,13 +1989,18 @@
 #'   \item \strong{BFGS optimization}: Minimize the selected tuning criterion via either the custom
 #'     damped BFGS with closed-form gradients (see \code{.damped_bfgs},
 #'     \code{.compute_gcvu_gradient}, \code{.compute_loocv_gradient}) or base R's \code{stats::optim} with
-#'     finite-difference gradients. The GCV gradient is differentiated directly
-#'     in the shared wiggle and flat directions; for LOO, the same direct
-#'     differentiation is used, but the leverage derivative may be numerically
-#'     delicate in some problems and can motivate the finite-difference
-#'     fallback. When \code{parallel_bfgs = TRUE} and a cluster is supplied,
-#'     each damped step evaluates a batch of halved step sizes in parallel and
-#'     takes the best improving candidate from that batch.
+#'     finite-difference gradients. The analytic paths differentiate the fitted
+#'     criterion once, then obtain each log-penalty gradient from the blockwise
+#'     Frobenius product \eqn{\sum_k\mathrm{tr}(\mathbf{M}_k\mathbf{L}_{j,k})}.
+#'     For LOO, the leverage derivative may be numerically delicate in some
+#'     problems and can motivate the finite-difference fallback. After the
+#'     first 10 iterations, the custom BFGS path also stops on a small
+#'     scale-aware plateau in accepted criterion values. When
+#'     \code{parallel_bfgs = TRUE} and a cluster is supplied, each damped step
+#'     evaluates a batch of halved step sizes in parallel and takes the best
+#'     improving candidate from that batch. If inequality constraints are
+#'     present, the active set from the last accepted coefficient solve is used
+#'     as the initial working set for the next tuning evaluation.
 #'   \item \strong{Criterion choice}: \code{"loo"} uses exact per-observation
 #'     leverages on the transformed tuning problem, while \code{"gcv"} uses the
 #'     usual trace-based denominator with optional \code{gcv_gamma}
@@ -2030,10 +2018,16 @@
 #' i.e. raw_penalty = exp(theta), so that raw penalties are always positive.
 #' The chain rule factor d(exp(theta))/d(theta) = exp(theta) = raw_penalty.
 #'
-#' For predictor- and partition-specific penalties, the current implementation
-#' still uses the lower-cost ratio approximation rather than a full direct
-#' derivative in every extra penalty direction. The shared wiggle and flat
-#' directions therefore remain the most accurate closed-form gradients.
+#' If \eqn{\mathbf{L}_{j,k}} is the current contribution of
+#' \eqn{\theta_j = \log\lambda_j} to partition \eqn{k}, then
+#' \deqn{
+#'   \frac{\partial \ell}{\partial \theta_j}
+#'   =
+#'   \sum_{k=0}^{K}
+#'   \mathrm{tr}\{\mathbf{M}_k\mathbf{L}_{j,k}\}.
+#' }
+#' This avoids repeating the full derivative through
+#' \eqn{\mathbf{G}}, \eqn{\mathbf{U}}, and \eqn{\mathbf{H}} for each penalty.
 #'
 #' The resulting penalty follows the same notation used in the paper:
 #' \deqn{
@@ -2369,6 +2363,7 @@ tune_Lambda <- function(
       cat("    Finished grid evaluations\n")
       cat("    Best from grid search: ", cbind(c(best_start)), "\n")
     }
+    .tuning_clear_active_set(env)
 
     ## Run optimization
     if (use_custom_bfgs) {

@@ -26,7 +26,8 @@
   rem_chunks,
   tol,
   parallel_qr = FALSE,
-  max_as_iter = NULL
+  max_as_iter = NULL,
+  initial_active_ineq = integer(0)
 )
 }
 \arguments{
@@ -61,6 +62,9 @@ non-Gaussian Woodbury path passes the partitioned score.}
 \item{tol}{Convergence tolerance.}
 
 \item{max_as_iter}{Maximum active-set iterations (default 50).}
+
+\item{initial_active_ineq}{Integer vector of inequality columns used as the
+initial working set.}
 }
 \value{
 Same structure as \code{.active_set_refine()}.

@@ -46,6 +46,7 @@ blockfit_solve(
   max_backfit_iter = 100,
   Vhalf = NULL,
   VhalfInv = NULL,
+  initial_active_ineq = integer(0),
   include_warnings = TRUE,
   verbose = FALSE,
   ...
@@ -131,6 +132,9 @@ original observation ordering.}
 \item{VhalfInv}{Inverse square root of the working correlation matrix
 in the original observation ordering.  When both are non-\code{NULL},
 the GEE paths are used.}
+
+\item{initial_active_ineq}{Optional inequality columns used as the first
+active set in tuning or repeated solves.}
 
 \item{include_warnings}{Logical.}
 

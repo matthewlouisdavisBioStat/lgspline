@@ -22,7 +22,8 @@ make_constraint_matrix(
   include_3way_interactions,
   include_quadratic_interactions,
   colnm_expansions,
-  expansion_scales
+  expansion_scales,
+  add_first_and_second_derivative_constraints = NULL
 )
 }
 \arguments{
@@ -61,6 +62,13 @@ make_constraint_matrix(
 \item{colnm_expansions}{Character vector; column names for basis expansions}
 
 \item{expansion_scales}{Numeric vector; scaling factors for standardization}
+
+\item{add_first_and_second_derivative_constraints}{Logical or \code{NULL};
+when both first- and second-derivative constraints are requested, combine
+the corresponding derivative rows before adding them to the smoothing
+constraint matrix. If \code{NULL}, this is done when more than one
+predictor is spline-expanded. If \code{FALSE}, first- and
+second-derivative constraints are imposed as separate equality rows.}
 }
 \value{
 Matrix \eqn{\textbf{A}} of constraint coefficients. Columns correspond to

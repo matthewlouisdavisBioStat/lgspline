@@ -9,6 +9,13 @@ This is a resubmission, lgspline version 1.0.3. Following some early feedback up
    users can now optionally choose different observation subsets for
    different built-in constraint types / variables via a named-list form
    of `qp_observations`
+4) Smoothness constraints now support an automatic
+   `add_first_and_second_derivative_constraints = NULL` mode. When more
+   than one predictor is spline-expanded, the corresponding first- and
+   second-derivative equality rows are combined before they enter the
+   smoothing constraint matrix; when only one predictor is spline-expanded
+   and the remaining predictors are non-spline effects, they are kept
+   separate by default. Users can still request either behavior explicitly.
 
 In addition, documentation and code comments were improved throughout. 
 
@@ -38,6 +45,10 @@ There are no issues with backwards compatibility - code will not break for users
   inequality constraints with
   `qr_pivot_smoothing_constraints` and
   `qr_pivot_inequality_constraints`
+- users can now choose whether first- and second-derivative smoothness
+  constraints are combined in the equality matrix or imposed separately via
+  `add_first_and_second_derivative_constraints`; the default `NULL` mode
+  combines them only when more than one predictor is spline-expanded
 - a new `parallel_qr_qp` option allows partition-wise QR pivoting of
   derivative/curvature inequality blocks across workers; built-in range
   and monotonicity constraints are intentionally left exact rather than
@@ -117,3 +128,18 @@ There are no issues with backwards compatibility - code will not break for users
 0 errors | 0 warnings | 0 notes
 
 There are no downstream dependencies for this package.
+
+## Additional update: exact tuning penalty gradients
+
+- replaced the previous unweighted trace-ratio approximation for optional
+  predictor- and partition-specific tuning penalties with the exact
+  per-partition adjoint identity
+  `sum_k tr(M_k L_{j,k})`, where `M_k = d criterion / d Lambda_k`
+- the same adjoint is now used for wiggle, flat ridge, predictor-specific,
+  and partition-specific log-scale gradients in `tune_Lambda`
+- added a developer-only verification script,
+  `scripts/codex_verify_trace_gradient.R`, comparing analytic gradients to
+  central finite differences and checking the weighted trace-ratio identity
+- cached penalty-independent correlated tuning quantities to avoid rebuilding fixed whitening objects during repeated LOO/GCV penalty evaluations
+- penalty tuning now reuses the last accepted active inequality set as a KKT-checked warm start for subsequent constrained coefficient solves
+- Relaxed the structured-correlation Woodbury rank gate from P/3 to 2P/3 after Theoph/NCA diagnostics showed the previous cutoff caused unnecessary dense fallback at higher estimated correlation.

@@ -42,6 +42,7 @@
   L_partition_list,
   VhalfInv,
   homogenous_weights,
+  initial_active_ineq = integer(0),
   ...
 )
 }

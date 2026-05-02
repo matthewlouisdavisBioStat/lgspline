@@ -613,6 +613,34 @@ test_that("parallel damped BFGS returns a finite tuning solution", {
   expect_lte(res$criterion_value, start_value + 1e-10)
 })
 
+test_that("adaptive tuning tolerance remains small and scale-aware", {
+  tol <- 10 * sqrt(.Machine$double.eps)
+
+  expect_equal(lgspline:::.tuning_adaptive_criterion_tol(tol, 1e-4),
+               tol)
+  expect_equal(lgspline:::.tuning_adaptive_criterion_tol(tol, 0.27),
+               2.7e-6,
+               tolerance = 1e-12)
+  expect_equal(lgspline:::.tuning_adaptive_criterion_tol(tol, 10),
+               1e-5,
+               tolerance = 1e-12)
+})
+
+test_that("tuning active-set warm start keeps valid inequality columns", {
+  env <- list(
+    qp_Amat = matrix(0, nrow = 3, ncol = 5),
+    active_set_cache = new.env(parent = emptyenv())
+  )
+
+  lgspline:::.tuning_store_active_set(
+    env, list(active_ineq = c(2, 4, 9, NA, 2))
+  )
+  expect_equal(lgspline:::.tuning_seed_active_set(env), c(2L, 4L))
+
+  lgspline:::.tuning_clear_active_set(env)
+  expect_equal(lgspline:::.tuning_seed_active_set(env), integer(0))
+})
+
 test_that("custom GCV tuning does not inflate partition penalties relative to finite differences", {
   set.seed(1234)
   t <- sort(runif(80, -3, 3))

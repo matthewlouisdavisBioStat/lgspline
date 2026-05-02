@@ -31,6 +31,7 @@
   chunk_size = NULL,
   num_chunks = NULL,
   rem_chunks = NULL,
+  initial_active_ineq = integer(0),
   include_warnings = TRUE,
   verbose = FALSE,
   ...

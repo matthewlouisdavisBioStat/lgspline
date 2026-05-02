@@ -17,6 +17,7 @@
   kkt_subproblem,
   method,
   debug_label = "active-set",
+  initial_active_ineq = integer(0),
   parallel_qr = FALSE,
   cl = NULL
 )
@@ -49,6 +50,9 @@ and returning a KKT-status list with components
 \item{method}{Character solver label for \code{qp_info}.}
 
 \item{debug_label}{Character tag used in optional debug tracing.}
+
+\item{initial_active_ineq}{Integer vector of inequality columns used as the
+initial working set.}
 }
 \value{
 List with \code{result}, \code{qp_info}, and \code{converged}.

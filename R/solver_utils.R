@@ -530,6 +530,8 @@
 #'   \code{drop}, and \code{multipliers}.
 #' @param method Character solver label for \code{qp_info}.
 #' @param debug_label Character tag used in optional debug tracing.
+#' @param initial_active_ineq Integer vector of inequality columns used as the
+#'   initial working set.
 #'
 #' @return List with \code{result}, \code{qp_info}, and \code{converged}.
 #'
@@ -546,13 +548,20 @@
                                kkt_subproblem,
                                method,
                                debug_label = "active-set",
+                               initial_active_ineq = integer(0),
                                parallel_qr = FALSE,
                                cl = NULL) {
   if (is.null(qp_Amat) || !is.matrix(qp_Amat) || ncol(qp_Amat) == 0L) {
     return(list(result = result, qp_info = NULL, converged = TRUE))
   }
 
-  active_ineq <- integer(0)
+  ## Initial working set
+  #  A warm start only chooses the first equality re-solve; KKT checks still
+  #  decide the final active set.
+  active_ineq <- as.integer(initial_active_ineq)
+  active_ineq <- active_ineq[is.finite(active_ineq)]
+  active_ineq <- unique(active_ineq[active_ineq >= 1L &
+                                      active_ineq <= ncol(qp_Amat)])
   active_ineq_kept <- integer(0)
   converged <- FALSE
   kkt <- list(multipliers = numeric(0))

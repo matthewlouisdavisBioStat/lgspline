@@ -47,6 +47,7 @@
   dispersion_function,
   VhalfInv,
   homogenous_weights,
+  initial_active_ineq = integer(0),
   ...
 )
 }
