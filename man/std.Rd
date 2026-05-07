@@ -18,10 +18,10 @@ Centers a vector by its sample mean, then scales it by its sample standard devia
 }
 \examples{
 
-x <- c(1, 2, 3, 4, 5)
-std(x)
-print(mean(x))
-print(sd(x))
+v <- c(1, 2, 3, 4, 5)
+std(v)
+print(mean(v))
+print(sd(v))
 
 
 }

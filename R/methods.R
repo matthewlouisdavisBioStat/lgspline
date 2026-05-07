@@ -825,25 +825,16 @@ generate_posterior_correlation <- function(
   #    gram_gls = X' (W D) V^{-1} X + Lambda
   #  where W = glm_weight_function(mu, y, ...).
   #  For Gaussian identity, W = 1 everywhere, so the weight is just D.
-  #  For GLMs (logistic, Poisson, etc.), W carries the inverse
-  #  variance function and is essential for correctness.
+  #  For GLMs (logistic, Poisson, etc.), W carries the usual
+  #  mu.eta(eta)^2 / variance(mu) working weight.
   #
   #  glm_weight_function is stored in .fit_call_args. If it is not
   #  available (e.g. objects created before .fit_call_args was introduced),
-  #  fall back to the family$variance, which is correct for the default
-  #  weight function.
+  #  fall back to the current default weight function.
   if(!is.null(object$.fit_call_args$glm_weight_function)){
     glm_weight_function <- object$.fit_call_args$glm_weight_function
   } else {
-    ## Fallback: replicate the default glm_weight_function from lgspline()
-    glm_weight_function <- function(mu, y, order_indices, family,
-                                    dispersion, observation_weights, ...){
-      if(any(!is.null(observation_weights))){
-        family$variance(mu) * observation_weights
-      } else {
-        family$variance(mu)
-      }
-    }
+    glm_weight_function <- default_glm_weight_function
   }
 
   ## Whether partition-specific penalties exist
@@ -2306,7 +2297,8 @@ confint.lgspline <- function(object, parm, level = 0.95, ...) {
 #' \strong{Gaussian identity, no correlation.}
 #' \deqn{
 #'   \ell = -\frac{N}{2}\log(2\pi\tilde{\sigma}^2) -
-#'   \frac{1}{2\tilde{\sigma}^2}\sum_{i}(y_i - \hat{y}_i)^2
+#'   \frac{1}{2\tilde{\sigma}^2}\sum_{i}w_i(y_i - \hat{y}_i)^2
+#'   + \frac{1}{2}\sum_i\log w_i
 #' }
 #'
 #' \strong{Gaussian identity, with correlation.}
@@ -2315,7 +2307,9 @@ confint.lgspline <- function(object, parm, level = 0.95, ...) {
 #'   \ell = -\frac{N}{2}\log(2\pi\tilde{\sigma}^2)
 #'   + \log|\mathbf{V}^{-1/2}|
 #'   - \frac{1}{2\tilde{\sigma}^2}
-#'     \|\mathbf{V}^{-1/2}(\mathbf{y} - \hat{\mathbf{y}})\|^2
+#'     \sum_i w_i[\mathbf{V}^{-1/2}(\mathbf{y} -
+#'     \hat{\mathbf{y}})]_i^2
+#'   + \frac{1}{2}\sum_i\log w_i
 #' }
 #' \eqn{\log|\mathbf{V}^{-1/2}|} is obtained from \code{VhalfInv_logdet}
 #' when available, or computed directly from \code{VhalfInv}.
@@ -2349,6 +2343,10 @@ confint.lgspline <- function(object, parm, level = 0.95, ...) {
 #' @param include_prior Logical; add the log-prior penalty term. Default TRUE.
 #' @param new_weights Numeric scalar or N-vector; optional observation weights
 #'        overriding \code{object$weights}.
+#' @param B_predict List; optional coefficient list at which to evaluate the
+#'        likelihood. Default NULL uses \code{object$B}.
+#' @param sigmasq_predict Numeric scalar; optional dispersion at which to
+#'        evaluate the likelihood. Default NULL uses \code{object$sigmasq_tilde}.
 #' @param ... Not used.
 #'
 #' @return A \code{"logLik"} object with attributes \code{df} (effective
@@ -2363,6 +2361,8 @@ confint.lgspline <- function(object, parm, level = 0.95, ...) {
 #'
 #' logLik(model_fit)
 #' logLik(model_fit, include_prior = FALSE)
+#' logLik(model_fit, B_predict = model_fit$B,
+#'        sigmasq_predict = model_fit$sigmasq_tilde)
 #'
 #' AIC(model_fit)
 #' BIC(model_fit)
@@ -2380,12 +2380,38 @@ confint.lgspline <- function(object, parm, level = 0.95, ...) {
 #' @export
 logLik.lgspline <- function(object,
                             include_prior = TRUE,
-                            new_weights = NULL, ...) {
+                            new_weights = NULL,
+                            B_predict = NULL,
+                            sigmasq_predict = NULL, ...) {
   N  <- object$N
-  mu <- object$ytilde
   y  <- object$y
   sigma2 <- object$sigmasq_tilde
   fam <- object$family
+  if(!is.null(sigmasq_predict)){
+    if(length(sigmasq_predict) == 1 && is.finite(sigmasq_predict) &&
+       sigmasq_predict > 0){
+      sigma2 <- as.numeric(sigmasq_predict)
+    } else {
+      stop('\n\t sigmasq_predict must be a positive finite scalar\n')
+    }
+  }
+  eval_object <- object
+  if(is.null(B_predict)){
+    mu <- object$ytilde
+  } else {
+    mu <- c(predict(object, B_predict = B_predict))
+    eval_object$B <- B_predict
+
+    ## Prior_loglik uses coefficients on the fitting scale.
+    eval_object$B_raw <- lapply(B_predict, function(b){
+      b_raw <- object$forwtransform_coefficients(b)
+      b_raw[1] <- b_raw[1] - object$mean_y
+      b_raw / object$sd_y
+    })
+    names(eval_object$B_raw) <- names(B_predict)
+  }
+  eval_object$ytilde <- mu
+  eval_object$sigmasq_tilde <- sigma2
   if(!is.null(new_weights)){
     if(length(new_weights) %in% c(1, N)){
       wt <- new_weights
@@ -2394,6 +2420,16 @@ logLik.lgspline <- function(object,
     }
   } else {
     wt  <- object$weights
+  }
+  eval_object$weights <- wt
+  wt <- c(wt)
+  if(length(wt) == 1){
+    wt <- rep(wt, N)
+  }
+  weight_logdet <- if(length(wt) == N && all(wt > 0)){
+    0.5 * sum(log(wt))
+  } else {
+    0
   }
 
   edf <- if(!is.null(object$trace_XUGX)) N - object$trace_XUGX else NA_real_
@@ -2424,11 +2460,14 @@ logLik.lgspline <- function(object,
       ss_w <- sum(wt*(resid_w)^2)
       ll   <- -0.5 * N * log(2 * pi * sigma2) +
         logdet_Vhalfinv -
-        0.5 * ss_w / sigma2
+        0.5 * ss_w / sigma2 +
+        weight_logdet
     } else {
       resid <- y - mu
       ss    <- sum(wt*(resid)^2)
-      ll    <- -0.5 * N * log(2 * pi * sigma2) - 0.5 * ss / sigma2
+      ll    <- -0.5 * N * log(2 * pi * sigma2) -
+        0.5 * ss / sigma2 +
+        weight_logdet
     }
 
   } else if(!is.null(fam$aic)){
@@ -2502,7 +2541,7 @@ logLik.lgspline <- function(object,
   ## Add the penalty-induced prior term when requested.
   if(include_prior && is.finite(ll)){
     lp <- tryCatch(
-      as.numeric(prior_loglik(object, sigmasq = sigma2)),
+      as.numeric(prior_loglik(eval_object, sigmasq = sigma2)),
       error = function(e) {
         warning("Could not evaluate prior_loglik; prior term omitted.", call. = FALSE)
         0
@@ -3846,6 +3885,3 @@ integrate <- function(f, ...) UseMethod("integrate")
 integrate.default <- function(f, ...){
   stats::integrate(f, ...)
 }
-
-
-

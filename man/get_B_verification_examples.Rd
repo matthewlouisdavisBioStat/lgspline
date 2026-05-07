@@ -11,7 +11,7 @@ no correlation) and Path 3 (binomial GLM).
 \examples{
 \dontrun{
 ## Example 1: Path 2 - Gaussian identity, with knots
-set.seed(42)
+set.seed(1234)
 t <- runif(200, -5, 5)
 y <- sin(t) + rnorm(200, 0, 0.5)
 fit1 <- lgspline(t, y, K = 3, opt = FALSE, wiggle_penalty = 1e-4)
@@ -59,7 +59,7 @@ stopifnot(all(fit5$ytilde <= 2 + 0.01))
 cat("Example 5 passed: Range constraints\n")
 
 ## Example 6: Multi-predictor
-set.seed(123)
+set.seed(1234)
 x1 <- rnorm(300)
 x2 <- rnorm(300)
 y6 <- sin(x1) + cos(x2) + rnorm(300, 0, 0.5)
@@ -70,7 +70,7 @@ stopifnot(fit6$q_predictors == 2)
 cat("Example 6 passed: 2D predictor, K=4\n")
 
 ## Example 7: Coefficient consistency (determinism)
-set.seed(999)
+set.seed(1234)
 t7 <- runif(150, -4, 4)
 y7 <- 2 * cos(t7) + rnorm(150, 0, 0.4)
 fit7a <- lgspline(t7, y7, K = 2, opt = FALSE, wiggle_penalty = 1e-5)

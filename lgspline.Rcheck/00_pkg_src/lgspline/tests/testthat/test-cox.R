@@ -20,7 +20,7 @@ test_that("Cox PH helpers", {
   expect_equal(ll_fn, ll_manual, tolerance = 1e-4)
 
   ## Test 2: Score at MLE should be approximately zero
-  set.seed(42)
+  set.seed(1234)
   n <- 200
   x1 <- rnorm(n)
   x2 <- rbinom(n, 1, 0.5)

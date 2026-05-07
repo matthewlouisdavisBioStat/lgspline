@@ -112,7 +112,8 @@ test_that("weighted correlated Gaussian varcov and logLik use the whitened-syste
   resid_w <- c(fit_core$VhalfInv %*% cbind(fit_core$y - fit_core$ytilde))
   logdet_VhalfInv <- determinant(fit_core$VhalfInv, logarithm = TRUE)$modulus[[1L]]
   ll_expected <- -0.5 * fit_core$N * log(2 * pi * fit_core$sigmasq_tilde) +
-    logdet_VhalfInv -
+    logdet_VhalfInv +
+    0.5 * sum(log(fit_core$weights)) -
     0.5 * sum(fit_core$weights * resid_w^2) / fit_core$sigmasq_tilde
 
   expect_equal(fit_core$varcovmat, varcov_expected, tolerance = 1e-4)
@@ -121,12 +122,95 @@ test_that("weighted correlated Gaussian varcov and logLik use the whitened-syste
 })
 
 
+test_that("weighted independent Gaussian fit agrees with direct WLS", {
+  set.seed(20260501)
+
+  n <- 40
+  t <- seq(-1, 1, length.out = n)
+  y <- 1 + 2 * t + rnorm(n, 0, 0.2)
+  w <- rep(1, n)
+  w[n] <- 1000
+
+  fit <- lgspline(
+    y ~ spl(t),
+    data = data.frame(y = y, t = t),
+    K = 0,
+    opt = FALSE,
+    wiggle_penalty = 1e-10,
+    flat_ridge_penalty = 1e-10,
+    include_quadratic_terms = FALSE,
+    include_cubic_terms = FALSE,
+    include_quartic_terms = FALSE,
+    include_constrain_second_deriv = FALSE,
+    standardize_response = FALSE,
+    standardize_expansions_for_fitting = FALSE,
+    standardize_predictors_for_knots = FALSE,
+    observation_weights = w,
+    include_warnings = FALSE
+  )
+
+  X <- fit$X[[1]]
+  beta_wls <- solve(
+    crossprod(X, w * X) + fit$penalties$Lambda,
+    crossprod(X, w * y)
+  )
+  beta_ols <- solve(
+    crossprod(X) + fit$penalties$Lambda,
+    crossprod(X, y)
+  )
+
+  expect_equal(c(fit$B_raw[[1]]), c(beta_wls), tolerance = 1e-10)
+  expect_gt(max(abs(c(fit$B_raw[[1]]) - c(beta_ols))), 1e-3)
+})
+
+
+test_that("logLik accepts fixed coefficients and dispersion", {
+  set.seed(20260501)
+
+  n <- 45
+  t <- seq(-2, 2, length.out = n)
+  y <- 0.4 + 1.3 * t + rnorm(n, 0, 0.4)
+
+  fit <- lgspline(
+    y ~ spl(t),
+    data = data.frame(y = y, t = t),
+    K = 0,
+    opt = FALSE,
+    include_quadratic_terms = FALSE,
+    include_cubic_terms = FALSE,
+    include_quartic_terms = FALSE,
+    include_constrain_second_deriv = FALSE,
+    include_warnings = FALSE
+  )
+
+  B_alt <- fit$B
+  B_alt[[1]][1] <- B_alt[[1]][1] + 0.2
+  sigmasq_alt <- fit$sigmasq_tilde * 1.5
+  mu_alt <- c(predict(fit, B_predict = B_alt))
+
+  ll_alt <- as.numeric(logLik(fit,
+                              include_prior = FALSE,
+                              B_predict = B_alt,
+                              sigmasq_predict = sigmasq_alt))
+  ll_expected <- -0.5 * fit$N * log(2 * pi * sigmasq_alt) -
+    0.5 * sum(fit$weights * (fit$y - mu_alt)^2) / sigmasq_alt +
+    0.5 * sum(log(fit$weights))
+
+  expect_equal(ll_alt, ll_expected, tolerance = 1e-10)
+  expect_equal(
+    as.numeric(logLik(fit,
+                      B_predict = fit$B,
+                      sigmasq_predict = fit$sigmasq_tilde)),
+    as.numeric(logLik(fit)),
+    tolerance = 1e-10
+  )
+})
+
+
 test_that("Woodbury Gaussian GEE uses active-set for partition-local inequality constraints", {
   set.seed(20260421)
 
-  ## Use a sparse low-rank perturbation of I for V^{-1} so the
-  #  Woodbury gate is actually available.  Dense exchangeable
-  #  correlation is intentionally filtered out upstream.
+  ## Use sparse V^{-1} so this fit takes the Woodbury path.
   n <- 60
   t1 <- seq(0, 1, length.out = n)
   t2 <- sin(2 * pi * t1)

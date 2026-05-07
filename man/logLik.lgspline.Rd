@@ -4,7 +4,14 @@
 \alias{logLik.lgspline}
 \title{Extract Log-Likelihood from a Fitted lgspline}
 \usage{
-\method{logLik}{lgspline}(object, include_prior = TRUE, new_weights = NULL, ...)
+\method{logLik}{lgspline}(
+  object,
+  include_prior = TRUE,
+  new_weights = NULL,
+  B_predict = NULL,
+  sigmasq_predict = NULL,
+  ...
+)
 }
 \arguments{
 \item{object}{A fitted lgspline model object.}
@@ -13,6 +20,12 @@
 
 \item{new_weights}{Numeric scalar or N-vector; optional observation weights
 overriding \code{object$weights}.}
+
+\item{B_predict}{List; optional coefficient list at which to evaluate the
+likelihood. Default NULL uses \code{object$B}.}
+
+\item{sigmasq_predict}{Numeric scalar; optional dispersion at which to
+evaluate the likelihood. Default NULL uses \code{object$sigmasq_tilde}.}
 
 \item{...}{Not used.}
 }
@@ -29,7 +42,8 @@ comparison tools.
 \strong{Gaussian identity, no correlation.}
 \deqn{
   \ell = -\frac{N}{2}\log(2\pi\tilde{\sigma}^2) -
-  \frac{1}{2\tilde{\sigma}^2}\sum_{i}(y_i - \hat{y}_i)^2
+  \frac{1}{2\tilde{\sigma}^2}\sum_{i}w_i(y_i - \hat{y}_i)^2
+  + \frac{1}{2}\sum_i\log w_i
 }
 
 \strong{Gaussian identity, with correlation.}
@@ -38,7 +52,9 @@ GLS log-likelihood:
   \ell = -\frac{N}{2}\log(2\pi\tilde{\sigma}^2)
   + \log|\mathbf{V}^{-1/2}|
   - \frac{1}{2\tilde{\sigma}^2}
-    \|\mathbf{V}^{-1/2}(\mathbf{y} - \hat{\mathbf{y}})\|^2
+    \sum_i w_i[\mathbf{V}^{-1/2}(\mathbf{y} -
+    \hat{\mathbf{y}})]_i^2
+  + \frac{1}{2}\sum_i\log w_i
 }
 \eqn{\log|\mathbf{V}^{-1/2}|} is obtained from \code{VhalfInv_logdet}
 when available, or computed directly from \code{VhalfInv}.
@@ -77,6 +93,8 @@ model_fit <- lgspline(t, y)
 
 logLik(model_fit)
 logLik(model_fit, include_prior = FALSE)
+logLik(model_fit, B_predict = model_fit$B,
+       sigmasq_predict = model_fit$sigmasq_tilde)
 
 AIC(model_fit)
 BIC(model_fit)

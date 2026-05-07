@@ -18,8 +18,8 @@ of a logistic regression model: \eqn{\log(1+e^x)}.
 }
 \examples{
 
-x <- runif(5)
-softplus(x)
+v <- runif(5)
+softplus(v)
 
 
 }

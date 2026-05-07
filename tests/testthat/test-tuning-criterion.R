@@ -641,7 +641,7 @@ test_that("tuning active-set warm start keeps valid inequality columns", {
   expect_equal(lgspline:::.tuning_seed_active_set(env), integer(0))
 })
 
-test_that("custom GCV tuning does not inflate partition penalties relative to finite differences", {
+test_that("custom GCV tuning keeps partition penalties in range", {
   set.seed(1234)
   t <- sort(runif(80, -3, 3))
   eta <- sin(t) - 0.2 * t^2

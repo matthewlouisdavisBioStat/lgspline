@@ -1,5 +1,5 @@
 test_that("Negative Binomial helpers", {
-  ## Test 1: Log-likelihood at known values matches manual computation
+  ## Log-likelihood at known values
   set.seed(1234)
   N <- 50
   y <- rpois(N, 5)
@@ -13,8 +13,8 @@ test_that("Negative Binomial helpers", {
   ll_fn <- loglik_negbin(y, mu, theta)
   expect_equal(ll_fn, ll_manual, tolerance = 1e-4)
 
-  ## Test 2: Score at MLE should be approximately zero
-  set.seed(42)
+  ## Score is near zero at the MLE
+  set.seed(1234)
   N <- 300
   t1 <- rnorm(N)
   t2 <- rbinom(N, 1, 0.5)
@@ -23,7 +23,7 @@ test_that("Negative Binomial helpers", {
   y <- rnbinom(N, size = true_theta, mu = mu_true)
   X_s <- cbind(1, t1, t2)
   b <- cbind(c(log(mean(y)), 0, 0))
-  ## Profile: alternate theta and beta
+  ## Alternate theta and beta
   for(outer in 1:10) {
     mu_cur <- c(exp(X_s %**% b))
     th <- negbin_theta(y, mu_cur)
@@ -40,22 +40,22 @@ test_that("Negative Binomial helpers", {
   sc_final <- score_negbin(X_s, y, mu_final, th_final)
   expect_true(all(abs(sc_final) < 1e-4))
 
-  ## Test 3: Compare with MASS::glm.nb
+  ## Compare with MASS::glm.nb
   skip_if_not_installed("MASS")
   df_test <- data.frame(y = y, t1 = t1, t2 = t2)
   nbfit <- MASS::glm.nb(y ~ t1 + t2, data = df_test)
   b_mass <- coef(nbfit)
   names(b_mass) <- NULL
   expect_equal(c(b), b_mass, tolerance = 5e-2)
-  ## Theta comparison
+  ## Compare theta
   expect_equal(th_final, nbfit$theta, tolerance = 1)
 
-  ## Test 4: Information matrix is positive definite at the MLE
+  ## Information matrix is positive definite at the MLE
   I_mle <- info_negbin(X_s, y, mu_final, th_final)
   eigvals <- eigen(I_mle, symmetric = TRUE, only.values = TRUE)$values
   expect_true(all(eigvals > 0))
 
-  ## Test 5: Log-likelihood increases along Newton direction
+  ## Log-likelihood increases along Newton direction
   b0 <- cbind(c(log(mean(y)), 0, 0))
   mu0 <- c(exp(X_s %**% b0))
   th0 <- negbin_theta(y, mu0)
@@ -69,7 +69,7 @@ test_that("Negative Binomial helpers", {
   ll1 <- loglik_negbin(y, mu1, th1)
   expect_gt(ll1, ll0)
 
-  ## Test 6: unconstrained_fit_negbin recovers MLE (no penalty)
+  ## Unconstrained fit recovers the MLE
   p <- 3
   Lambda_zero <- matrix(0, p, p)
   LambdaHalf_zero <- matrix(0, p, p)
@@ -84,7 +84,7 @@ test_that("Negative Binomial helpers", {
   )
   expect_equal(c(b_fit), c(b), tolerance = 5e-2)
 
-  ## Test 7: negbin_qp_score_function near zero at MLE
+  ## Constraint score is near zero at the MLE
   mu_test <- exp(c(X_s %**% b))
   order_list_test <- list(1:N)
   sc_qp <- negbin_qp_score_function(
@@ -94,7 +94,7 @@ test_that("Negative Binomial helpers", {
   )
   expect_true(all(abs(sc_qp) < 1e-4))
 
-  ## Test 8: Weighted log-likelihood
+  ## Weighted log-likelihood
   set.seed(99)
   N_wt <- 30
   y_wt <- rpois(N_wt, 3)
@@ -112,7 +112,7 @@ test_that("Negative Binomial helpers", {
   ll_default <- loglik_negbin(y_wt, mu_wt, th_wt)
   expect_equal(ll_unit, ll_default, tolerance = 1e-4)
 
-  ## Test 9: Dispersion function returns positive theta
+  ## Dispersion is positive
   th_est <- negbin_dispersion_function(
     mu = mu_test, y = y, order_indices = 1:N,
     family = negbin_family(),
@@ -122,7 +122,7 @@ test_that("Negative Binomial helpers", {
   expect_true(th_est > 0)
   expect_true(is.finite(th_est))
 
-  ## Test 10: GLM weight function returns positive values
+  ## GLM weights are positive
   wt_vals <- negbin_glm_weight_function(
     mu = mu_test, y = y, order_indices = 1:N,
     family = negbin_family(), dispersion = th_final,
@@ -131,7 +131,7 @@ test_that("Negative Binomial helpers", {
   expect_true(all(wt_vals > 0))
   expect_length(wt_vals, N)
 
-  ## Test 11: negbin_theta recovers known theta from large sample
+  ## Theta estimate in a large sample
   set.seed(2025)
   N_big <- 5000
   mu_big <- rep(10, N_big)
@@ -140,7 +140,7 @@ test_that("Negative Binomial helpers", {
   th_hat <- negbin_theta(y_big, mu_big)
   expect_equal(th_hat, theta_true, tolerance = 0.5)
 
-  ## Test 12: Schur correction is negative semi-definite
+  ## Schur correction has the expected sign
   X_test <- cbind(1, t1, t2)
   B_test <- list(b)
   order_list_sc <- list(1:N)
@@ -152,34 +152,34 @@ test_that("Negative Binomial helpers", {
     family = negbin_family(),
     observation_weights = obs_wt_sc
   )
-  ## Should be a matrix (not 0) for nondegenerate data
+  ## Nondegenerate partitions return a matrix
   expect_true(is.matrix(schur[[1]]))
-  ## Eigenvalues of Schur correction should be <= 0 (negative semi-definite)
+  ## Eigenvalues should be nonpositive
   eig_schur <- eigen(schur[[1]], symmetric = TRUE, only.values = TRUE)$values
   expect_true(all(eig_schur <= sqrt(.Machine$double.eps)))
 
-  ## Test 13: Score with weights is consistent
+  ## Score uses weights consistently
   set.seed(77)
   wt_sc <- runif(N, 0.5, 2.0)
   mu_sc <- c(exp(X_s %**% b))
   sc_weighted <- score_negbin(X_s, y, mu_sc, th_final, wt_sc)
-  ## Manual: X^T (wt * (y - mu) * theta / (theta + mu))
+  ## Direct weighted score
   r_manual <- wt_sc * (y - mu_sc) * th_final / (th_final + mu_sc)
   sc_manual <- crossprod(X_s, cbind(r_manual))
   expect_equal(c(sc_weighted), c(sc_manual), tolerance = 1e-4)
 
-  ## Test 14: Info with weights matches X^T W X manually
+  ## Information matrix uses weights consistently
   W_manual <- wt_sc * mu_sc * th_final * (th_final + y) / (th_final + mu_sc)^2
   I_manual <- crossprod(X_s, W_manual * X_s)
   I_fn <- info_negbin(X_s, y, mu_sc, th_final, wt_sc)
   expect_equal(I_fn, I_manual, tolerance = 1e-4)
 
-  ## Test 15: Dispersion function with VhalfInv gives valid result
+  ## Correlated dispersion estimate is valid
   N_gee <- 50
   y_gee <- rnbinom(N_gee, size = 3, mu = 5)
   mu_gee <- rep(5, N_gee)
   rho <- 0.2
-  ## Simple diagonal perturbation for testing
+  ## Simple diagonal perturbation
   VhalfInv_test <- diag(1 / sqrt(1 - rho), N_gee, N_gee)
   th_gee <- negbin_dispersion_function(
     mu = mu_gee, y = y_gee, order_indices = 1:N_gee,
@@ -190,7 +190,7 @@ test_that("Negative Binomial helpers", {
   expect_true(th_gee > 0)
   expect_true(is.finite(th_gee))
 
-  ## Test 16: Poisson limit (theta -> Inf gives Poisson log-likelihood)
+  ## Poisson limit
   set.seed(88)
   N_pois <- 100
   mu_pois <- rep(3, N_pois)
@@ -199,7 +199,7 @@ test_that("Negative Binomial helpers", {
   ll_pois <- sum(dpois(y_pois, mu_pois, log = TRUE))
   expect_equal(ll_nb_big, ll_pois, tolerance = 1e-2)
 
-  ## Test 17: keep_weighted_Lambda returns Poisson hot-start
+  ## Poisson hot start
   b_hot <- unconstrained_fit_negbin(
     X = X_s, y = y,
     LambdaHalf = diag(0.01, p), Lambda = diag(0.01^2, p),
@@ -212,7 +212,7 @@ test_that("Negative Binomial helpers", {
   expect_length(b_hot, p)
   expect_true(all(is.finite(b_hot)))
 
-  ## Test 18: Family object components exist and are correct
+  ## Family object components
   fam <- negbin_family()
   expect_equal(fam$family, "negbin")
   expect_equal(fam$link, "log")
@@ -223,7 +223,7 @@ test_that("Negative Binomial helpers", {
   expect_true(is.function(fam$dev.resids))
   expect_true(is.function(fam$custom_dev.resids))
 
-  ## Test 19: Schur correction returns 0 for empty partition
+  ## Empty partition Schur correction
   schur_empty <- negbin_schur_correction(
     X = list(matrix(0, nrow = 0, ncol = 3), X_test),
     y = list(numeric(0), y),
@@ -237,7 +237,7 @@ test_that("Negative Binomial helpers", {
   expect_identical(schur_empty[[1]], 0)
   expect_true(is.matrix(schur_empty[[2]]))
 
-  ## Test 20: Numerical gradient check for score_negbin
+  ## Check score_negbin by finite differences
   set.seed(123)
   X_ng <- cbind(1, rnorm(80))
   y_ng <- rnbinom(80, size = 2, mu = 3)

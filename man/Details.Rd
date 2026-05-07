@@ -85,9 +85,10 @@ Core notation used throughout:
     observation twice.
   \item \eqn{\mathbf{W}_{(N \times N)}}: Diagonal matrix of GLM working
     weights. In the implementation these diagonal entries are whatever is
-    returned by \code{glm_weight_function}; by default this is
-    \code{family$variance(mu)}, optionally multiplied by user-supplied
-    observation weights. For Gaussian response with identity link,
+    returned by \code{glm_weight_function}; by default this is the GLM
+    working weight
+    \code{family$mu.eta(eta)^2 / family$variance(mu)}, optionally
+    multiplied by user-supplied observation weights. For Gaussian response with identity link,
     \eqn{\mathbf{W} = \mathbf{I}}. For other families,
     \eqn{\mathbf{W}} depends on the current fitted values and is updated at
     each Newton-Raphson iteration. For the common canonical families used
@@ -291,8 +292,8 @@ The constrained estimate is obtained from a transformed OLS residual problem (th
 
 A scaling factor \eqn{1/\sqrt{K+1}} is applied to both
 \eqn{\mathbf{X}^{*}} and \eqn{\mathbf{y}^{*}} prior to the OLS call
-and divided out afterward, improving numerical conditioning when the
-constraint matrix has many rows.
+and divided out afterward, keeping the absolute scale moderate when
+the constraint matrix has many rows.
 
 This is where \code{parallel_qr} enters most directly. Write the rows of the
 transformed system as \eqn{\mathbf{X}^{*}_{(1)}, \dots, \mathbf{X}^{*}_{(B)}}
@@ -361,9 +362,9 @@ the four-step procedure carries through with
 \eqn{\mathbf{G}_k = (\mathbf{X}_k^{\top}\mathbf{W}_k\mathbf{X}_k +
 \boldsymbol{\Lambda}_k)^{-1}} in place of
 \eqn{(\mathbf{X}_k^{\top}\mathbf{X}_k + \boldsymbol{\Lambda}_k)^{-1}}.
-Under the default \code{glm_weight_function}, the diagonal entries reduce
-to \code{family$variance(mu)} (optionally scaled by observation weights),
-which for canonical families is the usual Fisher scoring weight.
+Under the default \code{glm_weight_function}, the diagonal entries are
+\code{family$mu.eta(eta)^2 / family$variance(mu)}, optionally scaled by
+observation weights.
 
 The partition-wise unconstrained estimates are obtained by
 \code{unconstrained_fit_fxn}, by default
@@ -455,7 +456,6 @@ Define \eqn{\mathbf{N} = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{E}} and a
 thin QR decomposition \eqn{\mathbf{N} = \mathbf{Q}\mathbf{R}}. With
 \eqn{\mathbf{P} = \mathbf{Q}\mathbf{Q}^{\top}} and
 \eqn{\mathbf{S} = \mathbf{I}_r + \mathbf{R}\mathbf{J}\mathbf{R}^{\top}},
-the supplement writes
 \deqn{\mathbf{F}
   = (\mathbf{I}_P + \mathbf{N}\mathbf{J}\mathbf{N}^{\top})^{-1}
   = \mathbf{I}_P - \mathbf{P} + \mathbf{Q}\mathbf{S}^{-1}\mathbf{Q}^{\top},}
@@ -501,7 +501,6 @@ numerically convenient representation. The correspondence is:
     \eqn{\mathbf{I} + \mathbf{Q}\mathbf{C}_{\mathrm{inv}}\mathbf{Q}^{\top}},
     where \code{C} and \code{C_inv} are diagonal.
 }
-These are just storage choices; the notation matches the supplement.
 
 For the non-Gaussian Woodbury path
 (\code{\link{.get_B_gee_glm_woodbury}}), the fixed correlation
@@ -1132,10 +1131,10 @@ A rescaling factor
 \eqn{\mathrm{sc} = \sqrt{\mathrm{mean}(|\mathbf{M}^{(s)}|)}} is applied
 to the Hessian and linear term before calling the QP solver. The
 equality-constrained estimate from the Lagrangian projection serves as
-a warm start. The \code{qp_score_function} defaults to the canonical GLM
-score
-\eqn{\mathbf{X}^{\top}(\mathbf{y} - \boldsymbol{\mu})}; for custom
-models a different score can be supplied.
+a warm start. The \code{qp_score_function} defaults to the GLM score using
+\code{family$mu.eta(eta) / family$variance(mu)}; for custom models a
+different score can be supplied. With dense \code{VhalfInv}, the same
+score weight is applied after whitening.
 }
 
 \subsection{Active Set and Lagrange Multipliers}{
@@ -1620,21 +1619,35 @@ The total objective is the selected tuning criterion plus
 }
 
 \subsection{Closed-Form Gradients for Tuning Criteria}{
-Let \eqn{\ell} denote the selected tuning criterion. The analytic gradient
-differentiates \eqn{\ell} through the fitted quantities
-\eqn{\mathbf{G}}, \eqn{\mathbf{U}}, and \eqn{\mathbf{H}} once, then stores
-the blockwise adjoint
-\eqn{\mathbf{M}_k = \partial\ell/\partial\boldsymbol{\Lambda}_k}. For any
-log-penalty \eqn{\theta_j = \log\lambda_j},
+Let \eqn{\ell} denote the selected tuning criterion and
+\deqn{\boldsymbol{\Lambda}_k =
+  \lambda_w(\boldsymbol{\Lambda}_s +
+  \lambda_r\boldsymbol{\Lambda}_r +
+  \sum_l\lambda_{l,k}\boldsymbol{\Lambda}_{l,k}).}
+The analytic gradient differentiates \eqn{\ell} through
+\eqn{\mathbf{G}}, \eqn{\mathbf{U}}, and \eqn{\mathbf{H}} once, giving the
+partition-level derivative
+\eqn{\mathbf{M}_k = \partial\ell/\partial\boldsymbol{\Lambda}_k}. The
+penalty derivatives then follow directly:
 \deqn{
-  \frac{\partial\ell}{\partial\theta_j}
-  =
-  \sum_{k=0}^{K}\mathrm{tr}\{\mathbf{M}_k\mathbf{L}_{j,k}\},
+  \frac{\partial\ell}{\partial\lambda_w}
+    = \frac{1}{\lambda_w}\sum_{k=0}^{K}
+      \mathrm{tr}(\mathbf{M}_k\boldsymbol{\Lambda}_k),\qquad
+  \frac{\partial\ell}{\partial\lambda_r}
+    = \lambda_w\sum_{k=0}^{K}
+      \mathrm{tr}(\mathbf{M}_k\boldsymbol{\Lambda}_r),
 }
-where \eqn{\mathbf{L}_{j,k}} is that penalty's current contribution to
-\eqn{\boldsymbol{\Lambda}_k}. Thus each additional penalty derivative costs
-only a blockwise Frobenius inner product, rather than a separate derivative
-through the full fitted criterion.
+and
+\deqn{
+  \frac{\partial\ell}{\partial\lambda_{l,k}}
+    = \lambda_w\,\mathrm{tr}
+      (\mathbf{M}_k\boldsymbol{\Lambda}_{l,k}).
+}
+Shared predictor penalties use the corresponding sum over partitions. Since
+optimization is on \eqn{\theta_j = \log\lambda_j}, each derivative is
+multiplied by \eqn{\lambda_j}. Thus, after
+\eqn{\mathbf{M}_k} is available, each additional penalty gradient costs
+only a blockwise trace product.
 
 For exact leave-one-out, \eqn{\ell} is the mean squared PRESS residual on
 the transformed problem, using blockwise constrained leverages rather than
@@ -1810,7 +1823,9 @@ Standard S3 methods are provided for objects of class \code{lgspline}:
     the Gaussian prior penalty interpretation of the smoothing spline
     penalty
     \eqn{-\frac{1}{2\sigma^{2}}\tilde{\boldsymbol{\beta}}^{\top}\boldsymbol{\Lambda}\tilde{\boldsymbol{\beta}}}
-    to obtain a penalized MAP log-likelihood.
+    to obtain a penalized MAP log-likelihood. Alternate coefficient lists
+    and fixed dispersions can be supplied through \code{B_predict} and
+    \code{sigmasq_predict}.
 
   \item \code{\link{predict.lgspline}}: Produces fitted values and related
     quantities (e.g., derivatives and standard errors through

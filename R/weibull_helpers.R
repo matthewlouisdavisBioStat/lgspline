@@ -521,7 +521,9 @@ weibull_family <- function() list(
       status <- rep(1, length(log_y))
     }
 
-    weights <- if(!is.null(model_fit$observation_weights)){
+    weights <- if(!is.null(model_fit$weights)){
+      model_fit$weights
+    } else if(!is.null(model_fit$observation_weights)){
       model_fit$observation_weights
     } else {
       rep(1, length(log_y))

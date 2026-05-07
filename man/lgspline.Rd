@@ -13,17 +13,7 @@ lgspline(
   standardize_predictors_for_knots = TRUE,
   standardize_expansions_for_fitting = TRUE,
   family = gaussian(),
-  glm_weight_function = function(mu, y, order_indices, family, dispersion,
-    observation_weights, ...) {
-     if (any(!is.null(observation_weights))) {
-        
-    family$variance(mu) * observation_weights
-     }
-     else {
-        
-    family$variance(mu)
-     }
- },
+  glm_weight_function = default_glm_weight_function,
   schur_correction_function = function(X, y, B, dispersion, order_list, K, family,
     observation_weights, ...) {
      lapply(1:(K + 1), function(k) 0)
@@ -88,13 +78,13 @@ lgspline(
   parallel_aga = FALSE,
   parallel_matmult = FALSE,
   parallel_qr = FALSE,
-  parallel_bfgs = TRUE,
+  parallel_bfgs = FALSE,
   parallel_grideval = TRUE,
   parallel_qr_qp = FALSE,
   parallel_unconstrained = TRUE,
-  parallel_find_neighbors = FALSE,
+  parallel_find_neighbors = TRUE,
   parallel_penalty = FALSE,
-  parallel_make_constraint = FALSE,
+  parallel_make_constraint = TRUE,
   unconstrained_fit_fxn = unconstrained_fit_default,
   keep_weighted_Lambda = FALSE,
   iterate_tune = TRUE,
@@ -102,14 +92,8 @@ lgspline(
   blockfit = TRUE,
   qp_score_function = function(X, y, mu, order_list, dispersion, VhalfInv,
     observation_weights, ...) {
-     if (!is.null(observation_weights)) {
-        
-    crossprod(X, cbind((y - mu) * observation_weights))
-     }
-     else {
-        
-    crossprod(X, cbind(y - mu))
-     }
+     default_qp_score_function(X, y, mu, order_list,
+    dispersion, VhalfInv, observation_weights, family, ...)
  },
   qp_observations = NULL,
   qp_Amat = NULL,
@@ -208,10 +192,9 @@ variance-covariance matrices, and coefficients are backtransformed after fitting
 and link function. Minimally requires: family name, link name, linkfun, linkinv,
 variance.}
 
-\item{glm_weight_function}{Default: function returning \code{family$variance(mu)},
-optionally multiplied by \code{observation_weights}. Codes the mean-variance
-relationship (the diagonal \eqn{\mathbf{W}} matrix) used for updating
-\eqn{\mathbf{G}} after obtaining constrained estimates.}
+\item{glm_weight_function}{Default: GLM working weight
+\code{family$mu.eta(eta)^2 / family$variance(mu)}, optionally multiplied
+by \code{observation_weights}.}
 
 \item{schur_correction_function}{Default: function returning list of zeros.
 Computes Schur complements \eqn{\mathbf{S}} added to \eqn{\mathbf{G}}:
@@ -265,8 +248,10 @@ forming the full projection matrix or full hat matrix. In empirical
 diagnostics, the observation-wise derivative of the LOO leverage term can
 be numerically delicate even when the overall tuning criterion and fitted
 penalties remain well behaved; users who prefer a more conservative
-optimization path can set \code{use_custom_bfgs = FALSE}. All tuned
-penalty gradients reuse the same blockwise penalty derivative. For very
+optimization path can set \code{use_custom_bfgs = FALSE}. Penalty
+gradients reuse the partition penalty-matrix derivatives
+\eqn{\partial\ell/\partial\boldsymbol{\Lambda}_k}, so additional tuned
+penalty directions require only trace products. For very
 large samples, generalized cross-validation is often the more practical choice; as a rough guideline,
 \code{"gcv"} is recommended once the sample size is above about 250,000.}
 
@@ -375,7 +360,9 @@ before fitting. Disabling this keeps the original equality columns.}
 \item{chunk_size}{Default: NULL. Integer specifying custom chunk size for parallel
 processing.}
 
-\item{parallel_eigen}{Default: TRUE. Logical flag for parallel eigenvalue decomposition.}
+\item{parallel_eigen}{Default: TRUE. Logical flag for parallel eigenvalue
+decomposition. Ignored inside tuning fits when \code{parallel_grideval}
+or \code{parallel_bfgs} is using the cluster.}
 
 \item{parallel_trace}{Default: FALSE. Logical flag for parallel trace computation.}
 
@@ -392,16 +379,15 @@ row-chunked cross-products with small dense fallback solves instead of
 relying entirely on base QR; unstable cases fall back automatically to
 \code{.lm.fit()} or \code{qr()}.}
 
-\item{parallel_bfgs}{Default: TRUE. Logical flag for parallel evaluation of
+\item{parallel_bfgs}{Default: False. Logical flag for parallel evaluation of
 damped BFGS step candidates during penalty tuning. When active and a
 cluster is supplied, multiple damping factors are evaluated across
-workers and the best improving candidate is retained.}
+workers and inner parallel flags are ignored for those fits.}
 
 \item{parallel_grideval}{Default: TRUE. Logical flag for parallel evaluation
 of the initial tuning grid. When active and a cluster is supplied, grid
-points are distributed across workers, and if more than six workers are
-available, additional random penalty candidates are added before the
-starting point is chosen.}
+points are distributed across workers and inner parallel flags are
+ignored for those fits.}
 
 \item{parallel_qr_qp}{Default: FALSE. Logical flag for parallel QR pivot
 reduction of partition-local inequality constraint columns. When active
@@ -411,13 +397,13 @@ independently across workers before the final QP matrix is assembled.}
 \item{parallel_unconstrained}{Default: TRUE. Logical flag for parallel unconstrained
 MLE for non-identity-link-Gaussian models.}
 
-\item{parallel_find_neighbors}{Default: FALSE. Logical flag for parallel neighbor
+\item{parallel_find_neighbors}{Default: TRUE. Logical flag for parallel neighbor
 identification.}
 
 \item{parallel_penalty}{Default: FALSE. Logical flag for parallel penalty matrix
 construction.}
 
-\item{parallel_make_constraint}{Default: FALSE. Logical flag for parallel constraint
+\item{parallel_make_constraint}{Default: TRUE. Logical flag for parallel constraint
 matrix generation.}
 
 \item{unconstrained_fit_fxn}{Default: \code{\link{unconstrained_fit_default}}.
@@ -437,8 +423,11 @@ spline and non-interactive linear terms. When the blockfit conditions are
 met, both tuning and the final fit use \code{blockfit_solve}; otherwise
 the code uses \code{get_B}. Any failure falls back to \code{get_B}.}
 
-\item{qp_score_function}{Default: \eqn{\mathbf{X}^{\top}(\mathbf{y} - \boldsymbol{\mu})}.
-Score function for quadratic programming, blockfit, and GEE formulations.
+\item{qp_score_function}{Default: GLM score using
+\code{family$mu.eta(eta) / family$variance(mu)}. Used for quadratic
+programming, blockfit, and GEE formulations.
+With dense \code{VhalfInv}, the same score weight is applied after
+whitening.
 Accepts arguments \code{"X, y, mu, order_list, dispersion, VhalfInv,
 observation_weights, ..."}.}
 
@@ -1116,7 +1105,7 @@ fxn <- function(x)(slinky(t) +
 ## Bind together with random noise
 dat <- cbind(t, fxn(t) + rnorm(length(t), 0, 50))
 colnames(dat) <- c('t', 'y')
-x <- dat[,'t']
+t <- dat[,'t']
 y <- dat[,'y']
 
 ## Fit Model, 4 equivalent ways are shown below
@@ -1275,43 +1264,16 @@ l1_bound_vector <- function(qp_Amat,
 }
 
 ## Fit model, using predictor-response formulation, assuming
-# Gamma-distributed response, and custom quadratic-programming constraints,
-# with qp_score_function/glm_weight_function updated for non-canonical GLMs
+# Gamma-distributed response and custom quadratic-programming constraints
 # as well as quartic terms, keeping the effect of height constant across
-# partitions, and 3 partitions in total. Hence, this is an advanced-usage
-# case.
+# partitions, and 3 partitions in total. The default GLM score and weights
+# handle the non-canonical log link.
 # You can modify this code for performing l1-regularization in general.
-# For canonical GLMs, the default qp_score_function/glm_weight_function are
-# correct and do not need to be changed
-# (custom functionality is not needed for canonical GLMs).
 model_fit <- lgspline(
   Volume ~ spl(Girth) + Height*Girth,
   data = with(trees, cbind(Girth, Height, Volume)),
   family = Gamma(link = 'log'),
   keep_weighted_Lambda = TRUE,
-  glm_weight_function = function(
-    mu,
-    y,
-    order_indices,
-    family,
-    dispersion,
-    observation_weights,
-   ...){
-     rep(1/dispersion, length(y))
-   },
-   dispersion_function = function(
-     mu,
-     y,
-     order_indices,
-     family,
-     observation_weights,
-     VhalfInv,
-     ...){
-    mean(
-      mu^2/((y-mu)^2)
-    )
-  }, # = biased estimate of 1/shape parameter
-  need_dispersion_for_estimation = TRUE,
   unbias_dispersion = TRUE, # multiply dispersion by N/(N-trace(XUGX^{T}))
   K = 2, # 3 partitions
   opt = FALSE, # keep penalties fixed
@@ -1319,10 +1281,6 @@ model_fit <- lgspline(
   unique_penalty_per_predictor = FALSE,
   flat_ridge_penalty = 1e-64,
   wiggle_penalty = 1e-64,
-  qp_score_function = function(X, y, mu, order_list, dispersion, VhalfInv,
-    observation_weights, ...){
-   t(X) \%*\% diag(c(1/mu * 1/dispersion)) \%*\% cbind(y - mu)
-  }, # updated score for gamma regression with log link
   qp_Amat_fxn = function(N, p, K, X, colnm, scales, deriv_fxn, ...) {
     l1_constraint_matrix(p, K)
   },
@@ -1389,9 +1347,9 @@ find_extremum(
 
 ## Generate data
 n <- 2500
-x <- rnorm(n)
-y <- rnorm(n)
-z <- sin(x)*mean(abs(y))/2
+t <- rnorm(n)
+u <- rnorm(n)
+z <- sin(t)*mean(abs(u))/2
 
 ## Categorical predictors
 cat1 <- rbinom(n, 1, 0.5)
@@ -1399,10 +1357,10 @@ cat2 <- rbinom(n, 1, 0.5)
 cat3 <- rbinom(n, 1, 0.5)
 
 ## Response with mix of effects
-response <- y + z + 0.1*(2*cat1 - 1)
+response <- u + z + 0.1*(2*cat1 - 1)
 
 ## Continuous predictors re-named
-continuous1 <- x
+continuous1 <- t
 continuous2 <- z
 
 ## Combine data
@@ -1773,11 +1731,11 @@ if (requireNamespace("parallel", quietly = TRUE)) {
                        parallel_eigen = TRUE,
                        parallel_unconstrained = TRUE,
                        parallel_aga = FALSE,
-                       parallel_find_neighbors = FALSE,
+                       parallel_find_neighbors = TRUE,
                        parallel_trace = FALSE,
                        parallel_matmult = TRUE,
                        parallel_qr = FALSE,
-                       parallel_make_constraint = FALSE,
+                       parallel_make_constraint = TRUE,
                        parallel_penalty = FALSE)
   })
   print(summary(parfit))

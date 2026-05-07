@@ -618,7 +618,7 @@
 #' @examples
 #' \dontrun{
 #' ## Standalone verification: simple 1-D monotonic increase
-#' set.seed(42)
+#' set.seed(1234)
 #' t <- seq(-5, 5, length.out = 200)
 #' y <- 3 * sin(t) + t + rnorm(200, 0, 0.5)
 #'

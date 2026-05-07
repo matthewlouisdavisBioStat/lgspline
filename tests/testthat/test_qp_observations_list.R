@@ -47,11 +47,11 @@ test_that("keyed qp_observations reproduces the legacy shared subset path", {
 
   Time <- seq(-4, 4, length.out = 80)
   y <- exp(-0.35 * Time) + rnorm(length(Time), 0, 0.02)
-  x <- cbind(Time = Time)
+  predictors <- cbind(Time = Time)
   obs <- which(Time > 0)
 
   args <- list(
-    predictors = x,
+    predictors = predictors,
     y = y,
     K = 2,
     opt = FALSE,
@@ -100,8 +100,8 @@ test_that("keyed qp_observations reproduces the legacy shared subset path", {
   )
 
   expect_qp_equal(qp_vec, qp_key)
-  expect_equal(stats::predict(fit_vec, x),
-               stats::predict(fit_key, x),
+  expect_equal(stats::predict(fit_vec, predictors),
+               stats::predict(fit_key, predictors),
                tolerance = 1e-8)
 })
 
@@ -111,14 +111,14 @@ test_that("keyed qp_observations combines per-constraint subsets correctly", {
 
   Time <- seq(-2, 6, length.out = 90)
   y <- exp(0.25 * Time) + rnorm(length(Time), 0, 0.02)
-  x <- cbind(Time = Time)
+  predictors <- cbind(Time = Time)
 
   obs_range <- which(Time >= 0)
   obs_pos1 <- which(Time > 1)
   obs_pos2 <- which(Time > 2)
 
   fit <- lgspline::lgspline(
-    x,
+    predictors,
     y,
     K = 2,
     opt = FALSE,
@@ -184,14 +184,14 @@ test_that("keyed qp_observations can vary by variable and ignore unknown keys", 
   Time <- sort(runif(n, -2, 4))
   Dose <- sort(runif(n, 0.5, 2.5))
   y <- exp(0.35 * Time) + Dose + rnorm(n, 0, 0.02)
-  x <- cbind(Time = Time, Dose = Dose)
+  predictors <- cbind(Time = Time, Dose = Dose)
 
   obs_time <- which(Time > 0)
   obs_dose <- which(Dose < 1.8)
 
   expect_warning(
     fit <- lgspline::lgspline(
-      x,
+      predictors,
       y,
       K = 1,
       opt = FALSE,

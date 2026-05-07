@@ -209,8 +209,7 @@ When inequality constraints \eqn{\mathbf{C}^{\top}\boldsymbol{\beta}
 \succeq \mathbf{c}} are present, the sparsity pattern of
 \eqn{\mathbf{C}} is inspected automatically. If every constraint
 column has nonzeros in only a single partition block (block-separable),
-a partition-wise active-set method is used at cost
-\eqn{O(Kp^3)} per iteration. If any constraint spans multiple
+a partition-wise active-set method is used. If any constraint spans multiple
 partition blocks (e.g.\ cross-knot monotonicity), the dense
 \code{quadprog::solve.QP} SQP fallback is invoked.
 }

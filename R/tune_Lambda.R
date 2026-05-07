@@ -992,7 +992,7 @@
                     qp_info     = B_list$qp_info)
   }
 
-  ## Build the residual side of the criterion adjoint.
+  ## Build the residual side of the criterion derivative.
 
   ## -2 * residuals^T * X
   if (verbose) cat("        neg2tresidX\n")
@@ -1008,7 +1008,7 @@
                           env$num_chunks,
                           env$rem_chunks))
 
-  ## Reuse the wiggle chain as an adjoint for all penalty directions.
+  ## Reuse the wiggle derivative for all penalty directions.
   #  L_*_list entries are current log-scale contributions to Lambda.
   cN <- 1 / outlist$denominator
   cW <- outlist$numerator * 2 * gamma * (1 - gamma * outlist$mean_W) /
@@ -1032,13 +1032,10 @@
     low_rank_F,
     outlist$Lambda,
     outlist$L_partition_list,
-    env$unique_penalty_per_partition,
-    lambda_1
+    env$unique_penalty_per_partition
   )
-  log_wiggle_gradient <- sum(penalty_adjoint$wiggle_log_by_partition)
-  log_flat_gradient <- sum(vapply(penalty_adjoint$M, function(M_k) {
-    sum(M_k * (lambda_1 * outlist$L2))
-  }, numeric(1)))
+  log_wiggle_gradient <- penalty_adjoint$wiggle_log_gradient
+  log_flat_gradient <- sum(penalty_adjoint$M_sum * (lambda_1 * outlist$L2))
 
   if (verbose) cat("        Gradient start \n")
   gradient <- cbind(c(log_wiggle_gradient,
@@ -1047,7 +1044,8 @@
   if (env$unique_penalty_per_predictor) {
     predictor_penalty_gradient <- .compute_log_penalty_gradient(
       penalty_adjoint$M,
-      outlist$L_predictor_list
+      outlist$L_predictor_list,
+      M_sum = penalty_adjoint$M_sum
     )
     gradient <- cbind(c(c(gradient), predictor_penalty_gradient))
   }
@@ -1166,6 +1164,11 @@
   prev_lambda   <- old_lambda
   restart       <- TRUE
   n_workers     <- .tuning_worker_count(env$cl)
+  criterion_env <- if (parallel_bfgs && !is.null(env$cl) && n_workers > 1L) {
+    .tuning_eval_env(env)
+  } else {
+    env
+  }
   small_change_count <- 0L
   small_change_patience <- 3L
 
@@ -1173,7 +1176,7 @@
   # optimizer step. Otherwise a bad first gradient step can displace the
   # best-known solution even when the initialization was already better.
   outlist <- criterion_fxn(c(lambda[1], lambda[2], log_penalty_vec),
-                           log_penalty_vec, env, ...)
+                           log_penalty_vec, criterion_env, ...)
   .tuning_store_active_set(env, outlist$qp_info)
   criterion_value <- outlist$criterion_value
   best_lambda <- lambda
@@ -1186,7 +1189,7 @@
     ## Compute gradient if needed
     if (dont_skip_gr) {
       result   <- gr_fxn(c(lambda[1], lambda[2], log_penalty_vec),
-                         log_penalty_vec, outlist, env, ...)
+                         log_penalty_vec, outlist, criterion_env, ...)
       gradient <- cbind(result$gradient)
       outlist  <- result$outlist
       .tuning_store_active_set(env, outlist$qp_info)
@@ -1367,7 +1370,7 @@
         prev_outlist <- outlist
         outlist      <- criterion_fxn(c(new_lambda[1], new_lambda[2],
                                         log_penalty_vec),
-                                      log_penalty_vec, env, ...)
+                                      log_penalty_vec, criterion_env, ...)
         new_criterion_value <- outlist$criterion_value
         if (any(is.na(new_criterion_value))) {
           new_criterion_value <- criterion_value
@@ -1916,9 +1919,8 @@
 #' @param parallel_matmult,parallel_qr,parallel_bfgs,parallel_grideval,
 #'   qr_pivot_smoothing_constraints,parallel_unconstrained Logical; specific
 #'   parallel flags. When \code{parallel_grideval = TRUE} or
-#'   \code{parallel_bfgs = TRUE}, the submitted cluster is used across whole
-#'   tuning-objective evaluations, so each worker evaluates its assigned
-#'   candidate with the inner per-criterion parallel kernels turned off.
+#'   \code{parallel_bfgs = TRUE}, inner parallel flags such as
+#'   \code{parallel_eigen} are ignored for those tuning fits.
 #' @param cl Parallel cluster object.
 #' @param chunk_size,num_chunks,rem_chunks Integer; parallel computation
 #'   parameters.
@@ -1990,8 +1992,10 @@
 #'     damped BFGS with closed-form gradients (see \code{.damped_bfgs},
 #'     \code{.compute_gcvu_gradient}, \code{.compute_loocv_gradient}) or base R's \code{stats::optim} with
 #'     finite-difference gradients. The analytic paths differentiate the fitted
-#'     criterion once, then obtain each log-penalty gradient from the blockwise
-#'     Frobenius product \eqn{\sum_k\mathrm{tr}(\mathbf{M}_k\mathbf{L}_{j,k})}.
+#'     criterion once to obtain
+#'     \eqn{\mathbf{M}_k=\partial\ell/\partial\boldsymbol{\Lambda}_k};
+#'     all log-penalty gradients then reduce to blockwise trace products
+#'     with the corresponding current penalty direction.
 #'     For LOO, the leverage derivative may be numerically delicate in some
 #'     problems and can motivate the finite-difference fallback. After the
 #'     first 10 iterations, the custom BFGS path also stops on a small
@@ -2074,7 +2078,7 @@
 #' #  for advanced users. Here we verify that the refactored version
 #' #  produces identical output to the original.
 #'
-#' set.seed(42)
+#' set.seed(1234)
 #' t <- runif(200, -5, 5)
 #' y <- sin(t) + rnorm(200, 0, 0.5)
 #'
@@ -2400,13 +2404,18 @@ tune_Lambda <- function(
 
     } else {
       ## Base R BFGS with finite-difference gradients
+      optim_env <- if (!is.null(cl) && .tuning_worker_count(cl) > 1L) {
+        .tuning_eval_env(env)
+      } else {
+        env
+      }
       res <- withCallingHandlers(
         try({
           safe_optim_fn <- function(par) {
             crit <- .safe_tuning_value(par,
                                        criterion_fxn,
                                        log_penalty_vec,
-                                       env,
+                                       optim_env,
                                        include_warnings = FALSE,
                                        ...)
             if (!is.finite(crit) || is.na(crit) || is.nan(crit)) {

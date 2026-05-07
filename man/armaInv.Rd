@@ -13,6 +13,6 @@ armaInv(x)
 Inverted matrix
 }
 \description{
-Computes the inverse of a matrix using Armadillo's inversion method
+Computes the inverse of a matrix, using a symmetric-positive-definite path when appropriate
 }
 \keyword{internal}

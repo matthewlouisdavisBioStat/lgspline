@@ -3,7 +3,7 @@ expect_flag <- function(flag, message) {
 }
 
 
-test_that("lgspline handles basic GLM and quadratic programming constraints", {
+test_that("lgspline handles basic GLM inequality constraints", {
   set.seed(1234)
 
   ## Generate test data
@@ -48,7 +48,7 @@ test_that("lgspline handles basic GLM and quadratic programming constraints", {
   set.seed(1234)  # For reproducibility
   dat[,'y'] <- sapply(mu, function(m) rpois(1, m))
 
-  ## Test fitting with monotonicity constraint and some non-default settings
+  ## Fit with monotonicity and non-default settings
   fit <- lgspline(dat[,'t', drop=FALSE],
                   dat[,'y'],
                   K = 1,
@@ -80,15 +80,15 @@ test_that("lgspline handles basic GLM and quadratic programming constraints", {
               sprintf("Range lower bound violated: min pred = %.6f",
                       min(preds))) # Allow for numeric imprecision
 
-  ## Test GLM-specific components
+  ## GLM-specific components
   expect_equal(fit$family$family, quasipoisson()$family)
   expect_equal(fit$family$link, quasipoisson()$link)
 
-  ## Test plotting
+  ## Plotting
   expect_error(plot(fit, show_formulas = TRUE,
                     text_size_formula = 2), NA)
 
-  ## Test predictions
+  ## Predictions
   expect_length(predict(fit, matrix(t[1:10])), 10)
 })
 
@@ -131,11 +131,86 @@ test_that("Basic lgspline handles logistic regression without constraints", {
               "Logistic predictions left the admissible response range.")
 })
 
-test_that("lgspline handles various quadratic programming constraints", {
+test_that("default GLM score and weights handle non-canonical links", {
+  set.seed(2026)
+  n <- 200
+  t <- runif(n, -1, 1)
+
+  eta_g <- 0.2 + 0.7 * t
+  mu_g <- exp(eta_g)
+  y_g <- rgamma(n, shape = 8, scale = mu_g / 8)
+  dat_g <- data.frame(y = y_g, t = t)
+  fit_g <- suppressWarnings(lgspline(y ~ spl(t),
+                                     dat_g,
+                                     family = Gamma(link = "log"),
+                                     K = 0,
+                                     opt = FALSE,
+                                     standardize_response = FALSE,
+                                     include_quadratic_terms = FALSE,
+                                     include_cubic_terms = FALSE,
+                                     include_quartic_terms = FALSE,
+                                     flat_ridge_penalty = 0,
+                                     wiggle_penalty = 0,
+                                     unique_penalty_per_partition = FALSE,
+                                     unique_penalty_per_predictor = FALSE,
+                                     include_warnings = FALSE))
+  glm_g <- glm(y ~ t, dat_g, family = Gamma(link = "log"))
+  expect_equal(unname(c(predict(fit_g))),
+               unname(c(fitted(glm_g))),
+               tolerance = 1e-5)
+
+  p_b <- pmin(pmax(0.45 + 0.25 * t, 0.05), 0.95)
+  y_b <- rbinom(n, 1, p_b)
+  dat_b <- data.frame(y = y_b, t = t)
+  fit_b <- suppressWarnings(lgspline(y ~ spl(t),
+                                     dat_b,
+                                     family = binomial(link = "identity"),
+                                     K = 0,
+                                     opt = FALSE,
+                                     standardize_response = FALSE,
+                                     include_quadratic_terms = FALSE,
+                                     include_cubic_terms = FALSE,
+                                     include_quartic_terms = FALSE,
+                                     flat_ridge_penalty = 0,
+                                     wiggle_penalty = 0,
+                                     unique_penalty_per_partition = FALSE,
+                                     unique_penalty_per_predictor = FALSE,
+                                     include_warnings = FALSE))
+  glm_b <- suppressWarnings(glm(y ~ t, dat_b,
+                                family = binomial(link = "identity"),
+                                start = c(mean(y_b), 0)))
+  expect_equal(unname(c(predict(fit_b))),
+               unname(c(fitted(glm_b))),
+               tolerance = 1e-5)
+
+  mu_q <- pmax(0.5, 3 + 1.5 * t)
+  y_q <- rpois(n, mu_q)
+  dat_q <- data.frame(y = y_q, t = t)
+  fit_q <- suppressWarnings(lgspline(y ~ spl(t),
+                                     dat_q,
+                                     family = quasipoisson(link = "identity"),
+                                     K = 0,
+                                     opt = FALSE,
+                                     standardize_response = FALSE,
+                                     include_quadratic_terms = FALSE,
+                                     include_cubic_terms = FALSE,
+                                     include_quartic_terms = FALSE,
+                                     flat_ridge_penalty = 0,
+                                     wiggle_penalty = 0,
+                                     unique_penalty_per_partition = FALSE,
+                                     unique_penalty_per_predictor = FALSE,
+                                     include_warnings = FALSE))
+  glm_q <- glm(y ~ t, dat_q, family = quasipoisson(link = "identity"))
+  expect_equal(unname(c(predict(fit_q))),
+               unname(c(fitted(glm_q))),
+               tolerance = 1e-5)
+})
+
+test_that("lgspline handles common inequality constraints", {
   t <- seq(-3, 3, length.out = 100)
   y <- exp(t) + rnorm(100, 0, 0.1)
 
-  ## Test monotone increasing
+  ## Monotone increasing
   fit_inc <- lgspline(cbind(t), y,
                       K = 2,
                       opt = FALSE,
@@ -145,7 +220,7 @@ test_that("lgspline handles various quadratic programming constraints", {
               sprintf("Monotone increase violated: min diff = %.6f",
                       min(diff(preds_inc))))
 
-  ## Test monotone decreasing
+  ## Monotone decreasing
   y_dec <- -y
   fit_dec <- lgspline(cbind(t), y_dec,
                       K = 0,
@@ -156,7 +231,7 @@ test_that("lgspline handles various quadratic programming constraints", {
               sprintf("Monotone decrease violated: max diff = %.6f",
                       max(diff(preds_dec))))
 
-  ## Test bounded range
+  ## Bounded range
   y_bound <- y - mean(y)
   fit_bound <- lgspline(cbind(t), y_bound,
                         K = 1,

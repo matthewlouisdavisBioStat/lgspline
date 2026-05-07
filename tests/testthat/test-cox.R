@@ -1,6 +1,6 @@
 test_that("Cox PH helpers", {
 
-  ## Test 1: Partial log-likelihood at beta = 0 matches manual computation
+  ## Partial log-likelihood at beta = 0
   set.seed(1234)
   n <- 50
   time <- rexp(n, 1)
@@ -19,8 +19,8 @@ test_that("Cox PH helpers", {
   ll_fn <- loglik_cox(rep(0, n), status_s, time_s)
   expect_equal(ll_fn, ll_manual, tolerance = 1e-4)
 
-  ## Test 2: Score at MLE should be approximately zero
-  set.seed(42)
+  ## Score is near zero at the MLE
+  set.seed(1234)
   n <- 200
   t1 <- rnorm(n)
   t2 <- rbinom(n, 1, 0.5)
@@ -45,7 +45,7 @@ test_that("Cox PH helpers", {
   sc_final <- score_cox(X_s, eta_final, st_s, time_s)
   expect_true(all(abs(sc_final) < 1e-4))
 
-  ## Test 3: Compare with survival::coxph
+  ## Compare with survival::coxph
   skip_if_not_installed("survival")
   df_test <- data.frame(time = time, status = status, t1 = t1, t2 = t2)
   coxfit <- survival::coxph(
@@ -56,13 +56,13 @@ test_that("Cox PH helpers", {
   names(b_coxph) <- NULL
   expect_equal(c(b), b_coxph, tolerance = 1e-2)
 
-  ## Test 4: Information matrix is positive definite at the MLE
+  ## Information matrix is positive definite at the MLE
   eta_mle <- c(X_s %**% b)
   I <- info_cox(X_s, eta_mle, st_s, time_s)
   eigvals <- eigen(I, symmetric = TRUE, only.values = TRUE)$values
   expect_true(all(eigvals > 0))
 
-  ## Test 5: Partial log-likelihood increases along Newton direction
+  ## Log-likelihood increases along Newton direction
   b0 <- cbind(rep(0, 2))
   eta0 <- c(X_s %**% b0)
   ll0 <- loglik_cox(eta0, st_s, time_s)
@@ -75,7 +75,7 @@ test_that("Cox PH helpers", {
   ll1 <- loglik_cox(eta1, st_s, time_s)
   expect_gt(ll1, ll0)
 
-  ## Test 6: unconstrained_fit_cox recovers MLE (no penalty)
+  ## Unconstrained fit recovers the MLE
   p <- 2
   Lambda_zero <- matrix(0, p, p)
   LambdaHalf_zero <- matrix(0, p, p)
@@ -91,7 +91,7 @@ test_that("Cox PH helpers", {
   )
   expect_equal(c(b_fit), c(b), tolerance = 1e-2)
 
-  ## Test 7: cox_qp_score_function near zero at MLE
+  ## Constraint score is near zero at the MLE
   X_full <- cbind(t1, t2)
   mu_test <- exp(c(X_full %**% b))
   order_list_test <- list(1:n)
@@ -104,7 +104,7 @@ test_that("Cox PH helpers", {
   )
   expect_true(all(abs(sc_qp) < 1e-4))
 
-  ## Test 8: Weighted partial log-likelihood
+  ## Weighted partial log-likelihood
   set.seed(99)
   n_wt <- 20
   time_wt <- rexp(n_wt, 1)
@@ -136,12 +136,12 @@ test_that("Cox PH helpers", {
   ll_default <- loglik_cox(eta_wt_s, st_wt_s, time_wt_s)
   expect_equal(ll_unit, ll_default, tolerance = 1e-4)
 
-  ## Test 9: Dispersion function returns 1
+  ## Dispersion is fixed at 1
   d_val <- cox_dispersion_function(mu_test, time, 1:n, cox_family(),
                                    rep(1, n), NULL)
   expect_identical(d_val, 1)
 
-  ## Test 10: GLM weight function returns positive values
+  ## GLM weights are positive
   wt_vals <- cox_glm_weight_function(
     mu = mu_test, y = time, order_indices = 1:n,
     family = cox_family(), dispersion = 1,

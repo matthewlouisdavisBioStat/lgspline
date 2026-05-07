@@ -68,10 +68,10 @@ create_onehot <- function(x, drop_first = FALSE) {
 #'
 #' @examples
 #'
-#' x <- c(1, 2, 3, 4, 5)
-#' std(x)
-#' print(mean(x))
-#' print(sd(x))
+#' v <- c(1, 2, 3, 4, 5)
+#' std(v)
+#' print(mean(v))
+#' print(sd(v))
 #'
 #'
 #' @export
@@ -93,8 +93,8 @@ std <- function(x){
 #'
 #' @examples
 #'
-#' x <- runif(5)
-#' softplus(x)
+#' v <- runif(5)
+#' softplus(v)
 #'
 #'
 #' @keywords internal
@@ -1621,7 +1621,7 @@ compute_dG_dlambda <- function(G,
 }
 
 
-## Penalty adjoint used by tuning gradients
+## Penalty-matrix derivative used by tuning gradients
 
 .split_penalty_vector <- function(x, K, p_expansions) {
   x <- c(x)
@@ -1641,8 +1641,7 @@ compute_dG_dlambda <- function(G,
                                      low_rank_F = list(),
                                      Lambda,
                                      L_partition_list = list(),
-                                     unique_penalty_per_partition = FALSE,
-                                     wiggle_penalty = 1) {
+                                     unique_penalty_per_partition = FALSE) {
 
   n_partitions <- K + 1
   unique_penalty_per_partition <- isTRUE(unique_penalty_per_partition)
@@ -1681,8 +1680,8 @@ compute_dG_dlambda <- function(G,
   }))
 
   M_list <- vector("list", n_partitions)
-  Lambda_k_list <- vector("list", n_partitions)
-  wiggle_log_by_partition <- numeric(n_partitions)
+  M_sum <- matrix(0, p_expansions, p_expansions)
+  wiggle_log_gradient <- 0
 
   for (k in seq_len(n_partitions)) {
     rows <- (k - 1) * p_expansions + seq_len(p_expansions)
@@ -1700,27 +1699,31 @@ compute_dG_dlambda <- function(G,
     }
 
     M_list[[k]] <- M_k
-    Lambda_k_list[[k]] <- Lambda_k
-    wiggle_log_by_partition[[k]] <- sum(M_k * Lambda_k)
+    M_sum <- M_sum + M_k
+    wiggle_log_gradient <- wiggle_log_gradient + sum(M_k * Lambda_k)
   }
 
   list(M = M_list,
-       Lambda_k = Lambda_k_list,
-       wiggle_log_by_partition = wiggle_log_by_partition,
-       wiggle_raw_by_partition = wiggle_log_by_partition / wiggle_penalty)
+       M_sum = M_sum,
+       wiggle_log_gradient = wiggle_log_gradient)
 }
 
 
-.compute_log_penalty_gradient <- function(M_list, L_list, partitions = NULL) {
+.compute_log_penalty_gradient <- function(M_list,
+                                          L_list,
+                                          partitions = NULL,
+                                          M_sum = NULL) {
   if (length(L_list) == 0) {
     return(numeric(0))
   }
 
+  if (is.null(partitions) && is.null(M_sum)) {
+    M_sum <- Reduce("+", M_list)
+  }
+
   sapply(seq_along(L_list), function(j) {
     if (is.null(partitions)) {
-      sum(vapply(M_list, function(M_k) {
-        sum(M_k * L_list[[j]])
-      }, numeric(1)))
+      sum(M_sum * L_list[[j]])
     } else {
       k <- partitions[[j]]
       sum(M_list[[k]] * L_list[[j]])
@@ -1918,7 +1921,7 @@ compute_dG_dlambda <- function(G,
     outlist <- .compute_loocv(par, log_penalty_vec, env, ...)
   }
 
-  ## Build the exact LOO adjoint for all penalty directions.
+  ## Build the exact LOO derivative for all penalty directions.
   #  L_*_list entries are current log-scale contributions to Lambda.
   coef_r_list <- vector("list", env$K + 1)
   coef_h_list <- vector("list", env$K + 1)
@@ -1952,13 +1955,10 @@ compute_dG_dlambda <- function(G,
     low_rank_F,
     outlist$Lambda,
     outlist$L_partition_list,
-    env$unique_penalty_per_partition,
-    lambda_1
+    env$unique_penalty_per_partition
   )
-  log_wiggle_gradient <- sum(penalty_adjoint$wiggle_log_by_partition)
-  log_flat_gradient <- sum(vapply(penalty_adjoint$M, function(M_k) {
-    sum(M_k * (lambda_1 * outlist$L2))
-  }, numeric(1)))
+  log_wiggle_gradient <- penalty_adjoint$wiggle_log_gradient
+  log_flat_gradient <- sum(penalty_adjoint$M_sum * (lambda_1 * outlist$L2))
 
   gradient <- cbind(c(log_wiggle_gradient,
                       log_flat_gradient))
@@ -1966,7 +1966,8 @@ compute_dG_dlambda <- function(G,
   if (env$unique_penalty_per_predictor) {
     predictor_penalty_gradient <- .compute_log_penalty_gradient(
       penalty_adjoint$M,
-      outlist$L_predictor_list
+      outlist$L_predictor_list,
+      M_sum = penalty_adjoint$M_sum
     )
     gradient <- cbind(c(c(gradient), predictor_penalty_gradient))
   }
@@ -2136,6 +2137,8 @@ compute_trace_UGXX_wrapper <- function(G,
       ## Compute correction
       const <- length(inds) * nc
       A_chunk <- A[(start_idx*nc + 1):min((max(inds))*nc, nrow(A)), ]
+      ## A enters the correction quadratically; the chunk multiplier below
+      #  restores the original scale after this local stabilization.
       correction_part <- compute_trace_correction(G[inds],
                                                   A_chunk / sqrt(const),
                                                   GXX[inds],
@@ -4196,12 +4199,17 @@ unconstrained_fit_default <- function(X,
     },
     ## score
     function(par){
-      c(crossprod(X, weights*cbind(y - family$linkinv(X %**% cbind(par)))) -
-           Lambda %**% cbind(par))
+      mu <- family$linkinv(c(X %**% cbind(par)))
+      c(default_qp_score_function(X, y, mu, order_indices, 1,
+                                  NULL, weights, family, ...) -
+          Lambda %**% cbind(par))
     },
     ## information
     function(par){
-      crossprod(X, weights*c(family$variance(X %**% cbind(par))) * X) +
+      mu <- family$linkinv(c(X %**% cbind(par)))
+      W <- default_glm_weight_function(mu, y, order_indices,
+                                       family, 1, weights, ...)
+      crossprod(X, c(W) * X) +
         Lambda
     },
     tol))
@@ -5060,8 +5068,115 @@ safe_replace_var <- function(x, old, new) {
 }
 
 
+## Default GLM score and working weights
+
+.default_glm_safe_mu <- function(mu, family) {
+  mu <- c(mu)
+  fam <- tolower(paste0(family$family)[1])
+  eps <- sqrt(.Machine$double.eps)
+
+  if (fam %in% c("binomial", "quasibinomial")) {
+    mu <- pmin(pmax(mu, eps), 1 - eps)
+  } else if (fam %in% c("poisson", "quasipoisson", "gamma",
+                        "inverse.gaussian")) {
+    mu <- pmax(mu, eps)
+  }
+
+  mu
+}
 
 
+.default_glm_mu_eta <- function(mu, family) {
+  mu <- .default_glm_safe_mu(mu, family)
+  eta <- tryCatch(family$linkfun(mu),
+                  error = function(e) rep(NA_real_, length(mu)))
+
+  if (!is.null(family$mu.eta) && all(is.finite(eta))) {
+    return(c(family$mu.eta(eta)))
+  }
+
+  h <- sqrt(.Machine$double.eps) * pmax(abs(mu), 1)
+  link_hi <- family$linkfun(.default_glm_safe_mu(mu + h, family))
+  link_lo <- family$linkfun(.default_glm_safe_mu(mu - h, family))
+  link_deriv <- (link_hi - link_lo) / (2 * h)
+  1 / link_deriv
+}
 
 
+.default_glm_observation_weights <- function(observation_weights, n) {
+  if (is.null(observation_weights) ||
+      length(observation_weights) == 0 ||
+      any(is.null(observation_weights))) {
+    return(rep(1, n))
+  }
 
+  w <- c(observation_weights)
+  if (length(w) == 1L) {
+    w <- rep(w, n)
+  }
+  w
+}
+
+
+.default_glm_dispersion <- function(dispersion, n) {
+  if (is.null(dispersion) || length(dispersion) == 0) {
+    return(rep(1, n))
+  }
+
+  d <- c(dispersion)
+  if (length(d) == 1L) {
+    d <- rep(d, n)
+  }
+  d[!is.finite(d) | d <= 0] <- 1
+  d
+}
+
+
+default_glm_weight_function <- function(mu,
+                                        y,
+                                        order_indices,
+                                        family,
+                                        dispersion,
+                                        observation_weights,
+                                        ...) {
+  mu <- .default_glm_safe_mu(mu, family)
+  mu_eta <- .default_glm_mu_eta(mu, family)
+  variance <- pmax(c(family$variance(mu)), sqrt(.Machine$double.eps))
+  obs_wt <- .default_glm_observation_weights(observation_weights, length(mu))
+
+  obs_wt * mu_eta^2 / variance
+}
+
+
+default_qp_score_function <- function(X,
+                                      y,
+                                      mu,
+                                      order_list,
+                                      dispersion,
+                                      VhalfInv,
+                                      observation_weights,
+                                      family,
+                                      ...) {
+  if (!is.null(VhalfInv)) {
+    obs_wt <- .default_glm_observation_weights(observation_weights, length(y))
+    raw_mu <- tryCatch(c(solve(VhalfInv, cbind(mu))),
+                       error = function(e) NULL)
+    if (is.null(raw_mu)) {
+      score_weight <- obs_wt
+    } else {
+      raw_mu <- .default_glm_safe_mu(raw_mu, family)
+      mu_eta <- .default_glm_mu_eta(raw_mu, family)
+      variance <- pmax(c(family$variance(raw_mu)), sqrt(.Machine$double.eps))
+      score_weight <- obs_wt * mu_eta / variance
+    }
+    return(crossprod(X, cbind((y - mu) * score_weight)))
+  }
+
+  mu <- .default_glm_safe_mu(mu, family)
+  mu_eta <- .default_glm_mu_eta(mu, family)
+  variance <- pmax(c(family$variance(mu)), sqrt(.Machine$double.eps))
+  obs_wt <- .default_glm_observation_weights(observation_weights, length(mu))
+  score_weight <- obs_wt * mu_eta / variance
+
+  crossprod(X, cbind((y - mu) * score_weight))
+}

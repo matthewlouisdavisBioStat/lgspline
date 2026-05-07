@@ -1611,7 +1611,7 @@
 #' ## for advanced users. Here we verify that the refactored version
 #' ## produces identical output to the original.
 #'
-#' set.seed(42)
+#' set.seed(1234)
 #' t <- runif(200, -5, 5)
 #' y <- sin(t) + rnorm(200, 0, 0.5)
 #'

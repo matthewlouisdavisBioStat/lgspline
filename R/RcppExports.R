@@ -16,10 +16,10 @@ efficient_matrix_mult <- function(A, B) {
 
 #' Compute Gram Matrix
 #'
-#' Calculates X^T * X for the input matrix X
+#' Calculates X^T * X for the input matrix X and returns it exactly symmetric
 #'
 #' @param X Input matrix
-#' @return Gram matrix (X^T * X)
+#' @return Symmetric Gram matrix (X^T * X)
 #' @export
 #' @keywords internal
 gramMatrix <- function(X) {
@@ -28,7 +28,7 @@ gramMatrix <- function(X) {
 
 #' Matrix Inversion using Armadillo
 #'
-#' Computes the inverse of a matrix using Armadillo's inversion method
+#' Computes the inverse of a matrix, using a symmetric-positive-definite path when appropriate
 #'
 #' @param x Input matrix to be inverted
 #' @return Inverted matrix

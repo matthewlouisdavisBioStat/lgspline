@@ -140,7 +140,7 @@
   GhalfXy <- ifelse(is.na(GhalfXy), family$linkinv(0), GhalfXy)
 
   ## OLS residuals: project y* onto the orthogonal complement of col(X*).
-  #  Scaling by 1/sqrt(K+1) improves numerical stability of .lm.fit
+  #  Scaling both sides by 1/sqrt(K+1) keeps the absolute scale moderate
   #  when the constraint matrix has many rows.
   col_scales <- .constraint_col_scales(GhalfA)
   GhalfA_scaled <- t(t(GhalfA) * col_scales)
@@ -3944,8 +3944,7 @@
 #' \succeq \mathbf{c}} are present, the sparsity pattern of
 #' \eqn{\mathbf{C}} is inspected automatically. If every constraint
 #' column has nonzeros in only a single partition block (block-separable),
-#' a partition-wise active-set method is used at cost
-#' \eqn{O(Kp^3)} per iteration. If any constraint spans multiple
+#' a partition-wise active-set method is used. If any constraint spans multiple
 #' partition blocks (e.g.\ cross-knot monotonicity), the dense
 #' \code{quadprog::solve.QP} SQP fallback is invoked.
 #'
@@ -4344,7 +4343,7 @@ get_B <- function(X,
 #' @examples
 #' \dontrun{
 #' ## Example 1: Path 2 - Gaussian identity, with knots
-#' set.seed(42)
+#' set.seed(1234)
 #' t <- runif(200, -5, 5)
 #' y <- sin(t) + rnorm(200, 0, 0.5)
 #' fit1 <- lgspline(t, y, K = 3, opt = FALSE, wiggle_penalty = 1e-4)
@@ -4392,7 +4391,7 @@ get_B <- function(X,
 #' cat("Example 5 passed: Range constraints\n")
 #'
 #' ## Example 6: Multi-predictor
-#' set.seed(123)
+#' set.seed(1234)
 #' x1 <- rnorm(300)
 #' x2 <- rnorm(300)
 #' y6 <- sin(x1) + cos(x2) + rnorm(300, 0, 0.5)
@@ -4403,7 +4402,7 @@ get_B <- function(X,
 #' cat("Example 6 passed: 2D predictor, K=4\n")
 #'
 #' ## Example 7: Coefficient consistency (determinism)
-#' set.seed(999)
+#' set.seed(1234)
 #' t7 <- runif(150, -4, 4)
 #' y7 <- 2 * cos(t7) + rnorm(150, 0, 0.4)
 #' fit7a <- lgspline(t7, y7, K = 2, opt = FALSE, wiggle_penalty = 1e-5)

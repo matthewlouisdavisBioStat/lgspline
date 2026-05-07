@@ -46,3 +46,24 @@ test_that("Weibull accelerated failure time (AFT) models can be fit under custom
     expect_error(invisible(), NA)
   }
 })
+
+
+test_that("Weibull family log-likelihood uses fitted observation weights", {
+  log_y <- log(c(1.2, 2.4, 3.6))
+  log_mu <- log(c(1.1, 2.2, 3.1))
+  status <- c(1, 0, 1)
+  weights <- c(1, 3, 5)
+
+  model_fit <- list(
+    y = exp(log_y),
+    ytilde = exp(log_mu),
+    sigmasq_tilde = 0.64,
+    status = status,
+    weights = weights
+  )
+
+  expect_equal(
+    weibull_family()$loglik(model_fit),
+    loglik_weibull(log_y, log_mu, status, sqrt(0.64), weights)
+  )
+})

@@ -17,20 +17,20 @@ arma::mat efficient_matrix_mult(const arma::mat& A, const arma::mat& B) {
 
 //' Compute Gram Matrix
 //'
-//' Calculates X^T * X for the input matrix X
+//' Calculates X^T * X for the input matrix X and returns it exactly symmetric
 //'
 //' @param X Input matrix
-//' @return Gram matrix (X^T * X)
+//' @return Symmetric Gram matrix (X^T * X)
 //' @export
 //' @keywords internal
 // [[Rcpp::export]]
 arma::mat gramMatrix(const arma::mat& X) {
-    return X.t() * X;
+    return arma::symmatu(X.t() * X);
 }
 
 //' Matrix Inversion using Armadillo
 //'
-//' Computes the inverse of a matrix using Armadillo's inversion method
+//' Computes the inverse of a matrix, using a symmetric-positive-definite path when appropriate
 //'
 //' @param x Input matrix to be inverted
 //' @return Inverted matrix
@@ -38,6 +38,14 @@ arma::mat gramMatrix(const arma::mat& X) {
 //' @keywords internal
 // [[Rcpp::export]]
 arma::mat armaInv(const arma::mat& x) {
+    arma::mat out;
+    if (x.is_square() &&
+        arma::approx_equal(x, x.t(), "absdiff",
+                           std::sqrt(std::numeric_limits<double>::epsilon()))) {
+        if (arma::inv_sympd(out, arma::symmatu(x))) {
+            return out;
+        }
+    }
     return arma::inv(x);
 }
 
@@ -188,10 +196,15 @@ arma::mat AGAmult_chunk(const Rcpp::List& G_chunk,
   arma::mat result(nca, nca, arma::fill::zeros);
   for (int i = 0; i < G_chunk.length(); ++i) {
     int k = chunk_start + i;
-    arma::mat G_k = Rcpp::as<arma::mat>(G_chunk[i]);
     arma::mat A_k = A.rows(k * nc, (k + 1) * nc - 1);
-    arma::mat GA_k = G_k * A_k;
-    result += A_k.t() * GA_k;
+    arma::uvec non0 = arma::find(arma::sum(arma::abs(A_k), 0) > 0);
+
+    if (non0.n_elem > 0) {
+      arma::mat A_sub = A_k.cols(non0);
+      arma::mat G_k = Rcpp::as<arma::mat>(G_chunk[i]);
+      arma::mat GA_k = G_k * A_sub;
+      result.submat(non0, non0) += A_sub.t() * GA_k;
+    }
   }
   return result;
 }

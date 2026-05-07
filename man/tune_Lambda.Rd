@@ -162,9 +162,8 @@ flags.}
 
 \item{parallel_matmult, parallel_qr, parallel_bfgs, parallel_grideval, }{qr_pivot_smoothing_constraints,parallel_unconstrained Logical; specific
 parallel flags. When \code{parallel_grideval = TRUE} or
-\code{parallel_bfgs = TRUE}, the submitted cluster is used across whole
-tuning-objective evaluations, so each worker evaluates its assigned
-candidate with the inner per-criterion parallel kernels turned off.}
+\code{parallel_bfgs = TRUE}, inner parallel flags such as
+\code{parallel_eigen} are ignored for those tuning fits.}
 
 \item{cl}{Parallel cluster object.}
 
@@ -259,8 +258,10 @@ The tuning procedure consists of the following steps:
     damped BFGS with closed-form gradients (see \code{.damped_bfgs},
     \code{.compute_gcvu_gradient}, \code{.compute_loocv_gradient}) or base R's \code{stats::optim} with
     finite-difference gradients. The analytic paths differentiate the fitted
-    criterion once, then obtain each log-penalty gradient from the blockwise
-    Frobenius product \eqn{\sum_k\mathrm{tr}(\mathbf{M}_k\mathbf{L}_{j,k})}.
+    criterion once to obtain
+    \eqn{\mathbf{M}_k=\partial\ell/\partial\boldsymbol{\Lambda}_k};
+    all log-penalty gradients then reduce to blockwise trace products
+    with the corresponding current penalty direction.
     For LOO, the leverage derivative may be numerically delicate in some
     problems and can motivate the finite-difference fallback. After the
     first 10 iterations, the custom BFGS path also stops on a small
@@ -332,7 +333,7 @@ described in \code{lgspline-details} is inherited automatically through
 #  for advanced users. Here we verify that the refactored version
 #  produces identical output to the original.
 
-set.seed(42)
+set.seed(1234)
 t <- runif(200, -5, 5)
 y <- sin(t) + rnorm(200, 0, 0.5)
 

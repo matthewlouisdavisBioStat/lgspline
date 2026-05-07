@@ -11,17 +11,7 @@ lgspline.fit(
   standardize_predictors_for_knots = TRUE,
   standardize_expansions_for_fitting = TRUE,
   family = gaussian(),
-  glm_weight_function = function(mu, y, order_indices, family, dispersion,
-    observation_weights, ...) {
-     if (any(!is.null(observation_weights))) {
-        
-    family$variance(mu) * observation_weights
-     }
-     else {
-        
-    family$variance(mu)
-     }
- },
+  glm_weight_function = default_glm_weight_function,
   schur_correction_function = function(X, y, B, dispersion, order_list, K, family,
     observation_weights, ...) {
      lapply(1:(K + 1), function(k) 0)
@@ -86,13 +76,13 @@ lgspline.fit(
   parallel_aga = FALSE,
   parallel_matmult = FALSE,
   parallel_qr = FALSE,
-  parallel_bfgs = TRUE,
+  parallel_bfgs = FALSE,
   parallel_grideval = TRUE,
   parallel_qr_qp = FALSE,
   parallel_unconstrained = FALSE,
-  parallel_find_neighbors = FALSE,
+  parallel_find_neighbors = TRUE,
   parallel_penalty = FALSE,
-  parallel_make_constraint = FALSE,
+  parallel_make_constraint = TRUE,
   unconstrained_fit_fxn = unconstrained_fit_default,
   keep_weighted_Lambda = FALSE,
   iterate_tune = TRUE,
@@ -100,14 +90,8 @@ lgspline.fit(
   blockfit = TRUE,
   qp_score_function = function(X, y, mu, order_list, dispersion, VhalfInv,
     observation_weights, ...) {
-     if (!is.null(observation_weights)) {
-        
-    crossprod(X, cbind((y - mu) * observation_weights))
-     }
-     else {
-        
-    crossprod(X, cbind(y - mu))
-     }
+     default_qp_score_function(X, y, mu, order_list,
+    dispersion, VhalfInv, observation_weights, family, ...)
  },
   qp_observations = NULL,
   qp_Amat = NULL,
@@ -183,10 +167,9 @@ variance-covariance matrices, and coefficients are backtransformed after fitting
 and link function. Minimally requires: family name, link name, linkfun, linkinv,
 variance.}
 
-\item{glm_weight_function}{Default: function returning \code{family$variance(mu)},
-optionally multiplied by \code{observation_weights}. Codes the mean-variance
-relationship (the diagonal \eqn{\mathbf{W}} matrix) used for updating
-\eqn{\mathbf{G}} after obtaining constrained estimates.}
+\item{glm_weight_function}{Default: GLM working weight
+\code{family$mu.eta(eta)^2 / family$variance(mu)}, optionally multiplied
+by \code{observation_weights}.}
 
 \item{schur_correction_function}{Default: function returning list of zeros.
 Computes Schur complements \eqn{\mathbf{S}} added to \eqn{\mathbf{G}}:
@@ -240,8 +223,10 @@ forming the full projection matrix or full hat matrix. In empirical
 diagnostics, the observation-wise derivative of the LOO leverage term can
 be numerically delicate even when the overall tuning criterion and fitted
 penalties remain well behaved; users who prefer a more conservative
-optimization path can set \code{use_custom_bfgs = FALSE}. All tuned
-penalty gradients reuse the same blockwise penalty derivative. For very
+optimization path can set \code{use_custom_bfgs = FALSE}. Penalty
+gradients reuse the partition penalty-matrix derivatives
+\eqn{\partial\ell/\partial\boldsymbol{\Lambda}_k}, so additional tuned
+penalty directions require only trace products. For very
 large samples, generalized cross-validation is often the more practical choice; as a rough guideline,
 \code{"gcv"} is recommended once the sample size is above about 250,000.}
 
@@ -349,7 +334,9 @@ before fitting. Disabling this keeps the original equality columns.}
 \item{chunk_size}{Default: NULL. Integer specifying custom chunk size for parallel
 processing.}
 
-\item{parallel_eigen}{Default: TRUE. Logical flag for parallel eigenvalue decomposition.}
+\item{parallel_eigen}{Default: TRUE. Logical flag for parallel eigenvalue
+decomposition. Ignored inside tuning fits when \code{parallel_grideval}
+or \code{parallel_bfgs} is using the cluster.}
 
 \item{parallel_trace}{Default: FALSE. Logical flag for parallel trace computation.}
 
@@ -366,16 +353,15 @@ row-chunked cross-products with small dense fallback solves instead of
 relying entirely on base QR; unstable cases fall back automatically to
 \code{.lm.fit()} or \code{qr()}.}
 
-\item{parallel_bfgs}{Default: TRUE. Logical flag for parallel evaluation of
+\item{parallel_bfgs}{Default: False. Logical flag for parallel evaluation of
 damped BFGS step candidates during penalty tuning. When active and a
 cluster is supplied, multiple damping factors are evaluated across
-workers and the best improving candidate is retained.}
+workers and inner parallel flags are ignored for those fits.}
 
 \item{parallel_grideval}{Default: TRUE. Logical flag for parallel evaluation
 of the initial tuning grid. When active and a cluster is supplied, grid
-points are distributed across workers, and if more than six workers are
-available, additional random penalty candidates are added before the
-starting point is chosen.}
+points are distributed across workers and inner parallel flags are
+ignored for those fits.}
 
 \item{parallel_qr_qp}{Default: FALSE. Logical flag for parallel QR pivot
 reduction of partition-local inequality constraint columns. When active
@@ -385,13 +371,13 @@ independently across workers before the final QP matrix is assembled.}
 \item{parallel_unconstrained}{Default: FALSE. Logical flag for parallel
 unconstrained MLE for non-identity-link-Gaussian models.}
 
-\item{parallel_find_neighbors}{Default: FALSE. Logical flag for parallel neighbor
+\item{parallel_find_neighbors}{Default: TRUE. Logical flag for parallel neighbor
 identification.}
 
 \item{parallel_penalty}{Default: FALSE. Logical flag for parallel penalty matrix
 construction.}
 
-\item{parallel_make_constraint}{Default: FALSE. Logical flag for parallel constraint
+\item{parallel_make_constraint}{Default: TRUE. Logical flag for parallel constraint
 matrix generation.}
 
 \item{unconstrained_fit_fxn}{Default: \code{\link{unconstrained_fit_default}}.
@@ -411,8 +397,11 @@ spline and non-interactive linear terms. When the blockfit conditions are
 met, both tuning and the final fit use \code{blockfit_solve}; otherwise
 the code uses \code{get_B}. Any failure falls back to \code{get_B}.}
 
-\item{qp_score_function}{Default: \eqn{\mathbf{X}^{\top}(\mathbf{y} - \boldsymbol{\mu})}.
-Score function for quadratic programming, blockfit, and GEE formulations.
+\item{qp_score_function}{Default: GLM score using
+\code{family$mu.eta(eta) / family$variance(mu)}. Used for quadratic
+programming, blockfit, and GEE formulations.
+With dense \code{VhalfInv}, the same score weight is applied after
+whitening.
 Accepts arguments \code{"X, y, mu, order_list, dispersion, VhalfInv,
 observation_weights, ..."}.}
 

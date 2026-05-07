@@ -2,105 +2,51 @@
 
 ## Resubmission
 
-This is a resubmission, lgspline version 1.0.3. Following some early feedback upon JCGS submission, 3 major issues were resolved:
-1) The active set method for imposing inequality constraints, which the paper highlights, was avoided when modelling correlation structures
-2) Some vector-vector and matrix-vector operations were being parallelized unecessarily in the tuning script, which actually slowed down parallel tuning by 2-5x
-3) Inequality constraints are only enforced at certain observations, and
-   users can now optionally choose different observation subsets for
-   different built-in constraint types / variables via a named-list form
-   of `qp_observations`
-4) Smoothness constraints now support an automatic
-   `add_first_and_second_derivative_constraints = NULL` mode. When more
-   than one predictor is spline-expanded, the corresponding first- and
-   second-derivative equality rows are combined before they enter the
-   smoothing constraint matrix; when only one predictor is spline-expanded
-   and the remaining predictors are non-spline effects, they are kept
-   separate by default. Users can still request either behavior explicitly.
+This is a resubmission of lgspline, now version 1.1.0. The revision addresses issues found during early JCGS review and package testing:
 
-In addition, documentation and code comments were improved throughout. 
+1. Inequality-constrained fitting now uses the active-set method across the main fitting paths, including correlated models.
+2. Tuning avoids unnecessary parallel work on small vector operations and parallelizes the initial grid by default; BFGS trial-step parallelism is available as an opt-in.
+3. Built-in inequality constraints can now be enforced on different observation subsets through the named-list form of `qp_observations`.
+4. Smoothness constraints now support `add_first_and_second_derivative_constraints = NULL`, which chooses the default constraint layout from the spline-expanded predictors.
 
-There are no issues with backwards compatibility - code will not break for users who wrote code using a previous version of the package for any feature. 
+Documentation and comments were updated. The changes are fully backward compatible.
 
 ---
 
-### Changes
+## Main Changes
 
-#### 1) Inequality Constraints
-- inequality-constrained fitting now uses a shared active-set wrapper around equality-only re-solves across the main fitting paths, including uncorrelated fits, correlated Gaussian GEE, correlated non-Gaussian GEE, and `blockfit_solve()`
-- for structured correlation, the package now uses the Woodbury decomposition when the low-rank gate is met, so the constrained correlated solve can work through the low-rank `G_on^(1/2) F^(1/2)` representation rather than immediately forming dense `P x P` matrices (this was a previous bug)
-- when the Woodbury gate is not met, when the Woodbury square-root is not usable, or when the Woodbury active-set route does not converge, the code falls back to the existing dense correlated solver; for Gaussian correlated response this is dense QP, and for iterative GLM paths this is dense SQP
-- derivative-constraint handling and correlated active-set behavior were reviewed and documented more explicitly in the package help files so the solver flow and fallback rules now match the implementation
-- active-set refinement can be slower in some simple bounded examples, especially when users disable tuning with `opt = FALSE`; for example, a range-bounded fit with bounds `(-150, 150)` may take longer because the active-set loop is still attempted before the dense fallback
-- users can now choose which observations built-in QP constraints are
-  enforced at, either with the legacy shared vector form or with a new
-  named-list form keyed by entries such as
-  `Time:qp_negative_derivative` and `Dose:qp_positive_derivative`
-- package help for `lgspline()`, `process_qp()`, and the details page was
-  updated to document the new `qp_observations` list form, the known key
-  types, and the warning behavior for unknown keys
-- focused tests were added for legacy shared-subset compatibility,
-  per-constraint keyed subsets, per-variable keyed derivative subsets,
-  and unknown-key warnings
-- users can now control QR-pivot reduction separately for equality and
-  inequality constraints with
-  `qr_pivot_smoothing_constraints` and
-  `qr_pivot_inequality_constraints`
-- users can now choose whether first- and second-derivative smoothness
-  constraints are combined in the equality matrix or imposed separately via
-  `add_first_and_second_derivative_constraints`; the default `NULL` mode
-  combines them only when more than one predictor is spline-expanded
-- a new `parallel_qr_qp` option allows partition-wise QR pivoting of
-  derivative/curvature inequality blocks across workers; built-in range
-  and monotonicity constraints are intentionally left exact rather than
-  reduced
-- package help for `lgspline()`, `process_qp()`, and the details page was
-  updated accordingly, including the grouped argument-list interface
+### Inequality Constraints
 
-#### Parallelism
-- a small issue in the auxiliary parallelism benchmark materials was corrected during revision; this concerned development-time timing/benchmarking content rather than the core CRAN-facing fitting routines
-- tuning now has two additional outer-level parallel controls:
-  `parallel_grideval` and `parallel_bfgs`, both defaulting to `TRUE`
-- `parallel_grideval` evaluates the initial tuning grid across the
-  submitted cluster and, when more than six workers are available,
-  augments the starting grid with additional random raw-scale penalty
-  pairs drawn from an expanded range
-- `parallel_bfgs` evaluates batches of damped BFGS trial steps across the
-  submitted cluster and keeps the best improving candidate from each
-  batch
-- these outer tuning-parallel stages deliberately disable the inner
-  per-criterion parallel kernels within each worker, avoiding nested use
-  of the same cluster and improving compatibility with existing solver
-  code
-- the base `stats::optim()` tuning fallback now uses the same safe
-  criterion-evaluation guard as the grid search and custom BFGS path, so
-  isolated failed finite-difference probes are treated as poor candidate
-  points rather than aborting the whole tuning run
-- a regression in `blockfit_solve()` introduced while threading the new
-  QR controls was corrected so `parallel_qr` is now passed through the
-  Gaussian and weighted blockfit helper paths instead of falling back
-  with `object 'parallel_qr' not found`
-- related non-package benchmark artifacts used during development were
-  removed from the submitted source tree so the CRAN submission now
-  includes only package-relevant files; this cleanup also removes an
-  unneeded tracked PDF artifact from `tests/testthat`
-- this cleanup does not change the numerical fitting results reported by the package examples or tests; it only clarifies and streamlines the materials associated with the parallelism discussion
+- active-set fitting is now used for uncorrelated fits, correlated Gaussian GEE, correlated non-Gaussian GEE, and `blockfit_solve()`
+- structured-correlation fits use the Woodbury form when it is efficient; otherwise they fall back to dense QP/SQP as before
+- derivative constraints, active-set behavior, and fallback rules are now documented in the help files
+- `qp_observations` accepts either the legacy shared vector or a named list such as `Time:qp_negative_derivative`
+- equality and inequality QR reduction can now be controlled separately with `qr_pivot_smoothing_constraints` and `qr_pivot_inequality_constraints`
+- `parallel_qr_qp` adds worker-level QR reduction for derivative and curvature inequality blocks; range and monotonicity constraints remain exact
 
-#### Miscellaneous
-- Documentation updated throughout for clarity and consistency
-- Small sample-size adjustment to tuning penalties changed from [(N+2)/(N-2)]^2 to (N+1)/(N-1) which is less dramatic, less controversial to reviewers.
-- focused tests were cleaned so the current QR / QP checks no longer rely
-  on `diffobj` for boolean diagnostics
-- custom covariance helper functions submitted through `VhalfInv_fxn`,
-  `Vhalf_fxn`, `VhalfInv_logdet`, `REML_grad`, and
-  `custom_VhalfInv_loss` are now wrapped so they can use
-  `correlation_id`, `spacetime`, and matching extra arguments while the
-  fitted object still stores the simple one-argument wrappers used by
-  posterior methods
-- if `VhalfInv_fxn` is supplied and `VhalfInv_par_init` is omitted, the
-  optimizer now initializes at `1e-2` rather than requiring the user to
-  pass an explicit starting value
+### Tuning
 
-## Focused verification for this revision
+- added outer-level tuning controls `parallel_grideval` and `parallel_bfgs`; `parallel_grideval` defaults to `TRUE`, while `parallel_bfgs` is opt-in
+- tuning now avoids nested use of the same cluster by disabling inner parallel kernels inside outer tuning workers
+- inner tuning-gradient algebra and main-process tuning evaluations are kept serial, so `parallel_eigen` does not trigger nested worker dispatch while grid or BFGS tuning is already using the cluster
+- `stats::optim()` tuning now uses the same safe criterion-evaluation guard as grid search and custom BFGS
+- tuning gradients now compute the derivative with respect to each partition penalty matrix once and reuse it for wiggle, flat ridge, predictor-specific, and partition-specific penalties
+- default GLM score and working-weight functions now use the submitted family object's `mu.eta` and `variance`, so common non-canonical links work without extra user-supplied functions
+- cached fixed correlated-tuning quantities to avoid rebuilding whitening objects during repeated LOO/GCV evaluations
+- penalty tuning now warm-starts constrained coefficient solves from the last accepted active set
+- relaxed the structured-correlation Woodbury rank gate from `P/3` to `2P/3` to avoid unnecessary dense fallback
+
+### Other Updates
+
+- changed the small-sample tuning adjustment from `[(N + 2)/(N - 2)]^2` to `(N + 1)/(N - 1)`
+- small C++ helper updates improve the symmetric-positive-definite inversion path, return exactly symmetric Gram matrices, and skip structurally zero constraint columns in the parallel `A'GA` chunk helper
+- custom covariance helpers can now use `correlation_id`, `spacetime`, and matching extra arguments while fitted objects store the one-argument wrappers used by posterior methods
+- if `VhalfInv_fxn` is supplied and `VhalfInv_par_init` is omitted, optimization now starts at `1e-2`
+- `logLik.lgspline()` now accepts fixed coefficients through `B_predict` and fixed dispersions through `sigmasq_predict`
+- removed development-only benchmark artifacts from the submitted source tree
+- added focused tests for keyed `qp_observations`, active-set/correlation behavior, QR controls, tuning, non-canonical GLM defaults, and custom likelihood inputs
+
+## Verification
 
 - package reinstall from source completed successfully
 - focused tests passing:
@@ -113,33 +59,16 @@ There are no issues with backwards compatibility - code will not break for users
   - `tests/testthat/test_qp_observations_list.R`
 - focused verification script passing:
   - `scripts/codex_verify.R`
-- additional direct canary fit passing:
-  - `lgspline(y ~ spl(t), data.frame(t, y), family = binomial())`
-  - clustered Gaussian tuning canary with
-    `parallel_grideval = TRUE` and `parallel_bfgs = TRUE`
-  - blockfit Gaussian no-correlation canary with `parallel_qr = FALSE`
-    and a supplied cluster
-  - custom-covariance canary with omitted `VhalfInv_par_init`
-  - keyed `qp_observations` canary with bare `qp_range_lower` and
-    derivative-specific observation subsets
+- temporary C++ equivalence/timing checks passed during development and were removed before submission
+- direct fits passing:
+  - binomial lgspline fit
+  - clustered Gaussian tuning with outer parallelism
+  - blockfit Gaussian no-correlation fit with a supplied cluster
+  - custom-covariance fit with omitted `VhalfInv_par_init`
+  - keyed `qp_observations` fit
 
 ## R CMD check results
 
 0 errors | 0 warnings | 0 notes
 
 There are no downstream dependencies for this package.
-
-## Additional update: exact tuning penalty gradients
-
-- replaced the previous unweighted trace-ratio approximation for optional
-  predictor- and partition-specific tuning penalties with the exact
-  per-partition adjoint identity
-  `sum_k tr(M_k L_{j,k})`, where `M_k = d criterion / d Lambda_k`
-- the same adjoint is now used for wiggle, flat ridge, predictor-specific,
-  and partition-specific log-scale gradients in `tune_Lambda`
-- added a developer-only verification script,
-  `scripts/codex_verify_trace_gradient.R`, comparing analytic gradients to
-  central finite differences and checking the weighted trace-ratio identity
-- cached penalty-independent correlated tuning quantities to avoid rebuilding fixed whitening objects during repeated LOO/GCV penalty evaluations
-- penalty tuning now reuses the last accepted active inequality set as a KKT-checked warm start for subsequent constrained coefficient solves
-- Relaxed the structured-correlation Woodbury rank gate from P/3 to 2P/3 after Theoph/NCA diagnostics showed the previous cutoff caused unnecessary dense fallback at higher estimated correlation.

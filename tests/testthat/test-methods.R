@@ -2,21 +2,21 @@ test_that("basic S3 methods work correctly", {
   t <- seq(-9, 9, length.out = 100)
   y <- sin(t) + rnorm(100, 0, 0.1) + 0.1*t^2
   fit <- lgspline(cbind(t), y, K = 5)
-  ## Test print method
+  ## Print method
   expect_output(print(fit), "Lagrangian Multiplier Smoothing Spline Model")
-  ## Test predict method
+  ## Predict method
   newt <- matrix(seq(-9, 9, length.out = 10))
   pred <- predict(fit, newt)
   expect_length(pred, 10)
-  ## Test coef method
+  ## Coef method
   coefs <- coef(fit)
   expect_type(coefs, "list")
   expect_length(coefs, fit$K + 1)
-  ## Test find extremum
+  ## Find extremum
   extr <- find_extremum(fit)
   expect_type(extr, "list")
   expect_length(extr, 2)
-  ## Test generate posterior
+  ## Generate posterior
   extr <- generate_posterior(fit)
   expect_type(extr, "list")
   expect_length(extr, 2)

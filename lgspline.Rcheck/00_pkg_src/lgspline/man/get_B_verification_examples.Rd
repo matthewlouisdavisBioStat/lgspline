@@ -13,7 +13,7 @@ no correlation) and Path 3 (binomial GLM).
 ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 ## Example 1: Path 2 - Gaussian identity, with knots
 ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
-set.seed(42)
+set.seed(1234)
 t <- runif(200, -5, 5)
 y <- sin(t) + rnorm(200, 0, 0.5)
 fit1 <- lgspline(t, y, K = 3, opt = FALSE, wiggle_penalty = 1e-4)

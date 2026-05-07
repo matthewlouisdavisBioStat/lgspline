@@ -5,7 +5,7 @@ test_that("basic parallel processing works", {
   t <- seq(-9, 9, length.out = 1000)
   y <- sin(t) + rnorm(1000, 0, 0.1)
   dat <- cbind(t, y)
-  # Test parallel vs non-parallel results match
+  # Parallel and serial fits match
   cl <- parallel::makeCluster(2)
   on.exit(parallel::stopCluster(cl))
   ## Ensure cluster is stopped even if test fails
@@ -22,7 +22,7 @@ test_that("basic parallel processing works", {
   expect_equal(fit_parallel$ytilde,
                fit_serial$ytilde,
                tolerance = 1e-5)
-  # Test predictions match
+  # Predictions match
   newt <- matrix(seq(-9, 9, length.out = 100))
   pred_parallel <- predict(fit_parallel, newt)
   pred_serial <- predict(fit_serial, newt)

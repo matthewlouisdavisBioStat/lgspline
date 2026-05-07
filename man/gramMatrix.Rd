@@ -10,9 +10,9 @@ gramMatrix(X)
 \item{X}{Input matrix}
 }
 \value{
-Gram matrix (X^T * X)
+Symmetric Gram matrix (X^T * X)
 }
 \description{
-Calculates X^T * X for the input matrix X
+Calculates X^T * X for the input matrix X and returns it exactly symmetric
 }
 \keyword{internal}
