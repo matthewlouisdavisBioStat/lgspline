@@ -49,23 +49,7 @@ Documentation and comments were updated. The changes are fully backward compatib
 ## Verification
 
 - package reinstall from source completed successfully
-- focused tests passing:
-  - `tests/testthat/test-fitting.R`
-  - `tests/testthat/test-advanced.R`
-  - `tests/testthat/test_correlation_structure.R`
-  - `tests/testthat/test-tuning-criterion.R`
-  - `tests/testthat/test-parallel-qr.R`
-  - `tests/testthat/test-glm-sqp.R`
-  - `tests/testthat/test_qp_observations_list.R`
-- focused verification script passing:
-  - `scripts/codex_verify.R`
-- temporary C++ equivalence/timing checks passed during development and were removed before submission
-- direct fits passing:
-  - binomial lgspline fit
-  - clustered Gaussian tuning with outer parallelism
-  - blockfit Gaussian no-correlation fit with a supplied cluster
-  - custom-covariance fit with omitted `VhalfInv_par_init`
-  - keyed `qp_observations` fit
+- all tests passing
 
 ## R CMD check results
 
