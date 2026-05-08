@@ -2541,7 +2541,9 @@ logLik.lgspline <- function(object,
   ## Add the penalty-induced prior term when requested.
   if(include_prior && is.finite(ll)){
     lp <- tryCatch(
-      as.numeric(prior_loglik(eval_object, sigmasq = sigma2)),
+      as.numeric(prior_loglik(eval_object,
+                              B_predict = B_predict,
+                              sigmasq_predict = sigma2)),
       error = function(e) {
         warning("Could not evaluate prior_loglik; prior term omitted.", call. = FALSE)
         0

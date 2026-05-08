@@ -58,6 +58,22 @@ test_that("integration and prior helper methods return coherent values", {
 
   lp_with_const <- prior_loglik(fit, include_constant = TRUE)
   lp_no_const <- prior_loglik(fit, include_constant = FALSE)
+  lp_fixed <- prior_loglik(fit,
+                           B_predict = fit$B,
+                           sigmasq_predict = fit$sigmasq_tilde,
+                           include_constant = TRUE)
+  lp_legacy <- prior_loglik(fit,
+                            sigmasq = fit$sigmasq_tilde,
+                            include_constant = TRUE)
+  lp_legacy_pos <- prior_loglik(fit,
+                                fit$sigmasq_tilde,
+                                include_constant = TRUE)
+  B_alt <- fit$B
+  B_alt[[1]][length(B_alt[[1]])] <- B_alt[[1]][length(B_alt[[1]])] + 0.1
+  lp_alt <- prior_loglik(fit,
+                         B_predict = B_alt,
+                         sigmasq_predict = fit$sigmasq_tilde,
+                         include_constant = TRUE)
 
   part_penalties <- fit$penalties$L_partition_list
   if(length(part_penalties) == 0){
@@ -76,6 +92,10 @@ test_that("integration and prior helper methods return coherent values", {
   expect_true(is.numeric(lp_no_const) && length(lp_no_const) == 1)
   expect_true(is.finite(lp_with_const))
   expect_true(is.finite(lp_no_const))
+  expect_equal(lp_fixed, lp_with_const, tolerance = 1e-8)
+  expect_equal(lp_legacy, lp_with_const, tolerance = 1e-8)
+  expect_equal(lp_legacy_pos, lp_with_const, tolerance = 1e-8)
+  expect_false(isTRUE(all.equal(lp_alt, lp_with_const)))
   expect_equal(lp_with_const - lp_no_const, expected_const, tolerance = 1e-4)
 })
 

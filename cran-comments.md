@@ -43,6 +43,8 @@ Documentation and comments were updated. The changes are fully backward compatib
 - custom covariance helpers can now use `correlation_id`, `spacetime`, and matching extra arguments while fitted objects store the one-argument wrappers used by posterior methods
 - if `VhalfInv_fxn` is supplied and `VhalfInv_par_init` is omitted, optimization now starts at `1e-2`
 - `logLik.lgspline()` now accepts fixed coefficients through `B_predict` and fixed dispersions through `sigmasq_predict`
+- `prior_loglik()` now uses the same `B_predict` and `sigmasq_predict` convention
+- updated examples for nested re-fitting and Toeplitz correlation intervals
 - removed development-only benchmark artifacts from the submitted source tree
 - added focused tests for keyed `qp_observations`, active-set/correlation behavior, QR controls, tuning, non-canonical GLM defaults, and custom likelihood inputs
 

@@ -1196,13 +1196,6 @@
 #' print(c("True correlation:" = rho_true,
 #'         "Estimated correlation:" = rho_est))
 #'
-#' ## Quantify uncertainty in correlation estimate with 95% confidence interval
-#' #  CI is constructed on the working scale and back-transformed
-#' ci_transformed <- confint(model_fit)['Correlation parameter 1',]
-#' ci_natural <- sort(exp(-exp(ci_transformed)))
-#' print("95% CI for correlation:")
-#' print(ci_natural)
-#'
 #' ## Also check SD (should be close to 0.5)
 #' print(sqrt(model_fit$sigmasq_tilde))
 #'
@@ -1383,8 +1376,52 @@
 #'   Estimated.Correlation = round(corr_est_by_lag, 4)
 #' ))
 #'
+#' ## Quantify uncertainty in Toeplitz component estimates
+#' #  CI is constructed on the working scale and back-transformed
+#' ci_transformed <- confint(model_fit)
+#' rho_fast_ci <- sort(exp(-exp(ci_transformed['Correlation parameter 1', ])))
+#' rho_slow_ci <- sort(exp(-exp(ci_transformed['Correlation parameter 2', ])))
+#' mix_ci <- sort(plogis(ci_transformed['Correlation parameter 3', ]))
+#' print("95% CI for Toeplitz components:")
+#' print(rbind(rho_fast = rho_fast_ci,
+#'             rho_slow = rho_slow_ci,
+#'             mix = mix_ci))
+#'
 #' ## Should be ~ 2
 #' print(sqrt(model_fit$sigmasq_tilde))
+#'
+#' ## ## ## ## Nested Fit ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
+#' t <- sort(runif(120, -3, 3))
+#' s <- runif(120, -2, 2)
+#' y <- sin(t) + 0.2*s + 0.4*t*s + rnorm(120, sd = 0.25)
+#' df <- data.frame(t = t, s = s, y = y)
+#'
+#' ## Fit full model
+#' model_fit <- lgspline(y ~ spl(t) + t*s,
+#'                       data = df,
+#'                       K = 3,
+#'                       opt = FALSE)
+#'
+#' ## Re-fit constraining the interaction term to 0
+#' linear_constraint <- matrix(0, nrow = model_fit$P, ncol = model_fit$K + 1)
+#' rownames(linear_constraint) <- names(unlist(model_fit$B))
+#' for(k in 1:(model_fit$K + 1)){
+#'   linear_constraint[paste0('partition', k, '.txs'), k] <- 1
+#' }
+#' null_value <- cbind(rep(0, ncol(linear_constraint)))
+#'
+#' nested_fit <- lgspline(y ~ spl(t) + t*s,
+#'                        data = df,
+#'                        K = model_fit$K,
+#'                        opt = FALSE,
+#'                        make_partition_list = model_fit$make_partition_list,
+#'                        previously_tuned_penalties = model_fit$penalties,
+#'                        constraint_vectors = linear_constraint,
+#'                        null_constraint = null_value)
+#'
+#' ## Interaction coefficient is 0 up to numerical tolerance
+#' nested_coefficients <- Reduce('cbind', coef(nested_fit))
+#' print(nested_coefficients['txs', ])
 #'
 #' ## ## ## ## Parallelism ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##
 #' if (requireNamespace("parallel", quietly = TRUE)) {

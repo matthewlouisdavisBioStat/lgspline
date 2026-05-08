@@ -4,16 +4,28 @@
 \alias{prior_loglik}
 \title{Log-Prior Distribution Evaluation for lgspline Models}
 \usage{
-prior_loglik(model_fit, sigmasq = NULL, include_constant = TRUE)
+prior_loglik(
+  model_fit,
+  B_predict = NULL,
+  sigmasq_predict = NULL,
+  include_constant = TRUE,
+  ...
+)
 }
 \arguments{
 \item{model_fit}{An lgspline model object.}
 
-\item{sigmasq}{Numeric scalar dispersion parameter. If NULL,
-\code{model_fit$sigmasq_tilde} is used.}
+\item{B_predict}{Optional list of coefficient vectors at which to evaluate
+the prior. Default NULL uses the fitted coefficients.}
+
+\item{sigmasq_predict}{Numeric scalar dispersion parameter. If NULL,
+\code{model_fit$sigmasq_tilde} is used. Legacy \code{sigmasq} calls
+are still accepted.}
 
 \item{include_constant}{Logical; if TRUE (default), include the
 multivariate normal normalizing constant.}
+
+\item{...}{Optional legacy arguments.}
 }
 \value{
 A numeric scalar representing the prior log-likelihood.
@@ -52,7 +64,7 @@ jntloglik <- sum(dnorm(model_fit$y,
                     model_fit$ytilde,
                     1,
                     log = TRUE)) +
-          prior_loglik(model_fit, sigmasq = 1)
+          prior_loglik(model_fit, sigmasq_predict = 1)
 print(jntloglik)
 }
 
