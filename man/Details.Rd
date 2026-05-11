@@ -459,10 +459,11 @@ thin QR decomposition \eqn{\mathbf{N} = \mathbf{Q}\mathbf{R}}. With
 \deqn{\mathbf{F}
   = (\mathbf{I}_P + \mathbf{N}\mathbf{J}\mathbf{N}^{\top})^{-1}
   = \mathbf{I}_P - \mathbf{P} + \mathbf{Q}\mathbf{S}^{-1}\mathbf{Q}^{\top},}
-so that
-\deqn{\mathbf{G}^{1/2}
+so that a convenient, generally non-symmetric factor
+\eqn{\mathbf{L}\mathbf{L}^{\top}=\mathbf{G}} is
+\deqn{\mathbf{L}
   = \mathbf{G}_{\mathrm{on}}^{1/2}\mathbf{F}^{1/2}, \qquad
-  \mathbf{G}^{-1/2}
+  \mathbf{L}^{-1}
   = \mathbf{F}^{-1/2}\mathbf{G}_{\mathrm{on}}^{-1/2},}
 with
 \deqn{\mathbf{F}^{1/2}
@@ -472,10 +473,11 @@ with
   = (\mathbf{I}_P - \mathbf{P}) +
   \mathbf{Q}\mathbf{S}^{1/2}\mathbf{Q}^{\top}.}
 This preserves the same transformed OLS projection used in the
-independent case:
-\deqn{\mathbf{y}^{*} = \mathbf{G}^{1/2}\mathbf{w}, \qquad
-  \mathbf{X}^{*} = \mathbf{G}^{1/2}\mathbf{A}, \qquad
-  \tilde{\boldsymbol{\beta}} = \mathbf{G}^{1/2}\mathbf{r}^{*},}
+independent case, using the transpose orientation for the transformed
+response and constraint design:
+\deqn{\mathbf{y}^{*} = \mathbf{L}^{\top}\mathbf{w}, \qquad
+  \mathbf{X}^{*} = \mathbf{L}^{\top}\mathbf{A}, \qquad
+  \tilde{\boldsymbol{\beta}} = \mathbf{L}\mathbf{r}^{*},}
 where \eqn{\mathbf{w} = \mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{y}}.
 The full-space operations remain the QR on \eqn{\mathbf{X}^{*}} and a
 rank-\eqn{r} correction through the manuscript basis \eqn{\mathbf{Q}}.
@@ -653,10 +655,11 @@ implemented in \pkg{lgspline}, scaled by \eqn{1/N}, is
   -\log|\mathbf{V}^{-1/2}|
   + \frac{N}{2}\log\tilde{\sigma}^{2}
   + \frac{1}{2\tilde{\sigma}^{2}}
-    (\mathbf{y} - \boldsymbol{\mu})^{\top}
-    \mathbf{D}\tilde{\mathbf{W}}^{-1}\mathbf{V}^{-1}
-    (\mathbf{y} - \boldsymbol{\mu})
-  + \frac{1}{2}\log|(\tilde{\sigma}^{2}\mathbf{U}\mathbf{G})^{-1}|^{+}
+    \|\mathbf{V}^{-1/2}\mathbf{D}^{1/2}
+      \tilde{\mathbf{W}}^{-1/2}
+      (\mathbf{y} - \boldsymbol{\mu})\|^2
+  + \frac{1}{2}
+    \log|(\tilde{\sigma}^{2}\mathbf{U}\mathbf{G}\mathbf{U}^{\top})^{-1}|^{+}
 \right],}
 where \eqn{|\cdot|^{+}} denotes the generalized determinant (product of
 nonzero eigenvalues), and
@@ -724,7 +727,7 @@ for the correlation and variance parameters that depends only on
 mean-variance relationships through \eqn{\mathbf{W}}, and therefore
 generalizes naturally to quasi-likelihood and other settings where a
 fully specified log-likelihood is unavailable. The REML correction term
-\eqn{\log|(\tilde{\sigma}^{2}\mathbf{U}\mathbf{G})^{-1}|^{+}} uses a
+\eqn{\log|(\tilde{\sigma}^{2}\mathbf{U}\mathbf{G}\mathbf{U}^{\top})^{-1}|^{+}} uses a
 generalized log-determinant so that only nonzero eigenvalues contribute
 when rank deficiency arises from smoothness constraints or
 identifiability conditions in \eqn{\mathbf{A}}. When
