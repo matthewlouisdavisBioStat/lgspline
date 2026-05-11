@@ -8,7 +8,6 @@ scripts
 ..Rcheck
 lgspline.Rcheck
 .r-lib
-JCGS
 .git
 .github
 .Rbuildignore
