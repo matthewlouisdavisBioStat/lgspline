@@ -156,7 +156,7 @@ knots_for <- function(q) switch(as.character(q),
                                 "1" = 16, "2" = 8, "4" = 4)
 
 ## TPRS basis dimension: mgcv defaults k.def = 8, 27, 100 for d = 1, 2, >=3.
-## For q = 1 we use k_per for parity with the other 1D smoothers.
+#  For q = 1 we use k_per for parity with the other 1D smoothers.
 tprs_k <- function(q, k_per) {
   if (q == 1) k_per
   else if (q == 2) 27
@@ -199,12 +199,9 @@ fit_lgspline <- function(T_train, y_train, f_true, q, tuned, k_per) {
        time = run$elapsed)
 }
 
-################################################################################
 
-## ## Cubic Regression Spline (mgcv, smoothing spline penalty) ## ##
-#  bs="cr" uses the integrated-squared-second-derivative cubic spline penalty.
-#  For q >= 2 we include main effects plus pairwise (and 3-way for q >= 3)
-#  te() interactions, mirroring lgspline's interaction structure.
+
+## ## Cubic Regression Spline
 build_formula_cr <- function(q, cnames, k_per) {
   if (q == 1)
     return(as.formula(sprintf("y ~ s(%s, bs = 'cr', k = %d)",
@@ -243,14 +240,9 @@ fit_cr <- function(T_train, y_train, f_true, q, tuned, k_per) {
   list(rmse = sqrt(mean((yhat - f_true)^2)), time = run$elapsed)
 }
 
-################################################################################
 
-## ## Thin Plate Regression Spline (mgcv, isotropic, multivariate) ## ##
-#  s(t1, ..., tq, bs="tp") is a single isotropic smoother of all q variables
-#  jointly (Wood 2003). The penalty order m defaults to the smallest value
-#  satisfying 2m > d+1. For large N, the basis is built from a subsample of
-#  at most tprs_max_knots distinct covariate values (mgcv default is 2000).
-#  Predictors are standardized before all methods are fit.
+
+## ## Thin Plate Regression Spline
 build_formula_tp <- function(q, cnames, k) {
   vars <- paste(cnames, collapse = ", ")
   as.formula(sprintf("y ~ s(%s, bs = 'tp', k = %d)", vars, k))
@@ -288,7 +280,7 @@ fit_tp <- function(T_train, y_train, f_true, q, tuned, k_per) {
   list(rmse = sqrt(mean((yhat - f_true)^2)), time = run$elapsed)
 }
 
-################################################################################
+
 
 ## ## Truncated Power Basis ## ##
 make_trunc_basis <- function(t_vec, knots, degree = 3) {
@@ -382,7 +374,7 @@ fit_trunc_poly <- function(T_train, y_train, f_true, q, tuned, k_per) {
 
 ################################################################################
 
-## ## Scenario Grid and Worker ## ##
+## ## Parallel Setup ## ##
 scenarios <- expand.grid(q = dims, N = Ns, sigma = sigmas,
                          stringsAsFactors = FALSE)
 scenarios$K <- sapply(scenarios$q, knots_for)
@@ -433,9 +425,7 @@ run_one_rep <- function(args) {
   do.call(rbind, rows)
 }
 
-################################################################################
-
-## ## Task List and Parallel Execution ## ##
+## ## Tasks and Execution ## ##
 tasks <- list()
 for (i in seq_len(nrow(scenarios))) {
   for (m in seq_len(M_reps)) {
@@ -471,29 +461,30 @@ save(results, session_info, file = "performance_results.RData")
 
 ################################################################################
 
+## ## Summarize Results
+
 load('performance_results.RData')
 ## ## Summaries ## ##
 summary_tab <- results %>%
   group_by(q, N, sigma, K, tuning, method) %>%
   summarise(
     rmse_mean = mean(rmse, na.rm = TRUE),
-    rmse_sd   = sd(rmse, na.rm = TRUE),
-    # Timing over completed only (matches rmse subset)
+    rmse_sd = sd(rmse, na.rm = TRUE),
+    # Timing over completed only (methods reached timing cap)
     time_mean_completed = mean(time[!is.na(rmse)], na.rm = TRUE),
     time_sd_completed   = sd(time[!is.na(rmse)], na.rm = TRUE),
-    # Timing over all, with capped imputed at cap
+    # Timing over all
     time_mean_all = mean(pmin(time, time_cap), na.rm = TRUE),
-    n_total   = n(),
-    n_ok      = sum(!is.na(rmse)),
+    n_total = n(),
+    n_ok = sum(!is.na(rmse)),
     n_timeout = sum(is.na(rmse) & !is.na(time)),
     .groups = "drop")
 
 cat("\n\nSummary (mean +/- SD):\n")
-print(as.data.frame(summary_tab), digits = 3)
+print(as.data.frame(summary_tab), digits = 3, max = 999999)
 cat(sprintf("\nTotal elapsed: %.1f min\n",
             as.numeric(difftime(Sys.time(), strt, units = "mins"))))
 
-################################################################################
 ## ## Faceted Timing Figure ## ##
 #  Log-log time vs. N, faceted by (q, sigma), colored by method, tuned vs. untuned
 #  Cap-exceeded cells are imputed at the cap value and marked with a triangle.
