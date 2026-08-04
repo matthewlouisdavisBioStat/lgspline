@@ -2,8 +2,11 @@
 
 This R package implements Lagrangian multiplier smoothing splines, which reformulate smoothing splines through constrained optimization. This approach provides direct access to predictor-response relationships through interpretable coefficients, unlike other formulations that require post-fitting algebraic manipulation.
 
+Additionally, this package allows for fitting survival models, GLMs, MMRMs, and many other models sunder arbitrary linear constraints upon coefficients.
+
 # Installation 
 
+install.packages('lgspline')
 devtools::install_github("matthewlouisdavisBioStat/lgspline")
 
 # Citation 
