@@ -47,7 +47,9 @@
 #'   variables.  When NULL, non-integration predictors are held at the
 #'   midpoint of their training range.
 #' @param B_predict Default: NULL.  Optional list of coefficient vectors,
-#'   one per partition.  When NULL the fitted coefficients are used.
+#'   one per partition. For additive fits, this may be the nested
+#'   \code{post_draw_coefficients} list returned by \code{generate_posterior()}.
+#'   When NULL the fitted coefficients are used.
 #' @param link_scale Default: FALSE.  Logical; when TRUE the integral is
 #'   computed on the link (linear predictor) scale \eqn{\eta} rather than
 #'   the response scale \eqn{\mu}.
@@ -96,6 +98,97 @@ integrate.lgspline <- function(
 ){
 
   model_fit <- f
+
+  if(inherits(model_fit, "additive_lgspline")){
+    if(is.null(B_predict)) B_predict <- model_fit$B
+    q_total <- model_fit$q
+    og_cols <- model_fit$og_cols
+
+    if(is.null(vars)){
+      vars_idx <- seq_len(q_total)
+    } else if(is.character(vars)){
+      if(!is.null(og_cols) && all(vars %in% og_cols)){
+        vars_idx <- match(vars, og_cols)
+      } else {
+        stop(
+          "\n\tCharacter vars could not be resolved. Use integer predictor ",
+          "indices unless original predictor names are available.\n"
+        )
+      }
+    } else {
+      vars_idx <- as.integer(vars)
+    }
+
+    n_integ <- length(vars_idx)
+    if(n_integ == 0L) stop("\n\tNo integration variables identified.\n")
+    if(any(is.na(vars_idx)) || any(vars_idx < 1L) || any(vars_idx > q_total)){
+      stop("\n\tvars must be valid predictor indices between 1 and ",
+           q_total, ".\n")
+    }
+
+    lower <- as.numeric(lower)
+    upper <- as.numeric(upper)
+    if(length(lower) == 1L) lower <- rep(lower, n_integ)
+    if(length(upper) == 1L) upper <- rep(upper, n_integ)
+    if(length(lower) != n_integ || length(upper) != n_integ){
+      stop(
+        "\n\tlower and upper must each have length equal to the number of ",
+        "integration variables (", n_integ, ").\n"
+      )
+    }
+
+    .gauss_legendre <- function(n){
+      i <- seq_len(n - 1L)
+      b <- i / sqrt(4 * i^2 - 1)
+      J <- matrix(0, n, n)
+      for(k in seq_along(b)){
+        J[k, k + 1L] <- b[k]
+        J[k + 1L, k] <- b[k]
+      }
+      eig <- eigen(J, symmetric = TRUE)
+      ord <- order(eig$values)
+      list(nodes = eig$values[ord], weights = (2 * eig$vectors[1, ]^2)[ord])
+    }
+
+    gl <- .gauss_legendre(as.integer(n_quad))
+    mapped_nodes <- vector("list", n_integ)
+    mapped_weights <- vector("list", n_integ)
+    for(vi in seq_len(n_integ)){
+      hw <- (upper[vi] - lower[vi]) / 2
+      mp <- (upper[vi] + lower[vi]) / 2
+      mapped_nodes[[vi]] <- hw * gl$nodes + mp
+      mapped_weights[[vi]] <- gl$weights * hw
+    }
+
+    grid <- expand.grid(mapped_nodes)
+    product_weights <- apply(expand.grid(mapped_weights), 1L, prod)
+    n_grid <- nrow(grid)
+
+    if(is.null(initial_values)){
+      training_preds <- model_fit$predictors
+      base_vec <- rep(0, q_total)
+      for(j in seq_len(q_total)){
+        xj <- training_preds[, j]
+        base_vec[j] <- (min(xj, na.rm = TRUE) + max(xj, na.rm = TRUE)) / 2
+      }
+    } else {
+      base_vec <- as.numeric(initial_values)
+      if(length(base_vec) != q_total){
+        stop("\n\tinitial_values must have length ", q_total, ".\n")
+      }
+    }
+
+    pred_mat <- matrix(rep(base_vec, each = n_grid), nrow = n_grid)
+    if(!is.null(og_cols)) colnames(pred_mat) <- og_cols
+    for(vi in seq_len(n_integ)) pred_mat[, vars_idx[vi]] <- grid[, vi]
+
+    predicted <- model_fit$predict(new_predictors = pred_mat,
+                                   B_predict = B_predict)
+    if(link_scale && model_fit$family$link != "identity"){
+      predicted <- model_fit$family$linkfun(predicted)
+    }
+    return(sum(as.numeric(predicted) * product_weights))
+  }
 
   ## Pull structural info and link function from the fitted model
   if(is.null(B_predict)) B_predict <- model_fit$B

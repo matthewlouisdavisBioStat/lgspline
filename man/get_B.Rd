@@ -182,17 +182,18 @@ decomposition
 \mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1}}
 with
 \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
-This gives a Woodbury path with cost \eqn{O(Kp^3 + Pr^2)} when the
-cross-partition rank \eqn{r} is small; otherwise the dense
-\eqn{O(P^3)} path is used.
+For Gaussian identity-link GEE this gives a Woodbury path with cost
+\eqn{O(Kp^3 + Pr^2)} when the cross-partition rank \eqn{r} is small;
+otherwise the dense \eqn{O(P^3)} path is used. Non-Gaussian GEE always
+uses the dense corrected path because GLM working weights must be applied
+before correlation whitening.
 Two sub-paths:
 \itemize{
   \item \bold{Path 1a.} Gaussian identity + GEE.
     See \code{\link{.get_B_gee_gaussian}} (dense) and
     \code{\link{.get_B_gee_woodbury}} (accelerated).
   \item \bold{Path 1b.} Non-Gaussian GEE.
-    See \code{\link{.get_B_gee_glm}} (dense) and
-    \code{\link{.get_B_gee_glm_woodbury}} (accelerated).
+    See \code{\link{.get_B_gee_glm}}.
 }
 
 \bold{Path 2. Gaussian identity link, no correlation:}

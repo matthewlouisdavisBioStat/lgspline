@@ -39,6 +39,33 @@ print.lgspline <- function(x, ...) {
 }
 
 
+#' Print Method for additive_lgspline Objects
+#'
+#' @param x An additive lgspline model object.
+#' @param ... Not used.
+#'
+#' @return Invisibly returns \code{x}.
+#'
+#' @export
+#' @method print additive_lgspline
+print.additive_lgspline <- function(x, ...) {
+  cat("Additive Lagrangian Multiplier Smoothing Spline Model\n")
+  cat("=====================================================\n")
+  cat("Model Family (Link Function):",
+      paste0(paste0(x$family)[1],
+             " (",
+             paste0(x$family)[2],
+             ")", collapse = ""),
+      "\n")
+  cat("Number of Observations:", x$N, "\n")
+  cat("Number of Predictors:", x$q, "\n")
+  cat("Number of Smooth Terms:", length(x$additive_terms), "\n")
+  cat("Partitions by Term:", paste(x$K + 1, collapse = ", "), "\n")
+  cat("Basis Functions by Term:", paste(x$p, collapse = ", "), "\n")
+  invisible(x)
+}
+
+
 #' Summary Method for lgspline Objects
 #'
 #' @param object An lgspline model object.
@@ -100,6 +127,47 @@ summary.lgspline <- function(object, ...) {
 
   class(summary_list) <- "summary.lgspline"
   return(summary_list)
+}
+
+
+#' Summary Method for additive_lgspline Objects
+#'
+#' @param object An additive lgspline model object.
+#' @param ... Not used.
+#'
+#' @return An object of class \code{summary.additive_lgspline}.
+#'
+#' @export
+summary.additive_lgspline <- function(object, ...) {
+  tr <- NULL
+  if(!is.null(object$wald_univariate)){
+    tr <- try(object$wald_univariate()$coefficients, silent = TRUE)
+    if(inherits(tr, "try-error")) tr <- NULL
+  }
+  if(is.null(tr)){
+    tr <- cbind(Estimate = unlist(object$B))
+  }
+
+  out <- list(
+    model_family = object$family,
+    observations = object$N,
+    predictors = object$q,
+    smooth_terms = length(object$additive_terms),
+    knots = object$K,
+    basis_functions = object$p,
+    estimate_dispersion = ifelse(!is.null(object$estimate_dispersion) &&
+                                   object$estimate_dispersion &&
+                                   !is.null(object$sigmasq_tilde) &&
+                                   object$sigmasq_tilde != 1,
+                                 'Yes', 'No'),
+    cv = object$critical_value,
+    coefficients = tr,
+    sigmasq_tilde = object$sigmasq_tilde,
+    trace_XUGX = object$trace_XUGX,
+    N = object$N
+  )
+  class(out) <- c("summary.additive_lgspline", "summary.lgspline")
+  out
 }
 
 
@@ -320,6 +388,9 @@ find_extremum <- function(object,
 #' and GCV tuning are skipped entirely.
 #' Draws producing non-positive-definite correlation matrices are
 #' rejected and redrawn (up to 50 attempts).
+#' For additive fits, the covariance rebuild uses the appended per-term
+#' design and block-diagonal penalties/constraints, then splits coefficient
+#' draws back into the nested smooth-term structure.
 #'
 #' When \code{draw_correlation = FALSE} (default), correlation parameters
 #' are fixed at their estimated values.
@@ -548,6 +619,11 @@ generate_posterior <- function(object,
 #' normal posterior, rebuilds the posterior covariance under that drawn
 #' correlation structure without re-solving for a new coefficient mode, then
 #' draws coefficients from the updated posterior.
+#' For \code{additive_lgspline} objects, the covariance rebuild uses the full
+#' appended additive design with block-diagonal term penalties and active
+#' constraints before splitting the joint coefficient draw back into term lists.
+#' Correlation matrices are applied directly to that additive system; no fake
+#' joined spline geometry is constructed.
 #'
 #' @details
 #' Each draw proceeds in three steps:
@@ -696,6 +772,26 @@ generate_posterior_correlation <- function(
     ...
 ) {
 
+  if(inherits(object, "additive_lgspline")){
+    return(.additive_generate_posterior_correlation(
+      object                         = object,
+      new_sigmasq_tilde            = new_sigmasq_tilde,
+      new_predictors               = new_predictors,
+      theta_1                      = theta_1,
+      theta_2                      = theta_2,
+      posterior_predictive_draw    = posterior_predictive_draw,
+      draw_dispersion              = draw_dispersion,
+      include_posterior_predictive = include_posterior_predictive,
+      num_draws                    = num_draws,
+      enforce_qp_constraints       = enforce_qp_constraints,
+      correlation_param_mean       = correlation_param_mean,
+      correlation_param_vcov_sc    = correlation_param_vcov_sc,
+      correlation_VhalfInv_fxn     = correlation_VhalfInv_fxn,
+      correlation_Vhalf_fxn        = correlation_Vhalf_fxn,
+      include_warnings             = include_warnings,
+      ...
+    ))
+  }
 
   ## 1. Resolve correlation parameter mean, vcov, and functions.
   #     These are required for sampling phi. If the user did not supply
@@ -904,7 +1000,8 @@ generate_posterior_correlation <- function(
   ## Observation weights D in partition order
   D_po <- obs_wts_vec[po]
 
-  ## Combined weight applied after whitening, matching the main GEE fit.
+  ## Combined GLM / observation weight. It is applied before whitening so
+  #  correlated GLM posterior covariance matches the fitted GEE information.
   combined_wt_po <- sqrt(W_glm * D_po)
 
 
@@ -929,10 +1026,9 @@ generate_posterior_correlation <- function(
     #  We need V^{-1/2}[po, po] to align with the design matrix.
     VhalfInv_po <- VhalfInv_draw[po, po]
 
-    ## Whiten then apply the combined row weights, matching the solver path:
-    ##   X' V^{-1/2} W~ D V^{-1/2} X.
-    VhalfInvX <- VhalfInv_po %**% X_full_std
-    VhalfInvX <- t(t(VhalfInvX) * combined_wt_po)
+    ## Apply weights before correlation whitening:
+    ##   (sqrt(WD) X)' V^{-1} (sqrt(WD) X).
+    VhalfInvX <- VhalfInv_po %**% (X_full_std * c(combined_wt_po))
 
     ## Full penalized GLS Gram in the whitened system + Lambda  (P x P)
     #  This is the dense correlated information matrix. Under correlation,
@@ -1290,6 +1386,25 @@ plot.lgspline <- function(x,
                           fixed_values = NULL,
                           n_grid = 200,
                           ...) {
+
+  if(inherits(x, "additive_lgspline")){
+    internal_plot_func <- x$plot
+    if(!is.null(internal_plot_func) && is.function(internal_plot_func)){
+      res <- internal_plot_func(
+        model_fit_in = x,
+        custom_response_lab = custom_response_lab,
+        custom_predictor_lab = custom_predictor_lab,
+        custom_title = custom_title,
+        new_predictors = new_predictors,
+        add = add,
+        vars = vars,
+        n_grid = n_grid,
+        ...)
+      if(inherits(res, "plotly")) return(res)
+      return(invisible(NULL))
+    }
+    stop("Internal plot method not found or not a function.")
+  }
 
   ## When vars is supplied without new_predictors, build a plotting grid
   #  from the training predictors and hold the other variables fixed.
@@ -2327,10 +2442,11 @@ confint.lgspline <- function(object, parm, level = 0.95, ...) {
 #' models with different penalty structures or numbers of knots.
 #'
 #' \strong{Other GLM families.}
-#' Uses \code{family$aic()} when available. For correlated models the
-#' whitened residuals and fitted values are passed. When \code{family$aic()}
-#' is unavailable, a deviance-based approximation is used (valid for
-#' relative comparisons; a warning is emitted).
+#' Uses \code{family$aic()} when available. For correlated non-Gaussian models,
+#' the family contribution is evaluated on the raw response scale and the
+#' correlation log-determinant correction is added when available. When
+#' \code{family$aic()} is unavailable, a deviance-based approximation is used
+#' (valid for relative comparisons; a warning is emitted).
 #'
 #' This function returns the marginal (full) GLS log-likelihood, not the
 #' REML log-likelihood. This is consistent with \code{REML = FALSE} in
@@ -2402,13 +2518,15 @@ logLik.lgspline <- function(object,
     mu <- c(predict(object, B_predict = B_predict))
     eval_object$B <- B_predict
 
-    ## Prior_loglik uses coefficients on the fitting scale.
-    eval_object$B_raw <- lapply(B_predict, function(b){
-      b_raw <- object$forwtransform_coefficients(b)
-      b_raw[1] <- b_raw[1] - object$mean_y
-      b_raw / object$sd_y
-    })
-    names(eval_object$B_raw) <- names(B_predict)
+    if(!inherits(object, "additive_lgspline")){
+      ## Prior_loglik uses coefficients on the fitting scale.
+      eval_object$B_raw <- lapply(B_predict, function(b){
+        b_raw <- object$forwtransform_coefficients(b)
+        b_raw[1] <- b_raw[1] - object$mean_y
+        b_raw / object$sd_y
+      })
+      names(eval_object$B_raw) <- names(B_predict)
+    }
   }
   eval_object$ytilde <- mu
   eval_object$sigmasq_tilde <- sigma2
@@ -2473,16 +2591,10 @@ logLik.lgspline <- function(object,
   } else if(!is.null(fam$aic)){
 
     ## Otherwise ask the family for its AIC/log-likelihood contribution.
-    ## For correlated models, pass whitened quantities to family$aic().
-    #  For families where aic() depends on the raw scale (e.g. binomial)
-    #  this is an approximation.
-    if(has_corr && !is.null(resid_w)){
-      y_eval  <- tryCatch(c(object$VhalfInv %*% cbind(y)), error = function(e) y)
-      mu_eval <- tryCatch(c(object$VhalfInv %*% cbind(mu)), error = function(e) mu)
-    } else {
-      y_eval  <- y
-      mu_eval <- mu
-    }
+    #  Non-Gaussian family deviance/AIC functions are defined on the raw
+    #  response scale; whitening can create invalid counts or probabilities.
+    y_eval  <- y
+    mu_eval <- mu
 
     dev_resids <- tryCatch(fam$dev.resids(y_eval, mu_eval, wt), error = function(e) NULL)
 
@@ -2506,13 +2618,8 @@ logLik.lgspline <- function(object,
   ## Fallback: deviance-based approximation
   if(!is.finite(ll)){
 
-    if(has_corr && !is.null(resid_w)){
-      y_fb  <- tryCatch(c(object$VhalfInv %*% cbind(y)), error = function(e) y)
-      mu_fb <- tryCatch(c(object$VhalfInv %*% cbind(mu)), error = function(e) mu)
-    } else {
-      y_fb  <- y
-      mu_fb <- mu
-    }
+    y_fb  <- y
+    mu_fb <- mu
 
     dev_resids <- tryCatch(fam$dev.resids(y_fb, mu_fb, wt), error = function(e) NULL)
 
@@ -2605,6 +2712,10 @@ logLik.lgspline <- function(object,
 #' predictor dimension. When the model's \code{make_partition_list} contains
 #' \code{knots} (midpoint boundaries between clusters), those are used directly.
 #' Otherwise, cluster centers are displayed.
+#'
+#' For \code{additive_lgspline} objects, equations are printed term-by-term
+#' because each smooth may have its own partitioning scheme. The internal
+#' additive offset column is suppressed from the displayed term equations.
 #'
 #' Coefficients are displayed on the original (unstandardized) predictor scale.
 #' For GLMs with non-identity link, the left-hand side shows the link function
@@ -3234,6 +3345,128 @@ equation.lgspline <- function(object,
     link     = fam$link,
     mode     = calc_mode,
     variable = calc_var_name
+  ))
+}
+
+
+#' @rdname equation
+#' @method equation additive_lgspline
+#' @export
+equation.additive_lgspline <- function(object,
+                                       digits = 4,
+                                       scientific = FALSE,
+                                       show_bounds = TRUE,
+                                       predictor_names = NULL,
+                                       response_name = NULL,
+                                       collapse_zero = TRUE,
+                                       first_derivative = NULL,
+                                       second_derivative = NULL,
+                                       antiderivative = NULL,
+                                       ...) {
+  pred_names <- if(!is.null(predictor_names)){
+    predictor_names
+  } else if(!is.null(object$og_cols)){
+    object$og_cols
+  } else {
+    paste0("x", seq_len(object$q))
+  }
+
+  .resolve_global_calc <- function(arg){
+    if(is.null(arg)) return(NULL)
+    if(is.character(arg)) return(arg[1L])
+    idx <- as.integer(arg[1L])
+    if(idx < 1L || idx > length(pred_names)){
+      stop('\n\t calculus variable index is outside predictor columns.\n')
+    }
+    pred_names[idx]
+  }
+
+  first_nm <- .resolve_global_calc(first_derivative)
+  second_nm <- .resolve_global_calc(second_derivative)
+  anti_nm <- .resolve_global_calc(antiderivative)
+  calc_nm <- if(!is.null(first_nm)) first_nm else if(!is.null(second_nm)) {
+    second_nm
+  } else {
+    anti_nm
+  }
+  calc_mode <- if(!is.null(first_nm)) "first_derivative" else
+    if(!is.null(second_nm)) "second_derivative" else
+      if(!is.null(anti_nm)) "antiderivative" else "equation"
+
+  cat("\n")
+  cat(paste(rep("=", 72), collapse = ""), "\n", sep = "")
+  cat("Fitted Additive Equations: lgspline Model\n")
+  cat(paste(rep("=", 72), collapse = ""), "\n", sep = "")
+  cat("Family:", object$family$family, "  Link:", object$family$link, "\n")
+  cat("Smooth terms:", length(object$additive_terms), "\n")
+
+  term_results <- vector("list", length(object$additive_terms))
+  names(term_results) <- names(object$additive_terms)
+
+  for(j in seq_along(object$additive_terms)){
+    term <- object$additive_terms[[j]]
+    term <- .additive_rename_fit(term, term$og_cols)
+
+    ## The additive offset is an internal bookkeeping column.  Set its
+    #  coefficient display to zero so equations show the smooth contribution.
+    if(!is.null(term$B)){
+      term$B <- lapply(term$B, function(b){
+        nms <- names(b)
+        if(!is.null(nms)){
+          off <- grepl(".additive_offset", nms, fixed = TRUE)
+          b[off] <- 0
+        }
+        b
+      })
+    }
+
+    local_names <- term$og_cols
+    if(is.null(local_names)){
+      local_names <- names(term$B[[1L]])
+    }
+
+    term_first <- term_second <- term_anti <- NULL
+    if(!is.null(calc_nm)){
+      if(calc_nm %in% local_names){
+        if(calc_mode == "first_derivative") term_first <- calc_nm
+        if(calc_mode == "second_derivative") term_second <- calc_nm
+        if(calc_mode == "antiderivative") term_anti <- calc_nm
+      } else if(calc_mode %in% c("first_derivative", "second_derivative")){
+        cat("\nAdditive smooth term", j, "\n")
+        cat("  derivative contribution w.r.t. ", calc_nm, " = 0\n", sep = "")
+        term_results[[j]] <- list(formulas = paste0(
+          "derivative contribution w.r.t. ", calc_nm, " = 0"))
+        next
+      } else {
+        cat("\nAdditive smooth term", j, "\n")
+        cat("  antiderivative w.r.t. ", calc_nm,
+            " is this term multiplied by ", calc_nm,
+            "; term omitted from symbolic expansion.\n", sep = "")
+        term_results[[j]] <- list(formulas = character(0))
+        next
+      }
+    }
+
+    cat("\nAdditive smooth term", j, "\n")
+    term_results[[j]] <- equation.lgspline(
+      term,
+      digits = digits,
+      scientific = scientific,
+      show_bounds = show_bounds,
+      predictor_names = local_names,
+      response_name = response_name,
+      collapse_zero = collapse_zero,
+      first_derivative = term_first,
+      second_derivative = term_second,
+      antiderivative = term_anti,
+      ...)
+  }
+
+  invisible(list(
+    additive_terms = term_results,
+    link = object$family$link,
+    mode = calc_mode,
+    variable = calc_nm
   ))
 }
 

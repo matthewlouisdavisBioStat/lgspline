@@ -31,6 +31,8 @@ process_input(
   dummy_fit = FALSE,
   include_constrain_second_deriv = TRUE,
   standardize_response = TRUE,
+  spline_groups = NULL,
+  use_s_alias = TRUE,
   ...
 )
 }
@@ -75,7 +77,7 @@ character vector of column names.}
 vector of column names.}
 
 \item{exclude_these_expansions}{Default: NULL. Character vector of
-expansion names to exclude.}
+expansion names to exclude after formula parsing.}
 
 \item{offset}{Default: \code{c()}. Vector of column indices or names
 to include as offsets.}
@@ -97,6 +99,14 @@ Named vector of clustering arguments.}
 \item{include_constrain_second_deriv}{Default: TRUE. Logical.}
 
 \item{standardize_response}{Default: TRUE. Logical.}
+
+\item{spline_groups}{Default: NULL. Optional list of predictor groups to
+treat as separate additive spline terms. Formula \code{spl()} calls, and
+\code{s()} calls when \code{use_s_alias = TRUE}, fill this automatically.
+Any number of groups may be supplied.}
+
+\item{use_s_alias}{Default: TRUE. Logical; treat bare \code{s()} calls in
+formulas as aliases for \code{spl()} for GAM-style syntax.}
 
 \item{...}{Additional arguments (checked for depreciated names).}
 }
@@ -137,6 +147,13 @@ A named list containing:
     the predictor matrix. Used by lgspline.fit to impose sum-to-zero
     constraints on encoded factor levels. NULL when no factors were
     encoded, or when the formula interface was not used.}
+  \item{spline_groups}{List of integer vectors giving the variables in each
+    explicit \code{spl()} formula term, including \code{s()} aliases when
+    enabled, or the user-supplied \code{spline_groups} resolved against the
+    processed predictor matrix.}
+  \item{additive_spline_interaction_pairs}{List of explicit pairwise
+    parametric interactions between variables in separate additive spline
+    groups, resolved to processed predictor indices.}
 }
 }
 \description{

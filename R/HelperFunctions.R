@@ -5148,6 +5148,47 @@ default_glm_weight_function <- function(mu,
 }
 
 
+.gee_glm_working_components <- function(mu,
+                                        y,
+                                        order_indices,
+                                        family,
+                                        dispersion,
+                                        observation_weights,
+                                        glm_weight_function,
+                                        ...) {
+  mu <- c(mu)
+  y <- c(y)
+  n <- length(mu)
+  obs_wt <- .default_glm_observation_weights(observation_weights, n)
+
+  W <- c(glm_weight_function(mu, y, order_indices, family, dispersion,
+                             observation_weights, ...))
+  W <- .solver_stabilize_working_weights(W)
+  sqrtW <- sqrt(pmax(W, .Machine$double.eps))
+
+  if(!is.null(family$variance)) {
+    mu_safe <- .default_glm_safe_mu(mu, family)
+    mu_eta <- .default_glm_mu_eta(mu_safe, family)
+    variance <- pmax(c(family$variance(mu_safe)), sqrt(.Machine$double.eps))
+    score_weight <- obs_wt * mu_eta / variance
+    resid_work <- ((score_weight / sqrtW) * (y - mu_safe))
+  } else {
+    ## Custom families without a variance function keep the legacy score
+    #  scale. Built-in GLM families use the split A^{-1/2} R^{-1} A^{-1/2}
+    #  GEE form above.
+    resid_work <- sqrtW * (y - mu)
+  }
+
+  resid_work[!is.finite(resid_work)] <- 0
+
+  list(
+    W = W,
+    sqrtW = sqrtW,
+    resid_work = cbind(resid_work)
+  )
+}
+
+
 default_qp_score_function <- function(X,
                                       y,
                                       mu,

@@ -152,6 +152,9 @@ posterior. Knot placement, partitioning, coefficient re-estimation,
 and GCV tuning are skipped entirely.
 Draws producing non-positive-definite correlation matrices are
 rejected and redrawn (up to 50 attempts).
+For additive fits, the covariance rebuild uses the appended per-term
+design and block-diagonal penalties/constraints, then splits coefficient
+draws back into the nested smooth-term structure.
 
 When \code{draw_correlation = FALSE} (default), correlation parameters
 are fixed at their estimated values.

@@ -83,10 +83,8 @@ XB
 Zounemat
 affine
 al
-andmSQP
 antiderivative
 antiderivatives
-approxiamte
 args
 backtransformed
 blockfit
@@ -96,6 +94,7 @@ boundedness
 bvec
 centred
 coef
+collinear
 confint
 cumulant
 decorrelated
@@ -104,11 +103,11 @@ devtools
 df
 diag
 discretised
+dispersions
 dmultiplied
 doi
 eigen
 eigendecomposition
-eigendecompositions
 eps
 equalities
 et
@@ -131,7 +130,6 @@ linkinv
 logLik
 matthewlouisdavisBioStat
 meq
-modelling
 monomial
 monomial's
 monomials

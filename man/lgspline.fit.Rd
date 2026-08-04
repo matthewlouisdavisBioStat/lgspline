@@ -136,6 +136,8 @@ lgspline.fit(
   include_warnings = TRUE,
   og_cols = NULL,
   factor_groups = NULL,
+  spline_groups = NULL,
+  additive_spline_interaction_pairs = NULL,
   ...
 )
 }
@@ -298,7 +300,9 @@ predictors to exclude from all interaction terms.}
 
 \item{exclude_these_expansions}{Default: NULL. Character vector of basis expansions to
 exclude. Named columns of data, or in the form \code{"_1_"}, \code{"_2_"},
-\code{"_1_x_2_"}, \code{"_2_^2"} etc.}
+\code{"_1_x_2_"}, \code{"_2_^2"} etc. With formula or additive fits,
+exclusions target the generated expansion names after parsing; use
+\code{dummy_fit = TRUE} or a neighboring fit to inspect retained names.}
 
 \item{custom_basis_fxn}{Default: NULL. Optional user-defined function for custom basis
 expansions. See \code{\link{get_polynomial_expansions}}.}
@@ -590,7 +594,25 @@ directly should construct this list manually when passing one-hot encoded
 predictors without a reference level. Default \code{NULL} (no
 sum-to-zero constraints imposed).}
 
-\item{...}{Additional arguments passed to the unconstrained model fitting function.}
+\item{spline_groups}{Default: NULL. Optional list of predictor groups to fit
+as separate additive spline terms. For example, \code{list(1, 2)} fits
+two univariate spline terms with separate partitioning, while
+\code{list(c(1, 2), 3)} fits a joined bivariate smooth plus a separate
+univariate smooth. Any number of groups may be supplied. Single-group
+lists use the ordinary joined-spline path.
+In additive fits, pre-built \code{qp_Amat}/\code{qp_bvec}/\code{qp_meq}
+objects must be supplied as per-term lists; custom QP builder functions
+are evaluated separately for each term.}
+
+\item{additive_spline_interaction_pairs}{Default: NULL. Optional internal
+list of two-element index vectors marking explicit parametric interactions
+between separate additive spline terms, e.g. the \code{x1:x2} in
+\code{y ~ spl(x1) + spl(x2) + x1:x2}. Normally supplied by
+\code{\link{process_input}} from formulas.}
+
+\item{...}{Additional arguments passed to the unconstrained model fitting
+function. For additive spline groups, \code{additive_max_iter} and
+\code{additive_tol} control the outer coordinate-update loop.}
 }
 \value{
 A list containing the fitted model components, forming the core
@@ -730,6 +752,11 @@ formula parsing, factor encoding, and correlation-structure setup.
   \item Penalty tuning via exact leave-one-out by default, or generalized
         cross-validation when \code{tuning_criterion = "gcv"}, or use of
         previously tuned penalties.
+  \item If \code{spline_groups} contains more than one group, each group is
+        fit as an additive spline term with its own partitioning and
+        constraints. Each conditional update is an ordinary
+        \code{lgspline.fit} Newton/SQP fit with the other terms held fixed
+        on the link scale.
   \item Final coefficient estimation via one of three paths:
         \itemize{
           \item \strong{Blockfit option} (when \code{blockfit = TRUE},
@@ -741,7 +768,7 @@ formula parsing, factor encoding, and correlation-structure setup.
                 computational paths: GEE (damped SQP with correlation
                 structures), Gaussian identity (closed-form OLS projection),
                 and general GLM (unconstrained fit + Lagrangian projection
-                with optional IRLS loop).
+                with Newton/Lagrangian projection updates).
         }
   \item Post-fit inference: \eqn{\mathbf{U}}, trace, dispersion,
         variance-covariance matrix, and optionally Lagrange multipliers.

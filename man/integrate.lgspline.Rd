@@ -35,7 +35,9 @@ variables.  When NULL, non-integration predictors are held at the
 midpoint of their training range.}
 
 \item{B_predict}{Default: NULL.  Optional list of coefficient vectors,
-one per partition.  When NULL the fitted coefficients are used.}
+one per partition. For additive fits, this may be the nested
+\code{post_draw_coefficients} list returned by \code{generate_posterior()}.
+When NULL the fitted coefficients are used.}
 
 \item{link_scale}{Default: FALSE.  Logical; when TRUE the integral is
 computed on the link (linear predictor) scale \eqn{\eta} rather than

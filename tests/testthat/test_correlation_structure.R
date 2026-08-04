@@ -67,7 +67,7 @@ test_that("exchangeable correlation supports unconstrained K = 0 GLM fits", {
               "Correlated K = 0 GLM fit returned non-finite varcov entries.")
 })
 
-test_that("weighted correlated Gaussian varcov and logLik use the whitened-system weights once", {
+test_that("weighted correlated Gaussian varcov and logLik use the fitted weighting conventions", {
   set.seed(20260314)
 
   n <- 10
@@ -93,8 +93,7 @@ test_that("weighted correlated Gaussian varcov and logLik use the whitened-syste
   fit_core <- if(!is.null(fit$model_fit)) fit$model_fit else fit
 
   X_full <- collapse_block_diagonal(fit_core$X)[unlist(fit_core$og_order), , drop = FALSE]
-  VinvhalfX <- fit_core$VhalfInv %*% X_full
-  VinvhalfX <- t(t(VinvhalfX) * sqrt(fit_core$weights))
+  VinvhalfX <- fit_core$VhalfInv %*% (X_full * sqrt(fit_core$weights))
 
   Lambda_full <- collapse_block_diagonal(
     lapply(seq_len(fit_core$K + 1), function(k) {
@@ -246,7 +245,7 @@ test_that("Woodbury Gaussian GEE uses active-set for partition-local inequality 
 })
 
 
-test_that("Woodbury GLM GEE uses active-set for partition-local inequality constraints", {
+test_that("dense GLM GEE uses active-set for partition-local inequality constraints", {
   set.seed(20260421)
 
   n <- 60
@@ -274,13 +273,13 @@ test_that("Woodbury GLM GEE uses active-set for partition-local inequality const
   fit_core <- if(!is.null(fit$model_fit)) fit$model_fit else fit
 
   expect_flag(isTRUE(fit_core$qp_info$converged),
-              "GLM Woodbury active-set did not report convergence.")
-  expect_equal(fit_core$qp_info$method, "active_set_woodbury")
+              "GLM dense active-set did not report convergence.")
+  expect_equal(fit_core$qp_info$method, "dense_qp_gee_glm")
   expect_flag(!is.null(fit_core$qp_info$active_ineq),
-              "GLM Woodbury active-set did not record an active set.")
+              "GLM dense active-set did not record an active set.")
 
   deriv <- predict(fit, cbind(t1, t2), take_first_derivatives = TRUE)
   expect_flag(all(unlist(deriv$first_deriv[[1]]) >= -1e-6),
-              sprintf("GLM Woodbury derivative constraint violated: min deriv = %.6f",
+              sprintf("GLM dense derivative constraint violated: min deriv = %.6f",
                       min(unlist(deriv$first_deriv[[1]]))))
 })

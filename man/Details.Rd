@@ -158,6 +158,49 @@ arguments documented in \code{\link{lgspline}}: \code{include_quadratic_terms},
 structurally linear even though they still participate in the same
 partition-wise polynomial bookkeeping described here.
 
+Separate formula calls to \code{spl()}, such as
+\code{y ~ spl(t1) + spl(t2)}, are additive by default. Each term receives
+its own partitioning, basis expansion, penalty tuning, smoothness
+constraints, and built-in QP constraints. Put variables in the same call,
+for example \code{spl(t1, t2)}, to keep the previous joined smooth with one
+shared partitioning scheme. With \code{use_s_alias = TRUE}, the default,
+bare \code{s()} formula calls are rewritten once to \code{spl()} before
+parsing, so \code{y ~ s(t1) + s(t2)} follows the same additive path.
+Direct calls use \code{spline_groups}, such as \code{list(1, 2)} or
+\code{list(c(1, 2), 3)}.
+
+Any number of separate smooth calls may be used. Formula terms outside
+\code{s()}/\code{spl()} remain parametric columns, so expressions such as
+\code{x1:x2}, \code{x1:x2:x3}, or generated power interactions can coexist
+with \code{spl(x1) + spl(x2) + spl(x3)} without forcing a joined smooth.
+To fit one partitioned interaction surface, put the predictors in the same
+spline call instead. Manual \code{exclude_these_expansions} entries should
+target the generated expansion names after formula parsing; use
+\code{dummy_fit = TRUE} or a neighboring fit to inspect retained names.
+
+Additive fitting is a coordinate update on the link scale: each term is
+refit by \code{\link{lgspline.fit}} with the current contribution of the
+other terms held as a fixed offset, using the same Newton/SQP machinery as
+ordinary fits. Fixed working-correlation matrices pass through those
+conditional updates; estimated correlation structures reuse the nested refit
+strategy in \code{\link{lgspline}} with finite-difference optimization for
+correlation parameters because the analytic REML gradients are defined for
+one joined coefficient geometry.
+
+Built-in QP constraints, \code{qp_Amat_fxn}/\code{qp_bvec_fxn}/
+\code{qp_meq_fxn}, and per-term lists of pre-built QP matrices are
+supported in additive fits. A single global pre-built QP matrix is not
+well-defined because additive fits do not form one joined coefficient vector.
+Post-fitting helpers dispatch through additive-aware wrappers: prediction,
+plotting, equations, integration, likelihoods, Wald intervals, posterior
+draws, extremum search, and leave-one-out calculations all operate on the
+nested term structure rather than assuming one global partition scheme. For
+covariance, posterior simulation, fitted standard errors, correlation-aware
+posterior draws, and leave-one-out, the wrappers rebuild the GAM-style dense
+system by horizontally appending the per-term expanded designs in original
+observation order, then combining penalties and active constraints
+block-diagonally.
+
 Letting \eqn{p} denote the number of basis terms per partition,
 \eqn{P = p(K+1)} is the total number of coefficients. The full design matrix
 \eqn{\mathbf{X}} and penalty matrix \eqn{\boldsymbol{\Lambda}} are
@@ -504,21 +547,14 @@ numerically convenient representation. The correspondence is:
     where \code{C} and \code{C_inv} are diagonal.
 }
 
-For the non-Gaussian Woodbury path
-(\code{\link{.get_B_gee_glm_woodbury}}), the fixed correlation
-perturbation \eqn{\mathbf{V}^{-1} - \mathbf{I}} and its product with
-\eqn{\mathbf{X}} are precomputed once and held fixed
-across Newton iterations. At each step, the weighted perturbation
-\eqn{\mathbf{X}^{\top}\mathbf{W}(\mathbf{V}^{-1} -
-\mathbf{I})\mathbf{X}} is formed using the
-precomputed product, then split and re-factored via
-\code{\link{.woodbury_redecompose_weighted}}.
-
-The Woodbury path is used when \eqn{r < 2P/3}; otherwise the code falls
-back to the dense whitened solve. If \eqn{\mathbf{F}} is not positive
-definite, the dense path is also used.
-See \code{\link{.get_B_gee_woodbury}} (Gaussian) and
-\code{\link{.get_B_gee_glm_woodbury}} (non-Gaussian).
+For non-Gaussian GEE, the working weights must be applied before
+correlation whitening, giving
+\eqn{(\sqrt{\mathbf{W}}\mathbf{X})^{\top}\mathbf{V}^{-1}
+(\sqrt{\mathbf{W}}\mathbf{X})}. Because those weights change across
+Newton iterations and do not commute with \eqn{\mathbf{V}^{-1}}, the
+implementation uses the dense corrected path
+\code{\link{.get_B_gee_glm}}. The Woodbury shortcut remains limited to
+Gaussian identity-link GEE, where the working weights are constant.
 }
 
 \subsection{Step Control}{
@@ -607,17 +643,19 @@ proceeds with
 \eqn{\mathbf{G} = (\mathbf{X}^{\top}\mathbf{V}^{-1}\mathbf{X} +
 \boldsymbol{\Lambda})^{-1}}.
 
-For structured correlation matrices (AR(1), exchangeable, banded), the
-perturbation \eqn{\mathbf{V}^{-1} - \mathbf{I}} is sparse and the
-cross-partition coupling has low effective rank. In these cases the
-Woodbury-accelerated paths
-(\code{\link{.get_B_gee_woodbury}},
-\code{\link{.get_B_gee_glm_woodbury}}) recover the partition-wise
-computational structure by decomposing the coupling into a
-block-diagonal correction plus a low-rank remainder, as described in the
-GLM Extension section. For dense or high-rank
-\eqn{\mathbf{V}^{-1}}, the code falls back to the full whitened system
-(\code{\link{.get_B_gee_gaussian}}, \code{\link{.get_B_gee_glm}}).
+For structured Gaussian identity-link correlation matrices (AR(1),
+exchangeable, banded), the perturbation
+\eqn{\mathbf{V}^{-1} - \mathbf{I}} can be sparse and the cross-partition
+coupling can have low effective rank. In these cases the
+Woodbury-accelerated Gaussian path (\code{\link{.get_B_gee_woodbury}})
+recovers partition-wise computational structure by decomposing the coupling
+into a block-diagonal correction plus a low-rank remainder. Non-Gaussian GEE
+fits use the dense corrected system because their information is
+\eqn{(\sqrt{\mathbf{W}}\mathbf{X})^{\top}\mathbf{V}^{-1}
+(\sqrt{\mathbf{W}}\mathbf{X})}; moving \eqn{\mathbf{W}} outside
+\eqn{\mathbf{V}^{-1}} is only valid when the working weights are constant.
+For dense or high-rank \eqn{\mathbf{V}^{-1}}, Gaussian fits also fall back
+to the full whitened system (\code{\link{.get_B_gee_gaussian}}).
 }
 
 \subsection{GEE Deviance Monitoring}{
@@ -950,7 +988,8 @@ When a correlation structure is present (\code{VhalfInv} non-\code{NULL}),
 the block-diagonal \eqn{\mathbf{G}} is replaced by the full weighted GLS
 analogue
 \deqn{\mathbf{G}_{\mathrm{correct}} =
-  \left(\mathbf{X}^{\top}\mathbf{W}\mathbf{D}\mathbf{V}^{-1}\mathbf{X}
+  \left((\sqrt{\mathbf{W}\mathbf{D}}\mathbf{X})^{\top}
+  \mathbf{V}^{-1}(\sqrt{\mathbf{W}\mathbf{D}}\mathbf{X})
   + \boldsymbol{\Lambda}\right)^{-1},}
 where \eqn{\mathbf{W} = \mathbf{I}} in the Gaussian identity case.
 This dense matrix is what enters the correlation-aware \eqn{\mathbf{U}},
@@ -1031,7 +1070,7 @@ uncertainty in the fitted correlation parameters through the same
 \code{VhalfInv_fxn}/\code{Vhalf_fxn} machinery described in the correlation
 section, rather than conditioning only on fixed covariance parameters. Correlation
 parameters are drawn from a multivariate normal distribution centered about their estimates
-with the inverse approxiamte BFGS Hessian of the REML optimization problem
+with the inverse approximate BFGS Hessian of the REML optimization problem
 \code{VhalfInv_params_vcov} used by default (or a custom alternative as
 supplied to the argument \code{correlation_param_vcov_sc}).
 }

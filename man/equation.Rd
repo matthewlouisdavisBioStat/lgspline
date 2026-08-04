@@ -3,12 +3,27 @@
 \name{equation}
 \alias{equation}
 \alias{equation.lgspline}
+\alias{equation.additive_lgspline}
 \alias{print.equation}
 \title{Print Closed-Form Fitted Equation from lgspline Model}
 \usage{
 equation(object, ...)
 
 \method{equation}{lgspline}(
+  object,
+  digits = 4,
+  scientific = FALSE,
+  show_bounds = TRUE,
+  predictor_names = NULL,
+  response_name = NULL,
+  collapse_zero = TRUE,
+  first_derivative = NULL,
+  second_derivative = NULL,
+  antiderivative = NULL,
+  ...
+)
+
+\method{equation}{additive_lgspline}(
   object,
   digits = 4,
   scientific = FALSE,
@@ -108,6 +123,10 @@ computed as the midpoints between adjacent cluster centers along each
 predictor dimension. When the model's \code{make_partition_list} contains
 \code{knots} (midpoint boundaries between clusters), those are used directly.
 Otherwise, cluster centers are displayed.
+
+For \code{additive_lgspline} objects, equations are printed term-by-term
+because each smooth may have its own partitioning scheme. The internal
+additive offset column is suppressed from the displayed term equations.
 
 Coefficients are displayed on the original (unstandardized) predictor scale.
 For GLMs with non-identity link, the left-hand side shows the link function

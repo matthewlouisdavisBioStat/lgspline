@@ -33,7 +33,7 @@
 #' @param exclude_interactions_for Default: NULL. Integer vector or character
 #'   vector of column names.
 #' @param exclude_these_expansions Default: NULL. Character vector of
-#'   expansion names to exclude.
+#'   expansion names to exclude after formula parsing.
 #' @param offset Default: \code{c()}. Vector of column indices or names
 #'   to include as offsets.
 #' @param no_intercept Default: FALSE. Logical; remove intercept.
@@ -46,6 +46,12 @@
 #' @param dummy_fit Default: FALSE. Logical; run the full preprocessing path but stop short of fitting nonzero coefficients.
 #' @param include_constrain_second_deriv Default: TRUE. Logical.
 #' @param standardize_response Default: TRUE. Logical.
+#' @param spline_groups Default: NULL. Optional list of predictor groups to
+#'   treat as separate additive spline terms. Formula \code{spl()} calls, and
+#'   \code{s()} calls when \code{use_s_alias = TRUE}, fill this automatically.
+#'   Any number of groups may be supplied.
+#' @param use_s_alias Default: TRUE. Logical; treat bare \code{s()} calls in
+#'   formulas as aliases for \code{spl()} for GAM-style syntax.
 #' @param ... Additional arguments (checked for depreciated names).
 #'
 #' @return A named list containing:
@@ -84,6 +90,13 @@
 #'     the predictor matrix. Used by lgspline.fit to impose sum-to-zero
 #'     constraints on encoded factor levels. NULL when no factors were
 #'     encoded, or when the formula interface was not used.}
+#'   \item{spline_groups}{List of integer vectors giving the variables in each
+#'     explicit \code{spl()} formula term, including \code{s()} aliases when
+#'     enabled, or the user-supplied \code{spline_groups} resolved against the
+#'     processed predictor matrix.}
+#'   \item{additive_spline_interaction_pairs}{List of explicit pairwise
+#'     parametric interactions between variables in separate additive spline
+#'     groups, resolved to processed predictor indices.}
 #' }
 #'
 #' @seealso \code{\link{lgspline}} for the main fitting interface.
@@ -133,6 +146,8 @@ process_input <- function(
     dummy_fit = FALSE,
     include_constrain_second_deriv = TRUE,
     standardize_response = TRUE,
+    spline_groups = NULL,
+    use_s_alias = TRUE,
     ...
 ){
 
@@ -159,6 +174,8 @@ process_input <- function(
   #  Stores original factor name -> indicator column names until the
   #  final predictor matrix has been resolved.
   factor_groups <- list()
+  formula_spline_groups <- NULL
+  additive_spline_interaction_pairs <- list()
 
   ## Update naming conventions, if first argument is a formula and second is a
   # data frame, assumed by R-like interfaces for user convenience.
@@ -226,16 +243,37 @@ process_input <- function(
   ## Handle formula interface
   if(inherits(predictors, "formula")) {
 
+    .escape_regex <- function(x){
+      gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", x)
+    }
+
+    .formula_symbol_pattern <- function(x){
+      paste0("(?<![[:alnum:]_.])", .escape_regex(x),
+             "(?![[:alnum:]_.])")
+    }
+
+    .replace_formula_symbol <- function(form_str, symbol, replacement){
+      gsub(.formula_symbol_pattern(symbol), replacement, form_str, perl = TRUE)
+    }
+
+    if(!is.logical(use_s_alias) || length(use_s_alias) != 1L ||
+       is.na(use_s_alias)){
+      stop('\n \t use_s_alias must be TRUE or FALSE.\n')
+    }
+
     ## Allow s() as an alias for spl() for mgcv-style formulas.
-    #  Replace s(...) with spl(...) in formula before any parsing.
-    #  Uses pattern matching to avoid replacing 's' inside other function
-    #  names like abs(), cos(), is(), etc. The regex anchors on a
-    #  non-alphanumeric/non-underscore/non-dot character (or start of string)
-    #  immediately before the 's(', so only bare 's(' is matched.
-    form_str_alias <- paste(deparse(predictors, width.cutoff = 500L),
-                            collapse = "")
-    form_str_alias <- gsub("(^|[^a-zA-Z0-9_.])s\\(", "\\1spl(", form_str_alias)
-    predictors <- as.formula(form_str_alias)
+    #  Rewrite once before any parsing so all later logic uses spl().
+    #  Do not rewrite namespaced or object-member calls like pkg::s().
+    if(use_s_alias){
+      form_str_alias <- paste(deparse(predictors, width.cutoff = 500L),
+                              collapse = "")
+      alias_pat <- "(^|[^a-zA-Z0-9_.:$])s\\("
+      if(grepl(alias_pat, form_str_alias)){
+        form_env <- environment(predictors)
+        form_str_alias <- gsub(alias_pat, "\\1spl(", form_str_alias)
+        predictors <- as.formula(form_str_alias, env = form_env)
+      }
+    }
 
     ## Check data argument
     if(is.null(data)) {
@@ -288,10 +326,15 @@ process_input <- function(
           factor_groups[[col_name]] <- new_names
           form_check <- paste(deparse(predictors, width.cutoff = 500L),
                               collapse = "")
+          col_pat <- .escape_regex(col_name)
           col_in_interaction <- grepl(
-            paste0("(\\*|:)\\s*", col_name, "(\\s|\\)|\\+|$)"), form_check
+            paste0("(\\*|:)\\s*", col_pat, "(?![[:alnum:]_.])"),
+            form_check,
+            perl = TRUE
           ) || grepl(
-            paste0("(\\+|\\(|~|\\s)", col_name, "\\s*(\\*|:)"), form_check
+            paste0("(?<![[:alnum:]_.])", col_pat, "\\s*(\\*|:)"),
+            form_check,
+            perl = TRUE
           )
           if(!col_in_interaction){
             if(is.null(just_linear_without_interactions)){
@@ -304,10 +347,13 @@ process_input <- function(
           }
           ## Update formula if needed: replace col_name with encoded names
           if(inherits(predictors, "formula")){
-            form_str <- deparse(predictors)
+            form_env <- environment(predictors)
+            form_str <- paste(deparse(predictors, width.cutoff = 500L),
+                              collapse = "")
             replacement <- paste0("(", paste(new_names, collapse = " + "), ")")
-            form_str <- gsub(col_name, replacement, form_str, fixed = TRUE)
-            predictors <- as.formula(form_str)
+            form_str <- .replace_formula_symbol(form_str, col_name,
+                                                replacement)
+            predictors <- as.formula(form_str, env = form_env)
           }
         }
       }
@@ -425,9 +471,10 @@ process_input <- function(
     ## If offset() appears in the formula, remove offset from the formula
     # and set offset = names of terms inside the offset() operator
     if(any(grepl('offset', paste0(predictors)))){
-      if(any(grepl("offset\\(", deparse(predictors)))){
+      form_str <- paste(deparse(predictors, width.cutoff = 500L),
+                        collapse = "")
+      if(any(grepl("offset\\(", form_str))){
         ## Extract the original formula as string
-        form_str <- deparse(predictors)
 
         ## Find all offset terms using regex
         offset_matches <- gregexpr("offset\\(([^)]+)\\)", form_str)
@@ -506,12 +553,26 @@ process_input <- function(
     for(term in term_labels) {
       if(grepl("^spl\\(.*\\)$", term)) {
         vars <- gsub("^spl\\((.*)\\)$", "\\1", term)
-        spline_terms <- c(spline_terms, trimws(strsplit(vars, ",")[[1]]))
+        term_vars <- trimws(strsplit(vars, ",")[[1]])
+        spline_terms <- c(spline_terms, term_vars)
+        formula_spline_groups[[length(formula_spline_groups) + 1L]] <-
+          term_vars
       }
     }
 
     ## Extract explicit interactions from formula
     formula_interactions <- term_labels[attr(terms, "order") > 1]
+    explicit_spline_interaction_terms <- list()
+    for(term in formula_interactions){
+      if(grepl(":", term)){
+        vars <- trimws(strsplit(term, ":")[[1]])
+        if(length(vars) == 2L && all(vars %in% spline_terms)){
+          explicit_spline_interaction_terms[[
+            length(explicit_spline_interaction_terms) + 1L
+          ]] <- vars
+        }
+      }
+    }
     allowed_interactions <- sapply(formula_interactions, function(term) {
       if(grepl(":", term)) {
         vars <- strsplit(term, ":")[[1]]
@@ -939,6 +1000,31 @@ process_input <- function(
     predictors <- data[, formula_cols, drop = FALSE]
     y <- data[, resp_ind]
 
+    ## Resolve explicit spl() calls to predictor-matrix column positions.
+    #  Multiple separate spl() calls are preserved so lgspline() can fit them
+    #  as additive smooths instead of merging them into one spline block.
+    if(is.null(spline_groups) && length(formula_spline_groups) > 0){
+      spline_groups <- lapply(formula_spline_groups, function(grp){
+        match(grp, colnames(predictors))
+      })
+      spline_groups <- lapply(spline_groups, function(grp){
+        grp[!is.na(grp)]
+      })
+      spline_groups <- spline_groups[sapply(spline_groups, length) > 0]
+    }
+    additive_spline_interaction_pairs <- lapply(
+      explicit_spline_interaction_terms,
+      function(pair) match(pair, colnames(predictors))
+    )
+    additive_spline_interaction_pairs <- lapply(
+      additive_spline_interaction_pairs,
+      function(pair) pair[!is.na(pair)]
+    )
+    additive_spline_interaction_pairs <-
+      additive_spline_interaction_pairs[
+        sapply(additive_spline_interaction_pairs, length) == 2L
+      ]
+
     ## Convert variable names to column indices
     new_just_linear_without_interactions <- match(linear_no_int,
                                                   colnames(predictors))
@@ -992,6 +1078,37 @@ process_input <- function(
 
   ## Original predictor names
   og_cols <- colnames(predictors)
+
+  ## Resolve user-supplied spline_groups on the final predictor matrix.
+  if(!is.null(spline_groups)){
+    if(!is.list(spline_groups)){
+      spline_groups <- list(spline_groups)
+    }
+    spline_groups <- lapply(spline_groups, function(grp){
+      if(any(is.character(grp))){
+        if(is.null(og_cols)){
+          stop('\n \t Character entries in spline_groups require named predictors.\n')
+        }
+        out <- unlist(lapply(grp, function(v){
+          if(is.character(v)){
+            idx <- which(og_cols == v)
+            if(length(idx) == 0L) idx <- grep(v, og_cols, fixed = TRUE)
+            idx
+          } else {
+            v
+          }
+        }))
+      } else {
+        out <- grp
+      }
+      unique(as.integer(out[!is.na(out)]))
+    })
+    spline_groups <- spline_groups[sapply(spline_groups, length) > 0]
+    if(length(spline_groups) == 0L){
+      spline_groups <- NULL
+    }
+  }
+
   if(!any(is.null(og_cols))){
     replace_colnames <- TRUE
   } else {
@@ -1057,8 +1174,8 @@ process_input <- function(
     include_constrain_second_deriv   = include_constrain_second_deriv,
     custom_knots                     = custom_knots,
     dummy_fit                        = dummy_fit,
-    factor_groups                    = factor_groups
+    factor_groups                    = factor_groups,
+    spline_groups                    = spline_groups,
+    additive_spline_interaction_pairs = additive_spline_interaction_pairs
   )
 }
-
-

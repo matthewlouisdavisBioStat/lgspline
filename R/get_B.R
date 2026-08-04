@@ -2739,12 +2739,13 @@
       dispersion_temp <- 1
     }
 
-    W <- c(glm_weight_function(family$linkinv(XB),
-                               y_block,
-                               unlist(order_list),
-                               family, dispersion_temp,
-                               unlist(observation_weights), ...))
-    W <- .solver_stabilize_working_weights(W)
+    mu <- family$linkinv(XB)
+    gee_work <- .gee_glm_working_components(
+      mu, y_block, unlist(order_list), family, dispersion_temp,
+      unlist(observation_weights), glm_weight_function, ...)
+    W <- gee_work$W
+    X_work <- VhalfInv_perm %**% (X_block * c(gee_work$sqrtW))
+    resid_tilde <- VhalfInv_perm %**% gee_work$resid_work
 
     ## Schur correction using the original-scale design.
     result <- lapply(1:(K + 1), function(k) {
@@ -2764,7 +2765,7 @@
         collapse_block_diagonal(schur_correction)
     }
 
-    info <- crossprod(X_tilde, W * X_tilde) +
+    info <- crossprod(X_work) +
       Lambda_block +
       schur_correction_collapsed
 
@@ -2779,22 +2780,14 @@
                            invert(crossprod(A,
                                             infoinv_block %**% A)),
                          A))
-      mu_vec <- cbind(family$linkinv(c(XB)))
       beta_new <- c(
         U %**% infoinv_block %**%
-          crossprod(X_tilde,
-                    y_tilde - VhalfInv_perm %**% mu_vec)
+          crossprod(X_work, resid_tilde)
       )
       infoinv_block <- NULL
     } else {
       ## Subsequent iterations: full QP solve.
-      qp_score <- qp_score_function(
-        X_tilde, y_tilde,
-        VhalfInv_perm %**% cbind(family$linkinv(XB)),
-        unlist(order_list), dispersion_temp,
-        VhalfInv_perm,
-        unlist(observation_weights), ...
-      )
+      qp_score <- crossprod(X_work, resid_tilde)
       qp_result <- .solve_qp_stable(
         Dmat = info / sc,
         dvec = (qp_score -
@@ -2851,14 +2844,13 @@
       } else {
         dispersion_temp <- 1
       }
-      W <- c(glm_weight_function(family$linkinv(XB),
-                                 y_block,
-                                 unlist(order_list),
-                                 family, dispersion_temp,
-                                 unlist(observation_weights), ...))
-      W <- .solver_stabilize_working_weights(W)
+      mu <- family$linkinv(XB)
+      gee_work <- .gee_glm_working_components(
+        mu, y_block, unlist(order_list), family, dispersion_temp,
+        unlist(observation_weights), glm_weight_function, ...)
+      W <- gee_work$W
 
-      mu_new <- family$linkinv(c(XB))
+      mu_new <- mu
       if (!is.null(family$custom_dev.resids)) {
         raw <- family$custom_dev.resids(
           y_block, mu_new, unlist(order_list),
@@ -2919,12 +2911,12 @@
     } else {
       dispersion_temp <- 1
     }
-    W <- c(glm_weight_function(family$linkinv(XB),
-                               y_block,
-                               unlist(order_list),
-                               family, dispersion_temp,
-                               unlist(observation_weights), ...))
-    W <- .solver_stabilize_working_weights(W)
+    mu <- family$linkinv(XB)
+    gee_work <- .gee_glm_working_components(
+      mu, y_block, unlist(order_list), family, dispersion_temp,
+      unlist(observation_weights), glm_weight_function, ...)
+    W <- gee_work$W
+    X_work <- VhalfInv_perm %**% (X_block * c(gee_work$sqrtW))
 
     schur_correction <-
       schur_correction_function(
@@ -2940,7 +2932,7 @@
         collapse_block_diagonal(schur_correction)
     }
 
-    info <- crossprod(X_tilde, W * X_tilde) +
+    info <- crossprod(X_work) +
       Lambda_block +
       schur_correction_collapsed
 
@@ -3917,17 +3909,18 @@
 #' \mathbf{G}_{\mathrm{on}}^{-1} + \mathbf{G}_{\mathrm{off}}^{-1}}
 #' with
 #' \eqn{\mathbf{G}_{\mathrm{off}}^{-1} = \mathbf{E}\mathbf{J}\mathbf{E}^{\top}}.
-#' This gives a Woodbury path with cost \eqn{O(Kp^3 + Pr^2)} when the
-#' cross-partition rank \eqn{r} is small; otherwise the dense
-#' \eqn{O(P^3)} path is used.
+#' For Gaussian identity-link GEE this gives a Woodbury path with cost
+#' \eqn{O(Kp^3 + Pr^2)} when the cross-partition rank \eqn{r} is small;
+#' otherwise the dense \eqn{O(P^3)} path is used. Non-Gaussian GEE always
+#' uses the dense corrected path because GLM working weights must be applied
+#' before correlation whitening.
 #' Two sub-paths:
 #' \itemize{
 #'   \item \bold{Path 1a.} Gaussian identity + GEE.
 #'     See \code{\link{.get_B_gee_gaussian}} (dense) and
 #'     \code{\link{.get_B_gee_woodbury}} (accelerated).
 #'   \item \bold{Path 1b.} Non-Gaussian GEE.
-#'     See \code{\link{.get_B_gee_glm}} (dense) and
-#'     \code{\link{.get_B_gee_glm_woodbury}} (accelerated).
+#'     See \code{\link{.get_B_gee_glm}}.
 #' }
 #'
 #' \bold{Path 2. Gaussian identity link, no correlation:}
@@ -4200,7 +4193,13 @@ get_B <- function(X,
         out <- .attach_qp_fallback_info(out, fallback_reason, wb_decomp)
       }
     } else {
-      if (wb_decomp$use_woodbury) {
+      ## The non-Gaussian GEE information is
+      #  (sqrt(W) X)' V^{-1} (sqrt(W) X).  The current Woodbury shortcut was
+      #  derived for X' diag(W) V^{-1} X, which is only equivalent when W is
+      #  constant.  Keep non-Gaussian correlated fits on the dense corrected
+      #  path so inference and the Newton step use the same GEE geometry.
+      can_use_glm_woodbury <- FALSE
+      if (can_use_glm_woodbury && wb_decomp$use_woodbury) {
         wb_sqrt <- .woodbury_halfsqrt_components(
           wb_decomp$Ghalf_corrected, wb_decomp$E, wb_decomp$J,
           wb_decomp$r, K, p_expansions)

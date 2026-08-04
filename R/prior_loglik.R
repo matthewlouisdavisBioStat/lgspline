@@ -83,6 +83,20 @@ prior_loglik <- function(model_fit,
 
   sigmasq_predict <- as.numeric(sigmasq_predict)
 
+  if(inherits(model_fit, "additive_lgspline")){
+    n_terms <- length(model_fit$additive_terms)
+    vals <- lapply(seq_len(n_terms), function(j){
+      term_B <- .additive_B_for_term(B_predict, j, n_terms)
+      prior_loglik(
+        model_fit$additive_terms[[j]],
+        B_predict = term_B,
+        sigmasq_predict = sigmasq_predict,
+        include_constant = include_constant,
+        ...)
+    })
+    return(sum(unlist(vals)))
+  }
+
   if(is.null(B_predict)){
     B_raw_predict <- model_fit$B_raw
   } else {

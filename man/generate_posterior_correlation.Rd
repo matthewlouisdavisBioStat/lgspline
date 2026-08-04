@@ -112,6 +112,11 @@ For each draw, samples the correlation parameter vector from its approximate
 normal posterior, rebuilds the posterior covariance under that drawn
 correlation structure without re-solving for a new coefficient mode, then
 draws coefficients from the updated posterior.
+For \code{additive_lgspline} objects, the covariance rebuild uses the full
+appended additive design with block-diagonal term penalties and active
+constraints before splitting the joint coefficient draw back into term lists.
+Correlation matrices are applied directly to that additive system; no fake
+joined spline geometry is constructed.
 }
 \details{
 Each draw proceeds in three steps:

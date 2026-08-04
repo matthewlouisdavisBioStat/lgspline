@@ -72,10 +72,11 @@ unpenalised marginal likelihood, which is more appropriate when comparing
 models with different penalty structures or numbers of knots.
 
 \strong{Other GLM families.}
-Uses \code{family$aic()} when available. For correlated models the
-whitened residuals and fitted values are passed. When \code{family$aic()}
-is unavailable, a deviance-based approximation is used (valid for
-relative comparisons; a warning is emitted).
+Uses \code{family$aic()} when available. For correlated non-Gaussian models,
+the family contribution is evaluated on the raw response scale and the
+correlation log-determinant correction is added when available. When
+\code{family$aic()} is unavailable, a deviance-based approximation is used
+(valid for relative comparisons; a warning is emitted).
 
 This function returns the marginal (full) GLS log-likelihood, not the
 REML log-likelihood. This is consistent with \code{REML = FALSE} in

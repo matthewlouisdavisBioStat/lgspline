@@ -1098,6 +1098,11 @@
 
   XB <- X_block_raw %**% beta_block
   y_block <- if(is_gee) cbind(unlist(y_partitions)) else y_design
+  n_objective <- max(1L, length(y_block))
+
+  .bf_penalized_objective <- function(dev, beta){
+    dev + c(crossprod(beta, Lambda_block %**% beta)) / n_objective
+  }
 
   while(err > tol & damp_cnt < 10 & master_cnt < 100){
     master_cnt <- master_cnt + 1
@@ -1177,25 +1182,39 @@
     }
 
     ## Solve QP
-    qp_sol <- try({.solve_qp_stable(
-      Dmat = info / sc,
-      dvec = (qp_score -
-                Lambda_block %**% beta_block +
-                info %**% beta_block) / sc,
-      Amat = qp_Amat_combined,
-      bvec = qp_bvec_combined,
-      meq  = qp_meq_combined
-    )}, silent = TRUE)
+    dvec <- qp_score - Lambda_block %**% beta_block +
+      info %**% beta_block
 
-    if(any(inherits(qp_sol, 'try-error'))){
-      if(verbose){
-        cat("    SQP iter", master_cnt,
-            "- solve.QP failed, retaining current\n")
+    if(is.null(qp_Amat_combined) ||
+       ncol(cbind(qp_Amat_combined)) == 0L){
+      qp_sol <- NULL
+      beta_new <- try(invert(info) %**% dvec, silent = TRUE)
+      if(any(inherits(beta_new, 'try-error'))){
+        if(verbose){
+          cat("    SQP iter", master_cnt,
+              "- Newton solve failed, retaining current\n")
+        }
+        beta_new <- beta_block
       }
-      beta_new <- beta_block
     } else {
-      last_qp_sol <- qp_sol
-      beta_new    <- cbind(qp_sol$solution)
+      qp_sol <- try({.solve_qp_stable(
+        Dmat = info / sc,
+        dvec = dvec / sc,
+        Amat = qp_Amat_combined,
+        bvec = qp_bvec_combined,
+        meq  = qp_meq_combined
+      )}, silent = TRUE)
+
+      if(any(inherits(qp_sol, 'try-error'))){
+        if(verbose){
+          cat("    SQP iter", master_cnt,
+              "- solve.QP failed, retaining current\n")
+        }
+        beta_new <- beta_block
+      } else {
+        last_qp_sol <- qp_sol
+        beta_new    <- cbind(qp_sol$solution)
+      }
     }
 
     ## Step acceptance
@@ -1242,6 +1261,9 @@
           unlist(observation_weights),
           unlist(order_list), family, ...
         )
+      }
+      if(!is.null(err_new) && is.finite(err_new)){
+        err_new <- .bf_penalized_objective(err_new, beta_new_damped)
       }
 
       if(is.null(err_new) | is.na(err_new) | !is.finite(err_new)){

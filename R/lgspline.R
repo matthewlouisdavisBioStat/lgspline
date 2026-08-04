@@ -6,7 +6,7 @@
 #' @rdname lgspline-package
 #' @aliases lgspline-package
 #'
-#' @import Rcpp RcppArmadillo methods stats
+#' @import Rcpp methods stats
 #' @importFrom graphics plot points legend
 #' @importFrom FNN get.knnx
 #' @importFrom quadprog solve.QP
@@ -42,6 +42,7 @@
 #' Main features include:
 #' \itemize{
 #'   \item Multiple predictors and interaction terms
+#'   \item Additive \code{spl()} terms with separate partitioning by default
 #'   \item Various GLM families and link functions
 #'   \item Correlation structures for longitudinal/clustered data
 #'   \item Shape constraints via quadratic programming
@@ -55,8 +56,14 @@
 #' @param predictors Default: NULL. Numeric matrix or data frame of predictor
 #'   variables, or a formula when using the formula interface.
 #' @param y Default: NULL. Numeric response variable vector.
-#' @param formula Default: NULL. Optional statistical formula for model specification,
-#'   supporting \code{spl()} (and the alias \code{s()}) for spline terms.
+#' @param formula Default: NULL. Optional statistical formula for model
+#'   specification, supporting \code{spl()} and, by default, the GAM-style
+#'   alias \code{s()} for spline terms. Separate calls such as
+#'   \code{s(t1) + s(t2)} or \code{spl(t1) + spl(t2)} fit additive smooths
+#'   with separate partitioning; \code{spl(t1, t2)} fits one joined smooth.
+#'   Formula interactions outside \code{s()}/\code{spl()} are retained as
+#'   parametric terms, including interactions among separately smoothed
+#'   predictors.
 #' @param response Default: NULL. Alternative name for response variable.
 #' @param standardize_response Default: TRUE. Logical indicator controlling whether
 #'   the response variable should be centered and scaled before model fitting. Only
@@ -118,6 +125,17 @@
 #'   \eqn{(K+1) \times q} matrix). Otherwise, default k-means is used.
 #' @param do_not_cluster_on_these Default: \code{c()}. Predictor columns to exclude from
 #'   clustering. Accepts numeric column indices or character column names.
+#' @param spline_groups Default: NULL. Optional list of predictor groups to fit
+#'   as separate additive spline terms. Formula calls such as
+#'   \code{s(t1) + s(t2)} or \code{spl(t1) + spl(t2)} fill this automatically.
+#'   Direct calls may use entries such as \code{list(1, 2)} for two univariate
+#'   terms or
+#'   \code{list(c(1, 2), 3)} for a joined bivariate term plus a separate
+#'   univariate term. Any number of groups may be supplied.
+#' @param use_s_alias Default: TRUE. Logical; treat bare \code{s()} calls in
+#'   formulas as direct aliases for \code{spl()}, so GAM-style formulas such as
+#'   \code{y ~ s(t1) + s(t2)} use the same additive spline path as
+#'   \code{y ~ spl(t1) + spl(t2)}.
 #' @param neighbor_tolerance Default: \code{1 + 1e-8}. Numeric tolerance for determining
 #'   neighboring partitions using k-means clustering. Intended for internal use.
 #'
@@ -214,7 +232,9 @@
 #'   predictors to exclude from all interaction terms.
 #' @param exclude_these_expansions Default: NULL. Character vector of basis expansions to
 #'   exclude. Named columns of data, or in the form \code{"_1_"}, \code{"_2_"},
-#'   \code{"_1_x_2_"}, \code{"_2_^2"} etc.
+#'   \code{"_1_x_2_"}, \code{"_2_^2"} etc. With formula or additive fits,
+#'   exclusions target the generated expansion names after parsing; use
+#'   \code{dummy_fit = TRUE} or a neighboring fit to inspect retained names.
 #' @param custom_basis_fxn Default: NULL. Optional user-defined function for custom basis
 #'   expansions. See \code{\link{get_polynomial_expansions}}.
 #' @param auto_encode_factors Default: TRUE. Logical switch to automatically one-hot encode
@@ -569,7 +589,9 @@
 #'   arguments.
 #' @param glm_args Default: NULL. Optional named list grouping GLM customization
 #'   arguments.
-#' @param ... Additional arguments passed to the unconstrained model fitting function.
+#' @param ... Additional arguments passed to the unconstrained model fitting
+#'   function. For additive spline groups, \code{additive_max_iter} and
+#'   \code{additive_tol} control the outer coordinate-update loop.
 #'
 #' @return A list of class \code{"lgspline"} containing model components:
 #' \describe{
@@ -743,6 +765,15 @@
 #'                  Response = sin(y)+0.1*z)
 #' model_fit <- lgspline(Response ~ spl(Predictor1) + Predictor1*Predictor2,
 #'                       df)
+#'
+#' ## Separate s()/spl() calls are additive smooths with separate partitions
+#' additive_fit <- lgspline(Response ~ s(Predictor1) + s(Predictor2),
+#'                          df,
+#'                          K = 1,
+#'                          opt = FALSE)
+#' inherits(additive_fit, 'additive_lgspline')
+#'
+#' ## Use spl(Predictor1, Predictor2) for one joined bivariate smooth
 #'
 #' ## Notice, while spline effects change over partitions,
 #' # interactions and non-spline effects are constrained to remain the same
@@ -1641,6 +1672,8 @@ lgspline <- function(
     auto_encode_factors = TRUE,
     observation_weights = NULL,
     do_not_cluster_on_these = c(),
+    spline_groups = NULL,
+    use_s_alias = TRUE,
     neighbor_tolerance = 1 + 1e-8,
     null_constraint = NULL,
     critical_value = qnorm(1-0.05/2),
@@ -1818,6 +1851,8 @@ lgspline <- function(
     include_warnings = include_warnings,
     dummy_fit = dummy_fit,
     include_constrain_second_deriv = include_constrain_second_deriv,
+    spline_groups = spline_groups,
+    use_s_alias = use_s_alias,
     ...
   )
 
@@ -1841,6 +1876,10 @@ lgspline <- function(
   custom_knots                     <- processed$custom_knots
   dummy_fit                        <- processed$dummy_fit
   include_constrain_second_deriv   <- processed$include_constrain_second_deriv
+  spline_groups                    <- processed$spline_groups
+  factor_groups                    <- processed$factor_groups
+  additive_spline_interaction_pairs <-
+    processed$additive_spline_interaction_pairs
 
   ## Alternative parameterization of null constraint for ease of use
   if(any(!is.null(null_constraint)) &
@@ -1986,7 +2025,10 @@ lgspline <- function(
                                  Vhalf,
                                  include_warnings,
                                  og_cols,
-                                 NULL, # factor_groups
+                                 factor_groups,
+                                 spline_groups = spline_groups,
+                                 additive_spline_interaction_pairs =
+                                   additive_spline_interaction_pairs,
                                  ...
   )}, silent = TRUE)
 
@@ -2008,6 +2050,15 @@ lgspline <- function(
       as.character(model_fit)
     }
     stop(fit_err_msg)
+  }
+
+  ## Additive spline fits carry their own methods and nested term metadata.
+  #  The wrapper-level coefficient renaming, posterior sampler, and plotting
+  #  closures below assume one global partitioned coefficient geometry.
+  if(inherits(model_fit, "additive_lgspline") &&
+     is.null(VhalfInv_fxn) &&
+     (is.null(correlation_structure) || is.null(correlation_id))){
+    return(model_fit)
   }
 
   ## Return dummy_fit output (replaces expansions_only)
@@ -2935,6 +2986,14 @@ lgspline <- function(
   }
 
   ## If fitting correlation-structure components, do so here:
+  if(inherits(model_fit, "additive_lgspline") && !is.null(REML_grad)){
+    if(include_warnings){
+      warning('\n \t Additive spline groups use finite-difference ',
+              'correlation-parameter optimization because the analytic REML ',
+              'gradient assumes one joined spline geometry.\n')
+    }
+    REML_grad <- NULL
+  }
   if(!is.null(VhalfInv_fxn) & length(VhalfInv_par_init) > 0){
     ## Only use custom BFGS if gradient supplied, otherwise stats::optim
     # has a more robust version for finite-difference approximation
@@ -3094,7 +3153,8 @@ lgspline <- function(
                                          Vhalf,
                                          include_warnings,
                                          og_cols,
-                                         NULL, # factor_groups
+                                         factor_groups,
+                                         spline_groups = spline_groups,
                                          ...)}, silent = TRUE)
           if(any(inherits(model_fit, 'try-error'))){
             return(list(NaN, NaN))
@@ -3323,7 +3383,8 @@ lgspline <- function(
                               Vhalf,
                               include_warnings,
                               og_cols,
-                              NULL, # factor_groups
+                              factor_groups,
+                              spline_groups = spline_groups,
                               ...)
     model_fit$VhalfInv_params_vcov <- VhalfInv_params_vcov
     model_fit$VhalfInv_params_estimates <- VhalfInv_params_estimates
@@ -3331,6 +3392,10 @@ lgspline <- function(
     model_fit$Vhalf_fxn <- Vhalf_fxn
     model_fit$VhalfInv_logdet <- VhalfInv_logdet
     model_fit$REML_grad <- REML_grad
+  }
+
+  if(inherits(model_fit, "additive_lgspline")){
+    return(model_fit)
   }
 
   ## Rename elements of B_raw and B according to actual column names
@@ -4627,6 +4692,8 @@ lgspline <- function(
     auto_encode_factors                = auto_encode_factors,
     observation_weights                = observation_weights,
     do_not_cluster_on_these            = do_not_cluster_on_these,
+    spline_groups                      = spline_groups,
+    use_s_alias                        = use_s_alias,
     neighbor_tolerance                 = neighbor_tolerance,
     no_intercept                       = no_intercept,
     og_cols                            = og_cols
@@ -4654,6 +4721,11 @@ lgspline <- function(
 #'   \item Penalty tuning via exact leave-one-out by default, or generalized
 #'         cross-validation when \code{tuning_criterion = "gcv"}, or use of
 #'         previously tuned penalties.
+#'   \item If \code{spline_groups} contains more than one group, each group is
+#'         fit as an additive spline term with its own partitioning and
+#'         constraints. Each conditional update is an ordinary
+#'         \code{lgspline.fit} Newton/SQP fit with the other terms held fixed
+#'         on the link scale.
 #'   \item Final coefficient estimation via one of three paths:
 #'         \itemize{
 #'           \item \strong{Blockfit option} (when \code{blockfit = TRUE},
@@ -4665,7 +4737,7 @@ lgspline <- function(
 #'                 computational paths: GEE (damped SQP with correlation
 #'                 structures), Gaussian identity (closed-form OLS projection),
 #'                 and general GLM (unconstrained fit + Lagrangian projection
-#'                 with optional IRLS loop).
+#'                 with Newton/Lagrangian projection updates).
 #'         }
 #'   \item Post-fit inference: \eqn{\mathbf{U}}, trace, dispersion,
 #'         variance-covariance matrix, and optionally Lagrange multipliers.
@@ -4840,6 +4912,20 @@ lgspline <- function(
 #' directly should construct this list manually when passing one-hot encoded
 #' predictors without a reference level. Default \code{NULL} (no
 #' sum-to-zero constraints imposed).
+#' @param spline_groups Default: NULL. Optional list of predictor groups to fit
+#'   as separate additive spline terms. For example, \code{list(1, 2)} fits
+#'   two univariate spline terms with separate partitioning, while
+#'   \code{list(c(1, 2), 3)} fits a joined bivariate smooth plus a separate
+#'   univariate smooth. Any number of groups may be supplied. Single-group
+#'   lists use the ordinary joined-spline path.
+#'   In additive fits, pre-built \code{qp_Amat}/\code{qp_bvec}/\code{qp_meq}
+#'   objects must be supplied as per-term lists; custom QP builder functions
+#'   are evaluated separately for each term.
+#' @param additive_spline_interaction_pairs Default: NULL. Optional internal
+#'   list of two-element index vectors marking explicit parametric interactions
+#'   between separate additive spline terms, e.g. the \code{x1:x2} in
+#'   \code{y ~ spl(x1) + spl(x2) + x1:x2}. Normally supplied by
+#'   \code{\link{process_input}} from formulas.
 #'
 #' @keywords internal
 #' @export
@@ -4998,6 +5084,8 @@ lgspline.fit <- function(predictors,
                          include_warnings = TRUE,
                          og_cols = NULL,
                          factor_groups = NULL,
+                         spline_groups = NULL,
+                         additive_spline_interaction_pairs = NULL,
                          ...){
 
   if(verbose){
@@ -5100,6 +5188,14 @@ lgspline.fit <- function(predictors,
                         pred_colnames,
                         "exclude_interactions_for",
                         include_warnings)
+
+  ## Additive spline groups: use the existing single-spline fitter as the
+  #  Newton/SQP coordinate update, with separate partitioning per group.
+  if(.additive_use_groups(spline_groups, q_predictors, pred_colnames)){
+    fit_arg_names <- setdiff(names(formals(lgspline.fit)), "...")
+    fit_args <- mget(fit_arg_names, environment(), inherits = FALSE)
+    return(.fit_lgspline_additive(fit_args, ...))
+  }
 
   ## Return error message if any terms are > q_predictors
   vecdummy <- c(1,
@@ -5562,24 +5658,32 @@ lgspline.fit <- function(predictors,
     }
 
     ## Combine all factor constraints and append to constraint_vectors.
-    #  constraint_values for these new constraints are all 0 (sum = 0).
+    #  These are zero-RHS constraints. Leave constraint_values empty unless
+    #  earlier user constraints already supplied nonzero target vectors.
     if(length(factor_constraint_list) > 0){
       all_factor_constr <- do.call(cbind, factor_constraint_list)
       zero_vals <- matrix(0,
                           nrow = nrow(all_factor_constr),
                           ncol = ncol(all_factor_constr))
+      has_nonzero_constraint_values <-
+        length(constraint_values) > 0 &&
+        any(abs(cbind(constraint_values)) > sqrt(.Machine$double.eps))
 
       if(length(constraint_vectors) > 0 &&
          is.matrix(constraint_vectors) &&
          nrow(constraint_vectors) == nrow(all_factor_constr)){
         ## Existing user constraints present: append columns
         constraint_vectors <- cbind(constraint_vectors, all_factor_constr)
-        constraint_values  <- cbind(constraint_values,  zero_vals)
+        if(has_nonzero_constraint_values){
+          constraint_values  <- cbind(constraint_values,  zero_vals)
+        }
       } else if(length(constraint_vectors) == 0 ||
                 !is.matrix(constraint_vectors)){
         ## No prior constraints: initialize from factor constraints only
         constraint_vectors <- all_factor_constr
-        constraint_values  <- zero_vals
+        if(has_nonzero_constraint_values){
+          constraint_values  <- zero_vals
+        }
       }
       ## If dimensions do not match (unusual), skip silently to avoid error
     }
@@ -5746,7 +5850,6 @@ lgspline.fit <- function(predictors,
         family$dev.resids <- function(y, mu, wt){
           ((y-mu)^2)*wt
         }
-        family$linkfun <- function(mu)mu
       }
 
       ## Do NOT whiten X into per-partition form.
@@ -7296,7 +7399,9 @@ lgspline.fit <- function(predictors,
                       "weights" = observation_weights_og,
                       "VhalfInv" = VhalfInv,
                       "qp_info" = qp_info,
-                      "quadprog_list" = quadprog_list)
+                      "quadprog_list" = quadprog_list,
+                      "blockfit_used" = use_blockfit,
+                      "blockfit_flat_cols" = flat_cols)
 
   if(verbose){
     cat("Optional Components\n")
@@ -7379,20 +7484,20 @@ lgspline.fit <- function(predictors,
       } else {
         1
       }
-      W_glm_tr <- c(glm_weight_function(
-        ytilde[unlist(order_list)], y_og[unlist(order_list)],
-        1:N_obs, family, prelim_disp_tr, rep(1, N_obs), ...))
-      W_glm_tr <- pmax(W_glm_tr, .Machine$double.eps)
-
       ## Observation weights in partition order
       D_tr <- observation_weights_og[unlist(order_list)]
+      gee_work_tr <- .gee_glm_working_components(
+        ytilde[unlist(order_list)], y_og[unlist(order_list)],
+        1:N_obs, family, prelim_disp_tr, D_tr,
+        glm_weight_function, ...)
 
-      ## Apply observation / working weights in the whitened system to
-      #  match the fitting paths used by get_B() and blockfit_solve().
+      ## Apply GLM / observation weights before correlation whitening.
+      #  For non-Gaussian GEE the information is
+      #  (sqrt(W) X)' V^{-1} (sqrt(W) X), not
+      #  X' V^{-1/2}' diag(W) V^{-1/2} X.
       VinvhalfX_tr <- VhalfInv[unlist(order_list),
                                unlist(order_list)] %**%
-        X_full_tr
-      VinvhalfX_tr <- t(t(VinvhalfX_tr) * sqrt(W_glm_tr * D_tr))
+        (X_full_tr * c(gee_work_tr$sqrtW))
 
       has_part_pen_tr <- length(tL$L_partition_list) == (K + 1)
       Lambda_full_tr <- collapse_block_diagonal(
@@ -7618,17 +7723,12 @@ lgspline.fit <- function(predictors,
 
       ## GLM weights W~ at fitted values, without observation
       #  weights (pass rep(1,N)) to avoid double-counting D.
-      W_glm_vc <- c(glm_weight_function(ytilde, y_og, 1:N_obs, family,
-                                        return_list$sigmasq_tilde,
-                                        rep(1, N_obs), ...))
-      W_glm_vc <- pmax(W_glm_vc, .Machine$double.eps)
+      gee_work_vc <- .gee_glm_working_components(
+        ytilde, y_og, 1:N_obs, family, return_list$sigmasq_tilde,
+        observation_weights_og, glm_weight_function, ...)
 
-      ## Combined weight in the whitened system.
-      combined_wt_vc <- sqrt(W_glm_vc * observation_weights_og)
-
-      ## Whitened weighted design: D^{1/2} W~^{1/2} V^{-1/2} X  (N x P)
-      VinvhalfX <- VhalfInv %**% X_full
-      VinvhalfX <- t(t(VinvhalfX) * combined_wt_vc)
+      ## Whitened weighted design: V^{-1/2} D^{1/2} W^{1/2} X.
+      VinvhalfX <- VhalfInv %**% (X_full * c(gee_work_vc$sqrtW))
 
       ## Full penalized GLS Gram in the whitened system + Lambda  (P x P)
       Lambda_full <- collapse_block_diagonal(

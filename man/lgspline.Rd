@@ -131,6 +131,8 @@ lgspline(
   auto_encode_factors = TRUE,
   observation_weights = NULL,
   do_not_cluster_on_these = c(),
+  spline_groups = NULL,
+  use_s_alias = TRUE,
   neighbor_tolerance = 1 + 1e-08,
   null_constraint = NULL,
   critical_value = qnorm(1 - 0.05/2),
@@ -167,8 +169,14 @@ variables, or a formula when using the formula interface.}
 
 \item{y}{Default: NULL. Numeric response variable vector.}
 
-\item{formula}{Default: NULL. Optional statistical formula for model specification,
-supporting \code{spl()} (and the alias \code{s()}) for spline terms.}
+\item{formula}{Default: NULL. Optional statistical formula for model
+specification, supporting \code{spl()} and, by default, the GAM-style
+alias \code{s()} for spline terms. Separate calls such as
+\code{s(t1) + s(t2)} or \code{spl(t1) + spl(t2)} fit additive smooths
+with separate partitioning; \code{spl(t1, t2)} fits one joined smooth.
+Formula interactions outside \code{s()}/\code{spl()} are retained as
+parametric terms, including interactions among separately smoothed
+predictors.}
 
 \item{response}{Default: NULL. Alternative name for response variable.}
 
@@ -324,7 +332,9 @@ predictors to exclude from all interaction terms.}
 
 \item{exclude_these_expansions}{Default: NULL. Character vector of basis expansions to
 exclude. Named columns of data, or in the form \code{"_1_"}, \code{"_2_"},
-\code{"_1_x_2_"}, \code{"_2_^2"} etc.}
+\code{"_1_x_2_"}, \code{"_2_^2"} etc. With formula or additive fits,
+exclusions target the generated expansion names after parsing; use
+\code{dummy_fit = TRUE} or a neighboring fit to inspect retained names.}
 
 \item{custom_basis_fxn}{Default: NULL. Optional user-defined function for custom basis
 expansions. See \code{\link{get_polynomial_expansions}}.}
@@ -581,6 +591,19 @@ weights for generalized least squares estimation.}
 \item{do_not_cluster_on_these}{Default: \code{c()}. Predictor columns to exclude from
 clustering. Accepts numeric column indices or character column names.}
 
+\item{spline_groups}{Default: NULL. Optional list of predictor groups to fit
+as separate additive spline terms. Formula calls such as
+\code{s(t1) + s(t2)} or \code{spl(t1) + spl(t2)} fill this automatically.
+Direct calls may use entries such as \code{list(1, 2)} for two univariate
+terms or
+\code{list(c(1, 2), 3)} for a joined bivariate term plus a separate
+univariate term. Any number of groups may be supplied.}
+
+\item{use_s_alias}{Default: TRUE. Logical; treat bare \code{s()} calls in
+formulas as direct aliases for \code{spl()}, so GAM-style formulas such as
+\code{y ~ s(t1) + s(t2)} use the same additive spline path as
+\code{y ~ spl(t1) + spl(t2)}.}
+
 \item{neighbor_tolerance}{Default: \code{1 + 1e-8}. Numeric tolerance for determining
 neighboring partitions using k-means clustering. Intended for internal use.}
 
@@ -670,7 +693,9 @@ arguments.}
 \item{glm_args}{Default: NULL. Optional named list grouping GLM customization
 arguments.}
 
-\item{...}{Additional arguments passed to the unconstrained model fitting function.}
+\item{...}{Additional arguments passed to the unconstrained model fitting
+function. For additive spline groups, \code{additive_max_iter} and
+\code{additive_tol} control the outer coordinate-update loop.}
 }
 \value{
 A list of class \code{"lgspline"} containing model components:
@@ -817,6 +842,7 @@ interpretable.
 Main features include:
 \itemize{
   \item Multiple predictors and interaction terms
+  \item Additive \code{spl()} terms with separate partitioning by default
   \item Various GLM families and link functions
   \item Correlation structures for longitudinal/clustered data
   \item Shape constraints via quadratic programming
@@ -1047,6 +1073,15 @@ df <- data.frame(Predictor1 = t,
                  Response = sin(y)+0.1*z)
 model_fit <- lgspline(Response ~ spl(Predictor1) + Predictor1*Predictor2,
                       df)
+
+## Separate s()/spl() calls are additive smooths with separate partitions
+additive_fit <- lgspline(Response ~ s(Predictor1) + s(Predictor2),
+                         df,
+                         K = 1,
+                         opt = FALSE)
+inherits(additive_fit, 'additive_lgspline')
+
+## Use spl(Predictor1, Predictor2) for one joined bivariate smooth
 
 ## Notice, while spline effects change over partitions,
 # interactions and non-spline effects are constrained to remain the same

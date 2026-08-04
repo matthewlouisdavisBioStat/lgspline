@@ -2,45 +2,36 @@
 % Please edit documentation in R/leave_one_out.R
 \name{leave_one_out}
 \alias{leave_one_out}
-\title{Compute Leave-One-Out Cross-Validated Predictions for
-Gaussian Response/Identity Link under Constraint}
+\title{Compute Leave-One-Out Cross-Validated Predictions}
 \usage{
 leave_one_out(model_fit, leverage_threshold = 100)
 }
 \arguments{
-\item{model_fit}{A fitted lgspline model object.}
+\item{model_fit}{A fitted \code{lgspline} or \code{additive_lgspline} object.}
 
 \item{leverage_threshold}{Numeric scalar. Observations with
-\eqn{H_{ii} \geq} \code{leverage_threshold} are treated as
-high-leverage for the warning below. Default \code{100}.}
+\eqn{H_{ii} \geq} \code{leverage_threshold} are treated as high leverage.
+Default \code{100}.}
 }
 \value{
-A vector of leave-one-out cross-validated predictions
+A vector of leave-one-out cross-validated predictions.
 }
 \description{
-Computes the leave-one-out cross-validated predictions from a model
-fit, assuming Gaussian-distributed response with identity link.
+Computes leave-one-out cross-validated predictions from a fitted
+\code{lgspline} object. For \code{additive_lgspline} fits, the calculation
+constructs the full appended additive design matrix, combines term penalties
+and active constraints, and computes the hat diagonal from that single dense
+system.
 
-The LOO closed-formula for observation \eqn{i} is \eqn{\hat{y}_{(-i)} = y_i -
-\frac{1}{1 - H_{ii}}(y_i - \hat{y}_i)} where
-\eqn{\mathbf{H}} is the effective hat matrix under
-smoothing constraints, adjusted for weights and correlation structure if
-present.
+The LOO shortcut is \eqn{\hat{y}_{(-i)} = y_i -
+(y_i - \hat{y}_i)/(1 - H_{ii})}, where \eqn{\mathbf{H}} is the effective hat
+matrix adjusted for weights and correlation structure when present.
 
 Observations with leverage at or above \code{leverage_threshold} are flagged
-in a warning, since extreme hat values can make the shortcut numerically
-unreliable. The default \code{leverage_threshold = 100} is intentionally
-permissive, so users who want diagnostic warnings for large \eqn{H_{ii}}
-should set a smaller threshold explicitly.
-
-For related discussion of prediction-sum-of-squares calculations under
-linear restrictions, see Tarpey (2000), who studies the PRESS statistic for
-restricted least squares. That setting is closely related to the
-constraint-adjusted hat-matrix shortcut used here.
+in a warning, since extreme hat values can make the calculation numerically
+unreliable.
 }
 \examples{
-
-## Basic usage with Gaussian response, computing PRESS
 set.seed(1234)
 t <- rnorm(50)
 y <- sin(t) + rnorm(50, 0, .25)
@@ -49,8 +40,8 @@ loo <- leave_one_out(model_fit)
 press <- mean((y - loo)^2, na.rm = TRUE)
 
 plot(loo, y,
-   main = "LOO Cross-Validation Prediction vs. Observed Response",
-   xlab = 'Prediction', ylab = 'Response')
+  main = "LOO Cross-Validation Prediction vs. Observed Response",
+  xlab = "Prediction", ylab = "Response")
 abline(0, 1)
 
 }
