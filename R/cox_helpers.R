@@ -698,6 +698,7 @@ unconstrained_fit_cox <- function(X, y, LambdaHalf, Lambda,
 #'     time ~ spl(age_std),
 #'     data = lung,
 #'     status = event,
+#'     opt = FALSE,
 #'     K = 1
 #'   )
 #'   print(summary(fit))

@@ -60,6 +60,7 @@ if(requireNamespace("survival", quietly = TRUE)) {
     time ~ spl(age_std),
     data = lung,
     status = event,
+    opt = FALSE,
     K = 1
   )
   print(summary(fit))
