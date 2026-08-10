@@ -6,7 +6,7 @@ Additionally, this package allows for fitting survival models, GLMs, MMRMs, and 
 
 I have ensured that asymptotic confidence interval coverage remains at the nominal 95% level for all models contained in this package, including for survival models and models with marginal correlation structures.
 
-I will not be continuing to pursue publication for this idea, due to personal life, work, and difficulty in finding an appropriate journal. For those interested, an unpublished manuscript with reproducible code appears in the "Article" folder, which justifies and explains the proposed method. 
+I will not be continuing to pursue publication for this idea. For those interested, an unpublished manuscript with reproducible code appears in the "Article" folder, which justifies and explains the proposed method. 
 
 # Installation 
 
